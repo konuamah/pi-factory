@@ -3,7 +3,9 @@ import {
   initializeFactoryProject,
   loadEffectiveConfig,
   cancelLatestFactoryRun,
+  createGitWorktree,
   inspectFactoryRun,
+  inspectGitIsolation,
   listFactoryRuns,
   readFactoryRunLogs,
   readLatestFactoryRunLogs,
@@ -13,12 +15,13 @@ import {
   runFactoryDoctor,
   runPrototypeFactoryFlow,
   showFactoryRun,
+  type AgentExecutor,
   type FactoryRunProgressEvent,
 } from "@factory/core";
 import type { FactoryPiAutocompleteItem, FactoryPiCommandContext } from "./types.js";
 
 const FACTORY_WIDGET_ID = "factory-status";
-const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "resume", "cancel"];
+const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "resume", "cancel", "worktree"];
 
 export async function getFactoryCommandCompletions(
   prefix: string,
@@ -75,6 +78,7 @@ export async function handleFactoryCommand(
       "/factory show <run-id> show merged run details",
       "/factory resume  mark the latest interrupted run resumed",
       "/factory cancel  mark the latest run cancelled",
+      "/factory worktree <branch> create or detect isolated workspace",
       "/factory <goal>  run a minimal end-to-end prototype flow",
     ]);
     ctx.ui.notify("Factory command ready", "info");
@@ -107,6 +111,9 @@ export async function handleFactoryCommand(
       return;
     case "cancel":
       await handleCancel(ctx);
+      return;
+    case "worktree":
+      await handleWorktree(rest[0], ctx);
       return;
     default:
       await handlePrototypeGoal(args, ctx);
@@ -401,8 +408,40 @@ async function handleCancel(ctx: FactoryPiCommandContext): Promise<void> {
   ctx.ui.notify(result.cancelled ? "Factory run cancelled" : "No cancellable Factory run", result.cancelled ? "info" : "warning");
 }
 
-async function handlePrototypeGoal(goal: string, ctx: FactoryPiCommandContext): Promise<void> {
-  const trimmedGoal = goal.trim();
+async function handleWorktree(branchName: string | undefined, ctx: FactoryPiCommandContext): Promise<void> {
+  if (!branchName) {
+    renderLines(ctx, [
+      "Factory worktree",
+      "Usage: /factory worktree <branch>",
+    ]);
+    ctx.ui.notify("Provide a branch name", "warning");
+    return;
+  }
+
+  const isolation = await inspectGitIsolation(ctx.cwd);
+  const loaded = await loadEffectiveConfig({ cwd: ctx.cwd });
+  const result = await createGitWorktree({
+    cwd: ctx.cwd,
+    branchName,
+    baseBranch: loaded.effectiveConfig.git.baseBranch,
+    preferredLocation: loaded.effectiveConfig.git.worktreeDir,
+  });
+
+  renderLines(ctx, [
+    "Factory worktree",
+    `mode: ${result.mode}`,
+    `path: ${result.path}`,
+    `branch: ${result.branch ?? branchName}`,
+    `reason: ${result.reason ?? "none"}`,
+    `current isolation: ${isolation.isLinkedWorktree ? "linked worktree" : isolation.isSubmodule ? "submodule checkout" : "standard checkout"}`,
+  ]);
+
+  ctx.ui.notify(result.mode === "created" ? "Factory worktree created" : "Factory worktree inspected", "info");
+}
+
+async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext): Promise<void> {
+  const parsed = parseGoalRequest(rawGoal);
+  const trimmedGoal = parsed.goal.trim();
   if (!trimmedGoal) {
     renderLines(ctx, [
       "Factory",
@@ -416,6 +455,7 @@ async function handlePrototypeGoal(goal: string, ctx: FactoryPiCommandContext): 
       "/factory show <run-id>",
       "/factory resume",
       "/factory cancel",
+      "/factory worktree <branch>",
       "/factory <goal>",
     ]);
     ctx.ui.notify("Provide a Factory goal", "warning");
@@ -433,9 +473,16 @@ async function handlePrototypeGoal(goal: string, ctx: FactoryPiCommandContext): 
     `goal: ${trimmedGoal}`,
   ];
 
+  const executorBundle = await createOptionalExecutorBundle(parsed.executorMode);
+
   const result = await runPrototypeFactoryFlow({
     cwd: ctx.cwd,
     goal: trimmedGoal,
+    branchName: `factory-${trimmedGoal.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "run"}`,
+    plannerExecutor: executorBundle?.plannerExecutor,
+    builderExecutor: executorBundle?.builderExecutor,
+    repairExecutor: executorBundle?.repairExecutor,
+    reviewerExecutor: executorBundle?.reviewerExecutor,
     onProgress: async (event) => {
       updateProgressWidget(ctx, progressLines, event);
     },
@@ -453,8 +500,12 @@ async function handlePrototypeGoal(goal: string, ctx: FactoryPiCommandContext): 
   renderLines(ctx, [
     result.approved ? "Factory prototype run complete" : "Factory prototype run cancelled",
     `goal: ${trimmedGoal}`,
+    `executor mode: ${parsed.executorMode ?? "off"}`,
     `run id: ${result.runId}`,
     `run dir: ${result.runDir}`,
+    `execution cwd: ${result.executionCwd}`,
+    `worktree mode: ${result.worktree?.mode ?? "none"}`,
+    `worktree path: ${result.worktree?.path ?? "none"}`,
     `state path: ${result.statePath}`,
     `events path: ${result.eventsPath}`,
     `plan path: ${result.planPath}`,
@@ -485,4 +536,84 @@ function updateProgressWidget(
     `phase: ${event.phase}`,
     `message: ${event.message}`,
   ]);
+}
+
+function parseGoalRequest(raw: string): {
+  goal: string;
+  executorMode?: "fake" | "sdk";
+} {
+  const parts = raw.trim().split(/\s+/).filter(Boolean);
+  const remaining: string[] = [];
+  let executorMode: "fake" | "sdk" | undefined;
+
+  for (const part of parts) {
+    if (part === "--executor=fake") {
+      executorMode = "fake";
+      continue;
+    }
+    if (part === "--executor=sdk") {
+      executorMode = "sdk";
+      continue;
+    }
+    remaining.push(part);
+  }
+
+  if (!executorMode) {
+    const envMode = process.env.FACTORY_PI_EXECUTOR_MODE;
+    if (envMode === "fake" || envMode === "sdk") {
+      executorMode = envMode;
+    }
+  }
+
+  return {
+    goal: remaining.join(" "),
+    executorMode,
+  };
+}
+
+async function createOptionalExecutorBundle(
+  mode: "fake" | "sdk" | undefined,
+): Promise<
+  | {
+      plannerExecutor: AgentExecutor;
+      builderExecutor: AgentExecutor;
+      repairExecutor: AgentExecutor;
+      reviewerExecutor: AgentExecutor;
+    }
+  | undefined
+> {
+  if (!mode) {
+    return undefined;
+  }
+
+  const executors = (await loadExecutorModule()) as {
+    PiAgentExecutor: new (input: { sessionFactory: unknown }) => AgentExecutor;
+    createFakePiSessionFactory: () => unknown;
+    createPiSdkSessionFactory: (input: { packageName?: string }) => unknown;
+  };
+  const sessionFactory =
+    mode === "sdk"
+      ? executors.createPiSdkSessionFactory({
+          packageName: process.env.FACTORY_PI_SDK_PACKAGE,
+        })
+      : executors.createFakePiSessionFactory();
+
+  return {
+    plannerExecutor: new executors.PiAgentExecutor({ sessionFactory }),
+    builderExecutor: new executors.PiAgentExecutor({ sessionFactory }),
+    repairExecutor: new executors.PiAgentExecutor({ sessionFactory }),
+    reviewerExecutor: new executors.PiAgentExecutor({ sessionFactory }),
+  };
+}
+
+async function loadExecutorModule(): Promise<unknown> {
+  const importer = new Function("specifier", "return import(specifier);") as (
+    specifier: string,
+  ) => Promise<unknown>;
+
+  try {
+    return await importer("@factory/executor-pi");
+  } catch {
+    return importer("../../../executors/pi/dist/index.js");
+  }
 }

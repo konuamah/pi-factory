@@ -1,0 +1,1 @@
+{"version":3,"file":"sdk-factory.d.ts","sourceRoot":"","sources":["sdk-factory.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EACV,gBAAgB,EAIjB,MAAM,YAAY,CAAC;AAEpB,MAAM,WAAW,0BAA0B;IACzC,WAAW,CAAC,EAAE,MAAM,CAAC;CACtB;AAED,wBAAgB,yBAAyB,CACvC,OAAO,GAAE,0BAA+B,GACvC,gBAAgB,CAoClB"}

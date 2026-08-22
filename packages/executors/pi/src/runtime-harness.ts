@@ -19,6 +19,14 @@ export async function runPiRuntimeHarness(): Promise<void> {
       }
     },
   });
+  const builderExecutor = new PiAgentExecutor({
+    sessionFactory,
+    onEvent: (executionId, event) => {
+      if (event.text) {
+        process.stdout.write(`[builder ${executionId}] ${event.text}`);
+      }
+    },
+  });
   const repairExecutor = new PiAgentExecutor({
     sessionFactory,
     onEvent: (executionId, event) => {
@@ -46,6 +54,7 @@ export async function runPiRuntimeHarness(): Promise<void> {
     cwd: process.cwd(),
     goal,
     plannerExecutor,
+    builderExecutor,
     repairExecutor,
     reviewerExecutor,
     requestApproval: async ({ runId, goal: approvalGoal }) => {
@@ -57,6 +66,7 @@ export async function runPiRuntimeHarness(): Promise<void> {
   process.stdout.write(`mode=${useRealSdk ? "real-sdk" : "fake"}\n`);
   process.stdout.write(`runId=${result.runId}\n`);
   process.stdout.write(`plannerExecutionPath=${result.plannerExecutionPath ?? "none"}\n`);
+  process.stdout.write(`builderExecutionPaths=${result.builderExecutionPaths?.join(",") ?? "none"}\n`);
   process.stdout.write(`verificationPath=${result.verificationPath}\n`);
   process.stdout.write(`summaryPath=${result.summaryPath}\n`);
 }

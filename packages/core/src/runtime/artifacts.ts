@@ -5,7 +5,7 @@ export interface PrototypeTaskArtifact {
   id: string;
   title: string;
   stage: string;
-  status: "pending" | "done" | "running";
+  status: "pending" | "done" | "running" | "failed";
   dependsOn: string[];
 }
 
@@ -71,6 +71,18 @@ export interface PrototypeReviewerExecutionArtifact {
   errorMessage?: string;
 }
 
+export interface PrototypeBuilderExecutionArtifact {
+  taskId: string;
+  executionId: string;
+  status: "completed" | "failed" | "cancelled";
+  outputText: string;
+  events: Array<{
+    type: string;
+    data?: Record<string, unknown>;
+  }>;
+  errorMessage?: string;
+}
+
 export interface PrototypeSummaryArtifact {
   runId: string;
   goal: string;
@@ -80,6 +92,7 @@ export interface PrototypeSummaryArtifact {
   planPath: string;
   taskPaths: string[];
   plannerExecutionPath?: string;
+  builderExecutionPaths?: string[];
   repairExecutionPaths?: string[];
   reviewerExecutionPath?: string;
   verificationPath: string;
@@ -144,6 +157,15 @@ export async function writePrototypeReviewerExecutionArtifact(
   artifact: PrototypeReviewerExecutionArtifact,
 ): Promise<string> {
   const filePath = path.join(runDir, "reviewer-execution.json");
+  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
+export async function writePrototypeBuilderExecutionArtifact(
+  runDir: string,
+  artifact: PrototypeBuilderExecutionArtifact,
+): Promise<string> {
+  const filePath = path.join(runDir, `builder-execution-${artifact.taskId}.json`);
   await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
   return filePath;
 }

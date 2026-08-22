@@ -51,6 +51,7 @@ export function mergeConfigLayers(input: {
       baseBranch:
         project?.git?.baseBranch ?? project?.project?.baseBranch ?? "main",
       allowWorktrees: project?.git?.allowWorktrees ?? true,
+      worktreeDir: project?.git?.worktreeDir,
     },
     repair: {
       enabled: project?.repair?.enabled ?? builtIns.repair.enabled,

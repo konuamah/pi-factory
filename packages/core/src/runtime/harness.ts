@@ -5,6 +5,7 @@ export interface RuntimeHarnessResult {
   runId: string;
   summaryPath: string;
   plannerExecutionPath?: string;
+  builderExecutionPaths?: string[];
   verificationPath: string;
 }
 
@@ -12,6 +13,7 @@ export async function runRuntimeHarness(input: {
   cwd: string;
   goal: string;
   plannerExecutor: AgentExecutor;
+  builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
   requestApproval?: (input: { runId: string; goal: string }) => Promise<boolean>;
@@ -20,6 +22,7 @@ export async function runRuntimeHarness(input: {
     cwd: input.cwd,
     goal: input.goal,
     plannerExecutor: input.plannerExecutor,
+    builderExecutor: input.builderExecutor,
     repairExecutor: input.repairExecutor,
     reviewerExecutor: input.reviewerExecutor,
     requestApproval: input.requestApproval ?? (async () => true),
@@ -29,6 +32,7 @@ export async function runRuntimeHarness(input: {
     runId: result.runId,
     summaryPath: result.summaryPath,
     plannerExecutionPath: result.plannerExecutionPath,
+    builderExecutionPaths: result.builderExecutionPaths,
     verificationPath: result.verificationPath,
   };
 }

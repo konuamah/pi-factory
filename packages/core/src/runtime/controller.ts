@@ -1,7 +1,9 @@
 import path from "node:path";
 import { loadEffectiveConfig } from "../config/loader.js";
+import { createGitWorktree, inspectGitIsolation } from "../git/worktree.js";
 import { appendFactoryRunEvent, createFactoryRun, updateFactoryRunState } from "../runs/store.js";
 import {
+  writePrototypeBuilderExecutionArtifact,
   writePrototypePlanArtifact,
   writePrototypePlannerExecutionArtifact,
   writePrototypeRepairExecutionArtifact,
@@ -25,7 +27,9 @@ export interface FactoryRunProgressEvent {
 export interface RunFactoryControllerInput {
   cwd: string;
   goal: string;
+  branchName?: string;
   plannerExecutor?: AgentExecutor;
+  builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
@@ -36,6 +40,14 @@ export interface RunFactoryControllerInput {
 export interface RunFactoryControllerResult {
   runId: string;
   runDir: string;
+  executionCwd: string;
+  worktree?: {
+    mode: "existing" | "created" | "in-place";
+    path: string;
+    branch?: string;
+    reason?: string;
+    location?: string;
+  };
   statePath: string;
   eventsPath: string;
   phases: string[];
@@ -43,6 +55,7 @@ export interface RunFactoryControllerResult {
   planPath: string;
   taskPaths: string[];
   plannerExecutionPath?: string;
+  builderExecutionPaths: string[];
   repairExecutionPaths: string[];
   reviewerExecutionPath?: string;
   verificationPath: string;
@@ -55,6 +68,22 @@ export async function runFactoryController(
   const loaded = await loadEffectiveConfig({ cwd: input.cwd });
   const root = path.dirname(loaded.sources.projectConfigPath ?? path.join(input.cwd, ".factory", "config.yaml"));
   const projectRoot = path.dirname(root);
+  const isolation = await inspectGitIsolation(input.cwd);
+  const worktree = loaded.effectiveConfig.git.allowWorktrees
+    ? await createGitWorktree({
+        cwd: input.cwd,
+        branchName: input.branchName ?? `${slugifyGoal(input.goal)}-${Date.now()}`,
+        baseBranch: loaded.effectiveConfig.git.baseBranch,
+        preferredLocation: loaded.effectiveConfig.git.worktreeDir,
+      })
+    : {
+        mode: "in-place" as const,
+        path: input.cwd,
+        branch: isolation.branch,
+        reason: "Project config disables worktrees",
+      };
+  const executionCwd = worktree.path;
+
   const run = await createFactoryRun({
     runsDir: path.join(projectRoot, ".factory", "runs"),
     initialPhase: "planning",
@@ -63,12 +92,24 @@ export async function runFactoryController(
 
   const phases = ["planning", "implementation", "verification", "review", "approval-ready", "complete"];
   const delayMs = input.delayMs ?? 150;
+  const builderExecutionPaths: string[] = [];
   const repairExecutionPaths: string[] = [];
 
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "run.goal_received",
     data: { goal: input.goal },
+  });
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "run.workspace_selected",
+    data: {
+      mode: worktree.mode,
+      path: worktree.path,
+      branch: worktree.branch,
+      reason: worktree.reason,
+      location: worktree.location,
+    },
   });
 
   await emitProgress(input, {
@@ -84,7 +125,7 @@ export async function runFactoryController(
   if (input.plannerExecutor) {
     const plannerResult = await input.plannerExecutor.execute({
       executionId: `${run.runId}-planner`,
-      cwd: input.cwd,
+      cwd: executionCwd,
       prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig),
       model: loaded.effectiveConfig.models.planner,
       tools: ["read", "grep", "find", "ls"],
@@ -160,7 +201,100 @@ export async function runFactoryController(
       status: "RUNNING",
       message: `Running task ${task.id}: ${task.title}`,
     });
-    await wait(delayMs);
+
+    if (input.builderExecutor) {
+      const builderResult = await input.builderExecutor.execute({
+        executionId: `${run.runId}-builder-${task.id}`,
+        cwd: executionCwd,
+        prompt: buildBuilderPrompt(input.goal, task),
+        model: loaded.effectiveConfig.models.builder,
+        tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+        metadata: {
+          role: "builder",
+          runId: run.runId,
+          taskId: task.id,
+          taskStage: task.stage,
+        },
+      });
+      const builderExecutionPath = await writePrototypeBuilderExecutionArtifact(run.runDir, {
+        taskId: task.id,
+        ...builderResult,
+      });
+      builderExecutionPaths.push(builderExecutionPath);
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "task.executor_completed",
+        data: {
+          taskId: task.id,
+          taskStage: task.stage,
+          builderExecutionPath,
+          builderStatus: builderResult.status,
+        },
+      });
+
+      if (builderResult.status !== "completed") {
+        await updatePrototypeTaskArtifact({
+          runDir: run.runDir,
+          taskId: task.id,
+          patch: { status: "failed" },
+        });
+        await appendFactoryRunEvent(run.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.failed",
+          data: {
+            taskId: task.id,
+            stage: task.stage,
+            title: task.title,
+            builderExecutionPath,
+            builderStatus: builderResult.status,
+          },
+        });
+
+        const failedState = await updateFactoryRunState({
+          statePath: run.statePath,
+          patch: { status: "FAILED", phase: "implementation-failed" },
+        });
+        await appendFactoryRunEvent(run.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "run.failed",
+          data: { reason: `implementation task failed: ${task.id}` },
+        });
+        const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+          runId: run.runId,
+          goal: input.goal,
+          status: "FAILED",
+          phase: failedState.phase,
+          approved: false,
+          planPath,
+          taskPaths,
+          plannerExecutionPath,
+          builderExecutionPaths,
+          repairExecutionPaths,
+          verificationPath: path.join(run.runDir, "verification.json"),
+          verificationStatus: "incomplete",
+        });
+
+        return {
+          runId: run.runId,
+          runDir: run.runDir,
+          executionCwd,
+          worktree,
+          statePath: run.statePath,
+          eventsPath: run.eventsPath,
+          phases,
+          approved: false,
+          planPath,
+          taskPaths,
+          plannerExecutionPath,
+          builderExecutionPaths,
+          repairExecutionPaths,
+          verificationPath: path.join(run.runDir, "verification.json"),
+          summaryPath,
+        };
+      }
+    } else {
+      await wait(delayMs);
+    }
 
     await updatePrototypeTaskArtifact({
       runDir: run.runDir,
@@ -182,7 +316,7 @@ export async function runFactoryController(
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "verification", "Running configured verification commands");
   let verification = await runVerificationCommands({
-    cwd: input.cwd,
+    cwd: executionCwd,
     commands: loaded.effectiveConfig.commands,
   });
   let verificationPath = await writePrototypeVerificationArtifact(run.runDir, verification);
@@ -218,7 +352,7 @@ export async function runFactoryController(
       });
       const repairResult = await input.repairExecutor.execute({
         executionId: `${run.runId}-repair-${attempt}`,
-        cwd: input.cwd,
+        cwd: executionCwd,
         prompt: buildRepairPrompt(input.goal, verification),
         model: loaded.effectiveConfig.models.repair,
         tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
@@ -244,7 +378,7 @@ export async function runFactoryController(
       });
 
       verification = await runVerificationCommands({
-        cwd: input.cwd,
+        cwd: executionCwd,
         commands: loaded.effectiveConfig.commands,
       });
       verificationPath = await writePrototypeVerificationArtifact(run.runDir, verification);
@@ -285,6 +419,7 @@ export async function runFactoryController(
       planPath,
       taskPaths,
       plannerExecutionPath,
+      builderExecutionPaths,
       repairExecutionPaths,
       reviewerExecutionPath,
       verificationPath,
@@ -294,6 +429,8 @@ export async function runFactoryController(
     return {
       runId: run.runId,
       runDir: run.runDir,
+      executionCwd,
+      worktree,
       statePath: run.statePath,
       eventsPath: run.eventsPath,
       phases,
@@ -301,6 +438,7 @@ export async function runFactoryController(
       planPath,
       taskPaths,
       plannerExecutionPath,
+      builderExecutionPaths,
       repairExecutionPaths,
       reviewerExecutionPath,
       verificationPath,
@@ -314,7 +452,7 @@ export async function runFactoryController(
   if (input.reviewerExecutor) {
     const reviewerResult = await input.reviewerExecutor.execute({
       executionId: `${run.runId}-reviewer`,
-      cwd: input.cwd,
+      cwd: executionCwd,
       prompt: buildReviewerPrompt(input.goal, verification),
       model: loaded.effectiveConfig.models.reviewer,
       tools: ["read", "grep", "find", "ls"],
@@ -358,6 +496,7 @@ export async function runFactoryController(
         planPath,
         taskPaths,
         plannerExecutionPath,
+        builderExecutionPaths,
         repairExecutionPaths,
         reviewerExecutionPath,
         verificationPath,
@@ -367,6 +506,8 @@ export async function runFactoryController(
       return {
         runId: run.runId,
         runDir: run.runDir,
+        executionCwd,
+        worktree,
         statePath: run.statePath,
         eventsPath: run.eventsPath,
         phases,
@@ -374,6 +515,7 @@ export async function runFactoryController(
         planPath,
         taskPaths,
         plannerExecutionPath,
+        builderExecutionPaths,
         repairExecutionPaths,
         reviewerExecutionPath,
         verificationPath,
@@ -427,6 +569,7 @@ export async function runFactoryController(
       planPath,
       taskPaths,
       plannerExecutionPath,
+      builderExecutionPaths,
       repairExecutionPaths,
       reviewerExecutionPath,
       verificationPath,
@@ -436,6 +579,8 @@ export async function runFactoryController(
     return {
       runId: run.runId,
       runDir: run.runDir,
+      executionCwd,
+      worktree,
       statePath: run.statePath,
       eventsPath: run.eventsPath,
       phases,
@@ -443,6 +588,7 @@ export async function runFactoryController(
       planPath,
       taskPaths,
       plannerExecutionPath,
+      builderExecutionPaths,
       repairExecutionPaths,
       reviewerExecutionPath,
       verificationPath,
@@ -477,6 +623,7 @@ export async function runFactoryController(
     planPath,
     taskPaths,
     plannerExecutionPath,
+    builderExecutionPaths,
     repairExecutionPaths,
     reviewerExecutionPath,
     verificationPath,
@@ -486,6 +633,8 @@ export async function runFactoryController(
   return {
     runId: run.runId,
     runDir: run.runDir,
+    executionCwd,
+    worktree,
     statePath: run.statePath,
     eventsPath: run.eventsPath,
     phases,
@@ -493,6 +642,7 @@ export async function runFactoryController(
     planPath,
     taskPaths,
     plannerExecutionPath,
+    builderExecutionPaths,
     repairExecutionPaths,
     reviewerExecutionPath,
     verificationPath,
@@ -507,6 +657,20 @@ function buildPlannerPrompt(goal: string, config: { git: { baseBranch: string };
     `Approval policy: ${config.approval.finalMerge}`,
     `Repair attempts: ${config.repair.maxAttempts}`,
     "Produce a concise implementation plan for this repository.",
+  ].join("\n");
+}
+
+function buildBuilderPrompt(
+  goal: string,
+  task: { id: string; title: string; stage: string; dependsOn: string[] },
+): string {
+  return [
+    `Goal: ${goal}`,
+    `Task id: ${task.id}`,
+    `Task stage: ${task.stage}`,
+    `Task title: ${task.title}`,
+    task.dependsOn.length > 0 ? `Depends on: ${task.dependsOn.join(", ")}` : "Depends on: none",
+    "Implement the task in this repository and leave the workspace ready for verification.",
   ].join("\n");
 }
 
@@ -541,6 +705,15 @@ function buildReviewerPrompt(
     commandStatuses ? `Command results:\n${commandStatuses}` : "Command results: none",
     "Review the candidate and report whether it looks ready for approval.",
   ].join("\n");
+}
+
+function slugifyGoal(goal: string): string {
+  const slug = goal
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return slug || "factory-run";
 }
 
 async function movePhase(

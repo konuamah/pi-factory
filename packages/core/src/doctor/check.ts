@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import { discoverFactoryProject } from "../project/discovery.js";
 import { loadEffectiveConfig } from "../config/loader.js";
+import { inspectGitIsolation, resolveWorktreeLocation } from "../git/worktree.js";
 
 export interface FactoryDoctorCheck {
   name: string;
@@ -63,6 +64,29 @@ export async function runFactoryDoctor(cwd: string): Promise<FactoryDoctorResult
       ok: configuredCommands.length > 0,
       detail: configuredCommands.length > 0 ? configuredCommands.join(", ") : "No repository commands configured",
     });
+
+    const isolation = await inspectGitIsolation(cwd);
+    checks.push({
+      name: "git-isolation",
+      ok: true,
+      detail: isolation.isLinkedWorktree
+        ? `Already in linked worktree${isolation.branch ? ` on ${isolation.branch}` : ""}`
+        : isolation.isSubmodule
+          ? "Inside submodule; treat as normal repo checkout"
+          : "Standard checkout (not currently a linked worktree)",
+    });
+
+    if (project.paths.gitRoot && loaded.effectiveConfig.git.allowWorktrees) {
+      const location = await resolveWorktreeLocation(
+        project.paths.gitRoot,
+        loaded.effectiveConfig.git.worktreeDir,
+      );
+      checks.push({
+        name: "worktree-location",
+        ok: true,
+        detail: `${location.relativeDir} (${location.absoluteDir})`,
+      });
+    }
   } catch (error) {
     checks.push({
       name: "config-load",

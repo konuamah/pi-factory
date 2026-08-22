@@ -66,6 +66,7 @@ export interface ProjectFactoryConfig {
   git?: {
     baseBranch?: string;
     allowWorktrees?: boolean;
+    worktreeDir?: string;
   };
   repair?: {
     enabled?: boolean;
@@ -112,6 +113,7 @@ export interface EffectiveFactoryConfig {
   git: {
     baseBranch: string;
     allowWorktrees: boolean;
+    worktreeDir?: string;
   };
   repair: {
     enabled: boolean;

@@ -14,7 +14,8 @@
   },
   "references": [
     { "path": "../../core" },
-    { "path": "../../schemas" }
+    { "path": "../../schemas" },
+    { "path": "../../executors/pi" }
   ],
   "include": ["src/**/*.ts"]
 }

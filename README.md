@@ -38,6 +38,9 @@ Initial scaffold for a Pi-native Factory with project-authoritative configuratio
 - repair loop using executor abstraction
 - repair-aware logs/show output
 - reviewer executor phase before approval
+- git/worktree detection and creation subsystem
+- automatic worktree selection for `/factory <goal>` runs
+- optional executor mode for real `/factory <goal>` runs
 
 ## Precedence
 
@@ -109,6 +112,9 @@ The runtime controller now also supports optional `plannerExecutor` and `repairE
 An end-to-end `harness:pi-runtime` demo now drives the Factory runtime through fake Pi-backed planner/repair executors.
 `/factory logs` and `/factory show <run-id>` now surface repair execution counts/details.
 A reviewer executor phase can now run after verification/repair and before human approval, writing `reviewer-execution.json`.
+A git/worktree subsystem now detects existing linked worktrees, guards submodules, resolves `.worktrees/` vs `worktrees/`, ensures ignore rules, and can create fallback git worktrees via `/factory worktree <branch>`.
+Prototype `/factory <goal>` runs now automatically select a worktree/in-place execution cwd based on project git policy.
+`/factory <goal>` can now opt into executor-backed planner/repair/reviewer phases with `--executor=fake`, `--executor=sdk`, or `FACTORY_PI_EXECUTOR_MODE`.
 Set `FACTORY_PI_USE_REAL_SDK=1` to make that harness try the real Pi SDK session factory instead, with `FACTORY_PI_SDK_PACKAGE` optionally overriding the package name.
 `verification.json` now captures real configured command execution results for lint/typecheck/test/build when present.
 `/factory logs` shows the latest run state, event tail, and artifact paths.

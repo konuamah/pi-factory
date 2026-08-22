@@ -1,46 +1,24 @@
 # pi-factory
 
-Initial scaffold for a Pi-native Factory with project-authoritative configuration.
+Pi-native Factory with project-authoritative configuration, deterministic runtime control, Pi-backed agents, and a fact-first constitution pipeline.
 
-## Current focus
+## Current capabilities
 
-- config schemas
-- config precedence merge
-- project discovery
-- effective config loading
-- project setup scaffolding
-- Pi `/factory` command skeleton
-- doctor and latest-run status inspection
-- minimal run state and event persistence
-- prototype `/factory <goal>` run flow
-- incremental run controller progress updates
-- prototype approval checkpoint
-- plan and verification artifact generation
-- `/factory logs` latest run inspection
-- `/factory resume` latest run recovery marker
-- `/factory cancel` latest run cancellation
-- real verification command execution
-- structured planner artifact generation
-- per-task artifact generation
-- task artifact state transitions during implementation
-- run summary artifact generation
-- summary-aware `/factory status`
-- `/factory status <run-id>` historical inspection
-- `/factory list` run enumeration
-- `/factory logs <run-id>` historical event inspection
-- `/factory show <run-id>` merged run view
-- run-id autocomplete for historical commands
-- PiAgentExecutor skeleton with injectable and optional Pi SDK session factory
-- fake Pi session factory and local executor harness
-- optional AgentExecutor-wired planning path
-- end-to-end fake Pi runtime harness
-- opt-in real Pi SDK runtime harness mode
-- repair loop using executor abstraction
-- repair-aware logs/show output
-- reviewer executor phase before approval
-- git/worktree detection and creation subsystem
-- automatic worktree selection for `/factory <goal>` runs
-- optional executor mode for real `/factory <goal>` runs
+- project-authoritative config loading and precedence merge
+- project discovery and setup scaffolding
+- Pi `/factory` command surface
+- deterministic run state, event, and artifact persistence
+- plan-first runtime flow with human `plan-approval` before implementation
+- final approval gate before merge
+- planner / builder / repair / reviewer executor hooks
+- fake and real Pi SDK executor harnesses
+- worktree-aware execution and per-task isolation
+- verification, repair, review, resume, cancel, cleanup
+- constitution fact scan + AI interpretation pipeline
+- no-change constitution reuse
+- targeted vs full constitution refresh strategy
+- latest run plan inspection via `/factory plan`
+- runtime and constitution regression tests
 
 ## Precedence
 
@@ -60,7 +38,7 @@ The loader accepts JSON or YAML content.
 
 ## Pi adapter
 
-A project-local Pi extension now exists at:
+A project-local Pi extension exists at:
 
 - `.pi/extensions/factory/index.ts`
 
@@ -69,54 +47,86 @@ Current commands:
 - `/factory`
 - `/factory setup`
 - `/factory setup --force`
-- `/factory status`
+- `/factory status [run-id]`
 - `/factory doctor`
-- `/factory logs`
+- `/factory logs [run-id]`
+- `/factory list`
+- `/factory show <run-id>`
+- `/factory plan`
 - `/factory resume`
 - `/factory cancel`
+- `/factory worktree <branch>`
+- `/factory cleanup [retain-count]`
+- `/factory constitution`
 - `/factory <goal>`
 
-## Setup scaffolding
+## Runtime flow
 
-Core now includes an initializer that can create:
+Factory goal runs now follow a plan-first flow:
 
-- `CONSTITUTION.md`
-- `factory.yaml`
-- `.factory/config.yaml`
-- `.factory/runs/`
+```text
+Goal
+→ planning
+→ plan-approval
+→ implementation
+→ integration
+→ verification
+→ review
+→ approval-ready
+→ merge
+→ complete
+```
 
-Setup now also writes an initial run record with:
+Key behavior:
+
+- planner produces a bounded architecture/implementation plan
+- human plan approval happens before implementation starts
+- plan approval supports `approve`, `reject`, or `revise`
+- final approval still happens later before merge
+- verification commands run from project config when present
+- repair/reviewer phases are optional and executor-backed
+- worktrees are used when allowed; otherwise execution falls back safely
+
+## Artifacts
+
+Each run writes deterministic artifacts under `.factory/runs/<run-id>/`, including:
 
 - `state.json`
 - `events.jsonl`
 - `effective-config.json`
+- `plan.json`
+- `tasks/*.json`
+- `verification.json`
+- `summary.json`
+- `planner-execution.json`
+- `builder-execution-*.json`
+- `repair-execution-*.json`
+- `reviewer-execution.json`
+- `integration.json`
+- `final-merge.json`
 
-Prototype goal runs now create a minimal end-to-end run record and phase transitions.
-The Pi widget is updated incrementally as fake phases advance.
-Prototype runs now pause for a human approval decision before completion.
-They also write `plan.json` and `verification.json` artifacts into the run directory.
-`plan.json` is now generated from workflow/config structure instead of a fixed fake task list.
-Per-task JSON artifacts are now written under `.factory/runs/<run-id>/tasks/`.
-Implementation now updates task artifacts from `pending` to `running` to `done` as the prototype advances.
-Each run now also writes `summary.json` with final outcome and key artifact paths.
-`/factory status` now surfaces summary-derived task count, verification result, goal, and approval state.
-`/factory status <run-id>` can inspect a historical run directly.
-`/factory list` enumerates known run ids with status, phase, goal, and updated time.
-`/factory logs <run-id>` can inspect the event tail and artifact paths for a historical run.
-`/factory show <run-id>` presents a compact merged summary of state, summary, plan, and verification.
-Run-id autocomplete is now provided for `status`, `logs`, and `show`.
-A PiAgentExecutor skeleton now exists, with an injected session-factory boundary ready for Pi SDK wiring.
-An optional `createPiSdkSessionFactory()` adapter now loads the Pi SDK dynamically at runtime and wraps `createAgentSession()` when the package is installed.
-A fake session factory and `harness:pi-executor` script now make it easy to validate executor event capture, output accumulation, and failure/cancel semantics locally.
-The runtime controller now also supports optional `plannerExecutor` and `repairExecutor` hooks, writing `planner-execution.json` and `repair-execution-<n>.json` artifacts when supplied.
-An end-to-end `harness:pi-runtime` demo now drives the Factory runtime through fake Pi-backed planner/repair executors.
-`/factory logs` and `/factory show <run-id>` now surface repair execution counts/details.
-A reviewer executor phase can now run after verification/repair and before human approval, writing `reviewer-execution.json`.
-A git/worktree subsystem now detects existing linked worktrees, guards submodules, resolves `.worktrees/` vs `worktrees/`, ensures ignore rules, and can create fallback git worktrees via `/factory worktree <branch>`.
-Prototype `/factory <goal>` runs now automatically select a worktree/in-place execution cwd based on project git policy.
-`/factory <goal>` can now opt into executor-backed planner/repair/reviewer phases with `--executor=fake`, `--executor=sdk`, or `FACTORY_PI_EXECUTOR_MODE`.
-Set `FACTORY_PI_USE_REAL_SDK=1` to make that harness try the real Pi SDK session factory instead, with `FACTORY_PI_SDK_PACKAGE` optionally overriding the package name.
-`verification.json` now captures real configured command execution results for lint/typecheck/test/build when present.
-`/factory logs` shows the latest run state, event tail, and artifact paths.
-`/factory resume` marks the latest interrupted run as resumed and records a resume event.
-`/factory cancel` marks the latest run cancelled and records a cancellation event.
+## Constitution pipeline
+
+Constitution generation now uses a single public pipeline:
+
+```text
+repository facts → AI interpretation → CONSTITUTION.md
+```
+
+Behavior:
+
+- facts are always scanned first
+- finalized constitutions require AI interpretation
+- no-change refresh reuses a prior finalized constitution
+- small non-structural changes use targeted interpretation
+- structural changes use full interpretation
+- failed refresh preserves the last finalized constitution
+- fact output is written to `.factory/constitution/facts.json`
+
+## SDK / harness notes
+
+- fake harness path: `npm run harness:pi-runtime`
+- real SDK harness path: `FACTORY_PI_USE_REAL_SDK=1 npm run harness:pi-runtime`
+- optional SDK package override: `FACTORY_PI_SDK_PACKAGE`
+
+Planner-only real SDK smoke tests are currently healthy; full real-SDK end-to-end runtime validation is still an active area for further tuning.

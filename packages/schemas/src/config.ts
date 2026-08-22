@@ -33,6 +33,13 @@ export interface FactoryBuiltInDefaults {
   approval: {
     finalMerge: "required" | "not-required";
   };
+  git: {
+    cleanup: {
+      retainRuns: number;
+      pruneWorktrees: boolean;
+      pruneBranches: boolean;
+    };
+  };
 }
 
 export interface GlobalFactoryConfig {
@@ -67,6 +74,11 @@ export interface ProjectFactoryConfig {
     baseBranch?: string;
     allowWorktrees?: boolean;
     worktreeDir?: string;
+    cleanup?: {
+      retainRuns?: number;
+      pruneWorktrees?: boolean;
+      pruneBranches?: boolean;
+    };
   };
   repair?: {
     enabled?: boolean;
@@ -114,6 +126,11 @@ export interface EffectiveFactoryConfig {
     baseBranch: string;
     allowWorktrees: boolean;
     worktreeDir?: string;
+    cleanup: {
+      retainRuns: number;
+      pruneWorktrees: boolean;
+      pruneBranches: boolean;
+    };
   };
   repair: {
     enabled: boolean;

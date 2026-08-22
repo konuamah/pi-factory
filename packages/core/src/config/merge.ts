@@ -52,6 +52,11 @@ export function mergeConfigLayers(input: {
         project?.git?.baseBranch ?? project?.project?.baseBranch ?? "main",
       allowWorktrees: project?.git?.allowWorktrees ?? true,
       worktreeDir: project?.git?.worktreeDir,
+      cleanup: {
+        retainRuns: project?.git?.cleanup?.retainRuns ?? builtIns.git.cleanup.retainRuns,
+        pruneWorktrees: project?.git?.cleanup?.pruneWorktrees ?? builtIns.git.cleanup.pruneWorktrees,
+        pruneBranches: project?.git?.cleanup?.pruneBranches ?? builtIns.git.cleanup.pruneBranches,
+      },
     },
     repair: {
       enabled: project?.repair?.enabled ?? builtIns.repair.enabled,

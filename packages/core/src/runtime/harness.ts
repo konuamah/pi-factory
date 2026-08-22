@@ -6,6 +6,9 @@ export interface RuntimeHarnessResult {
   summaryPath: string;
   plannerExecutionPath?: string;
   builderExecutionPaths?: string[];
+  integrationPath?: string;
+  finalMergePath?: string;
+  candidateSha?: string;
   verificationPath: string;
 }
 
@@ -33,6 +36,9 @@ export async function runRuntimeHarness(input: {
     summaryPath: result.summaryPath,
     plannerExecutionPath: result.plannerExecutionPath,
     builderExecutionPaths: result.builderExecutionPaths,
+    integrationPath: result.integrationPath,
+    finalMergePath: result.finalMergePath,
+    candidateSha: result.candidateSha,
     verificationPath: result.verificationPath,
   };
 }

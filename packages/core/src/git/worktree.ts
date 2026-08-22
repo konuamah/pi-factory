@@ -23,6 +23,13 @@ export interface CreateGitWorktreeInput {
   preferredLocation?: string;
 }
 
+export interface CreateSiblingGitWorktreeInput {
+  cwd: string;
+  branchName: string;
+  baseRef?: string;
+  preferredLocation?: string;
+}
+
 export interface CreateGitWorktreeResult {
   mode: "existing" | "created" | "in-place";
   path: string;
@@ -75,6 +82,30 @@ export async function createGitWorktree(input: CreateGitWorktreeInput): Promise<
     };
   }
 
+  return createWorktreeAtGitRoot({
+    cwd: input.cwd,
+    branchName: input.branchName,
+    baseRef: input.baseBranch,
+    preferredLocation: input.preferredLocation,
+  });
+}
+
+export async function createSiblingGitWorktree(input: CreateSiblingGitWorktreeInput): Promise<CreateGitWorktreeResult> {
+  return createWorktreeAtGitRoot({
+    cwd: input.cwd,
+    branchName: input.branchName,
+    baseRef: input.baseRef,
+    preferredLocation: input.preferredLocation,
+  });
+}
+
+async function createWorktreeAtGitRoot(input: {
+  cwd: string;
+  branchName: string;
+  baseRef?: string;
+  preferredLocation?: string;
+}): Promise<CreateGitWorktreeResult> {
+  const isolation = await inspectGitIsolation(input.cwd);
   const gitRoot = isolation.gitRoot;
   if (!gitRoot) {
     return {
@@ -89,8 +120,8 @@ export async function createGitWorktree(input: CreateGitWorktreeInput): Promise<
 
   const targetPath = path.join(location.absoluteDir, input.branchName);
   const args = ["worktree", "add", targetPath, "-b", input.branchName];
-  if (input.baseBranch) {
-    args.push(input.baseBranch);
+  if (input.baseRef) {
+    args.push(input.baseRef);
   }
 
   try {

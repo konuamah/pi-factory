@@ -3,8 +3,10 @@ import {
   initializeFactoryProject,
   loadEffectiveConfig,
   cancelLatestFactoryRun,
+  cleanupFactoryRuns,
   createGitWorktree,
   inspectFactoryRun,
+  runConstitutionScan,
   inspectGitIsolation,
   listFactoryRuns,
   readFactoryRunLogs,
@@ -21,7 +23,7 @@ import {
 import type { FactoryPiAutocompleteItem, FactoryPiCommandContext } from "./types.js";
 
 const FACTORY_WIDGET_ID = "factory-status";
-const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "resume", "cancel", "worktree"];
+const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "resume", "cancel", "worktree", "cleanup", "constitution"];
 
 export async function getFactoryCommandCompletions(
   prefix: string,
@@ -79,6 +81,8 @@ export async function handleFactoryCommand(
       "/factory resume  mark the latest interrupted run resumed",
       "/factory cancel  mark the latest run cancelled",
       "/factory worktree <branch> create or detect isolated workspace",
+      "/factory cleanup [retain-count] prune old runs/worktrees/branches",
+      "/factory constitution [--executor=fake|sdk] scan repository constitution",
       "/factory <goal>  run a minimal end-to-end prototype flow",
     ]);
     ctx.ui.notify("Factory command ready", "info");
@@ -114,6 +118,12 @@ export async function handleFactoryCommand(
       return;
     case "worktree":
       await handleWorktree(rest[0], ctx);
+      return;
+    case "cleanup":
+      await handleCleanup(rest[0], ctx);
+      return;
+    case "constitution":
+      await handleConstitution(rest, ctx);
       return;
     default:
       await handlePrototypeGoal(args, ctx);
@@ -385,9 +395,73 @@ async function handleResume(ctx: FactoryPiCommandContext): Promise<void> {
     `events path: ${result.eventsPath ?? "none"}`,
     `status: ${result.state?.status ?? "none"}`,
     `phase: ${result.state?.phase ?? "none"}`,
+    `suggested phase: ${result.recovery?.suggestedPhase ?? "none"}`,
+    `execution cwd: ${result.recovery?.executionCwd ?? "none"}`,
+    `candidate sha: ${result.recovery?.candidateSha ?? "none"}`,
+    `final merge artifact: ${result.recovery?.finalMergePath ?? "none"}`,
+    ...(result.recovery?.checks.map((check) => `  ${check.ok ? "OK" : "WARN"} ${check.name}: ${check.detail}`) ?? []),
   ]);
 
   ctx.ui.notify(result.resumed ? "Factory run resumed" : "No resumable Factory run", result.resumed ? "info" : "warning");
+}
+
+async function handleConstitution(args: string[], ctx: FactoryPiCommandContext): Promise<void> {
+  const parsed = parseGoalRequest(args.join(" "));
+  const executorBundle = await createOptionalExecutorBundle(parsed.executorMode);
+  const result = await runConstitutionScan({
+    cwd: ctx.cwd,
+    constitutionExecutor: executorBundle?.plannerExecutor,
+  });
+
+  renderLines(ctx, [
+    "Factory constitution",
+    `mode: ${result.mode}`,
+    `refresh mode: ${result.refresh.mode}`,
+    `no change: ${result.refresh.noChange ? "yes" : "no"}`,
+    `root: ${result.root}`,
+    `constitution: ${result.constitutionPath}`,
+    `metadata: ${result.metadataPath}`,
+    `languages: ${result.discovery.languages.join(", ") || "none"}`,
+    `package managers: ${result.discovery.packageManagers.join(", ") || "none"}`,
+    `tracked files: ${result.discovery.trackedFiles.length}`,
+    `changed files: ${result.refresh.changedFiles.length}`,
+    ...result.refresh.changedFiles.slice(0, 10).map((value) => `  change ${value}`),
+    `impacted areas: ${result.refresh.impactedAreaIds.join(", ") || "none"}`,
+    `reused areas: ${result.refresh.reusedAreaIds?.join(", ") || "none"}`,
+    `areas: ${result.areas.length}`,
+    `ai reasoning: ${result.aiReasoning?.status ?? "skipped"}`,
+  ]);
+
+  ctx.ui.notify("Factory constitution updated", "info");
+}
+
+async function handleCleanup(retainArg: string | undefined, ctx: FactoryPiCommandContext): Promise<void> {
+  const retainRuns = retainArg ? Number.parseInt(retainArg, 10) : undefined;
+  const result = await cleanupFactoryRuns({
+    cwd: ctx.cwd,
+    retainRuns: Number.isFinite(retainRuns) ? retainRuns : undefined,
+  });
+
+  renderLines(ctx, [
+    "Factory cleanup",
+    `runs dir: ${result.runsDir}`,
+    `retain runs: ${result.retainRuns}`,
+    `kept runs: ${result.keptRunIds.length}`,
+    ...result.keptRunIds.map((runId) => `  keep ${runId}`),
+    `removed runs: ${result.removedRunIds.length}`,
+    ...result.removedRunIds.map((runId) => `  drop ${runId}`),
+    `removed worktrees: ${result.removedWorktrees.length}`,
+    ...result.removedWorktrees.map((value) => `  wt ${value}`),
+    `removed branches: ${result.removedBranches.length}`,
+    ...result.removedBranches.map((value) => `  br ${value}`),
+    `warnings: ${result.warnings.length}`,
+    ...result.warnings.map((value) => `  warn ${value}`),
+  ]);
+
+  ctx.ui.notify(
+    result.warnings.length > 0 ? "Factory cleanup completed with warnings" : "Factory cleanup completed",
+    result.warnings.length > 0 ? "warning" : "info",
+  );
 }
 
 async function handleCancel(ctx: FactoryPiCommandContext): Promise<void> {
@@ -475,6 +549,25 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
 
   const executorBundle = await createOptionalExecutorBundle(parsed.executorMode);
 
+  renderLines(ctx, [
+    ...progressLines,
+    "phase: constitution-refresh",
+    "message: Refreshing repository constitution",
+  ]);
+
+  const constitutionResult = await runConstitutionScan({
+    cwd: ctx.cwd,
+    constitutionExecutor: executorBundle?.plannerExecutor,
+  });
+
+  renderLines(ctx, [
+    ...progressLines,
+    `constitution mode: ${constitutionResult.mode}`,
+    `constitution refresh: ${constitutionResult.refresh.mode}`,
+    `constitution changed files: ${constitutionResult.refresh.changedFiles.length}`,
+    "phase: planning",
+  ]);
+
   const result = await runPrototypeFactoryFlow({
     cwd: ctx.cwd,
     goal: trimmedGoal,
@@ -501,6 +594,9 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     result.approved ? "Factory prototype run complete" : "Factory prototype run cancelled",
     `goal: ${trimmedGoal}`,
     `executor mode: ${parsed.executorMode ?? "off"}`,
+    `constitution mode: ${constitutionResult.mode}`,
+    `constitution refresh: ${constitutionResult.refresh.mode}`,
+    `constitution changed files: ${constitutionResult.refresh.changedFiles.length}`,
     `run id: ${result.runId}`,
     `run dir: ${result.runDir}`,
     `execution cwd: ${result.executionCwd}`,

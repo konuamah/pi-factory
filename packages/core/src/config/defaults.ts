@@ -24,4 +24,11 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
   approval: {
     finalMerge: "required",
   },
+  git: {
+    cleanup: {
+      retainRuns: 10,
+      pruneWorktrees: true,
+      pruneBranches: true,
+    },
+  },
 };

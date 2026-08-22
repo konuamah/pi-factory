@@ -1,0 +1,43 @@
+{
+  "scannedAt": "2026-08-22T10:14:50.419Z",
+  "mode": "deterministic",
+  "scanSha": "4b731ec11018699f4c193c60c0d201b9af672ff1",
+  "previousScanSha": "4b731ec11018699f4c193c60c0d201b9af672ff1",
+  "refreshMode": "FAST",
+  "changedFiles": [
+    ".factory/constitution/",
+    "CONSTITUTION.md",
+    "NUL",
+    "SKILL.md",
+    "packages/adapters/pi/src/gateway.ts",
+    "packages/core/src/config/defaults.ts",
+    "packages/core/src/config/merge.ts",
+    "packages/core/src/config/validate.ts",
+    "packages/core/src/constitution/",
+    "packages/core/src/git/worktree.ts",
+    "packages/core/src/index.ts",
+    "packages/core/src/runs/cleanup.ts",
+    "packages/core/src/runs/index.ts",
+    "packages/core/src/runs/resume.ts",
+    "packages/core/src/runtime/artifacts.ts",
+    "packages/core/src/runtime/controller.ts",
+    "packages/core/src/runtime/harness.ts",
+    "packages/core/src/runtime/tasks.ts",
+    "packages/core/src/setup/init.ts",
+    "packages/executors/pi/src/runtime-harness.ts",
+    "packages/schemas/src/config.ts"
+  ],
+  "impactedAreaIds": [
+    1,
+    2,
+    3,
+    48,
+    50,
+    51
+  ],
+  "trackedFiles": 91,
+  "aiReasoning": {
+    "enabled": false,
+    "status": "skipped"
+  }
+}

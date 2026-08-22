@@ -17,5 +17,9 @@ export function validateEffectiveConfig(config: EffectiveFactoryConfig): Effecti
     throw new Error("project.baseBranch is required");
   }
 
+  if (config.git.cleanup.retainRuns < 0) {
+    throw new Error("git.cleanup.retainRuns must be >= 0");
+  }
+
   return config;
 }

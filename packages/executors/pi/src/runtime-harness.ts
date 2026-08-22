@@ -67,6 +67,9 @@ export async function runPiRuntimeHarness(): Promise<void> {
   process.stdout.write(`runId=${result.runId}\n`);
   process.stdout.write(`plannerExecutionPath=${result.plannerExecutionPath ?? "none"}\n`);
   process.stdout.write(`builderExecutionPaths=${result.builderExecutionPaths?.join(",") ?? "none"}\n`);
+  process.stdout.write(`integrationPath=${result.integrationPath ?? "none"}\n`);
+  process.stdout.write(`finalMergePath=${result.finalMergePath ?? "none"}\n`);
+  process.stdout.write(`candidateSha=${result.candidateSha ?? "none"}\n`);
   process.stdout.write(`verificationPath=${result.verificationPath}\n`);
   process.stdout.write(`summaryPath=${result.summaryPath}\n`);
 }

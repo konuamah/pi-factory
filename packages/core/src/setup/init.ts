@@ -26,6 +26,7 @@ export async function initializeFactoryProject(
   const skipped: string[] = [];
 
   await fs.mkdir(path.join(root, ".factory", "runs"), { recursive: true });
+  await fs.mkdir(path.join(root, ".factory", "constitution"), { recursive: true });
 
   await ensureFile({
     filePath: path.join(root, "CONSTITUTION.md"),

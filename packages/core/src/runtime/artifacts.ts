@@ -7,6 +7,9 @@ export interface PrototypeTaskArtifact {
   stage: string;
   status: "pending" | "done" | "running" | "failed";
   dependsOn: string[];
+  workspacePath?: string;
+  workspaceMode?: "existing" | "created" | "in-place";
+  workspaceBranch?: string;
 }
 
 export interface PrototypePlanArtifact {
@@ -73,6 +76,8 @@ export interface PrototypeReviewerExecutionArtifact {
 
 export interface PrototypeBuilderExecutionArtifact {
   taskId: string;
+  workspacePath?: string;
+  workspaceBranch?: string;
   executionId: string;
   status: "completed" | "failed" | "cancelled";
   outputText: string;
@@ -83,16 +88,39 @@ export interface PrototypeBuilderExecutionArtifact {
   errorMessage?: string;
 }
 
+export interface PrototypeIntegrationArtifact {
+  executionCwd: string;
+  mergedBranches: Array<{
+    taskId: string;
+    branch?: string;
+    workspacePath: string;
+    status: "merged" | "skipped";
+    reason?: string;
+  }>;
+}
+
+export interface PrototypeFinalMergeArtifact {
+  mergeBaseBranch: string;
+  candidateBranch?: string;
+  candidateSha?: string;
+  mergeCwd: string;
+  status: "merged" | "skipped";
+  reason?: string;
+}
+
 export interface PrototypeSummaryArtifact {
   runId: string;
   goal: string;
   status: "COMPLETED" | "FAILED" | "CANCELLED";
   phase: string;
   approved: boolean;
+  candidateSha?: string;
   planPath: string;
   taskPaths: string[];
   plannerExecutionPath?: string;
   builderExecutionPaths?: string[];
+  integrationPath?: string;
+  finalMergePath?: string;
   repairExecutionPaths?: string[];
   reviewerExecutionPath?: string;
   verificationPath: string;
@@ -166,6 +194,24 @@ export async function writePrototypeBuilderExecutionArtifact(
   artifact: PrototypeBuilderExecutionArtifact,
 ): Promise<string> {
   const filePath = path.join(runDir, `builder-execution-${artifact.taskId}.json`);
+  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
+export async function writePrototypeIntegrationArtifact(
+  runDir: string,
+  artifact: PrototypeIntegrationArtifact,
+): Promise<string> {
+  const filePath = path.join(runDir, "integration.json");
+  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
+export async function writePrototypeFinalMergeArtifact(
+  runDir: string,
+  artifact: PrototypeFinalMergeArtifact,
+): Promise<string> {
+  const filePath = path.join(runDir, "final-merge.json");
   await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
   return filePath;
 }

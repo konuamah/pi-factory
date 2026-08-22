@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/schemas" },
+    { "path": "./packages/core" },
+    { "path": "./packages/adapters/pi" },
+    { "path": "./packages/executors/fake" },
+    { "path": "./packages/executors/pi" }
+  ]
+}

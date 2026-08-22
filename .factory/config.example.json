@@ -1,0 +1,22 @@
+{
+  "project": {
+    "baseBranch": "main"
+  },
+  "commands": {
+    "setup": "pnpm install",
+    "lint": "pnpm lint",
+    "typecheck": "pnpm typecheck",
+    "test": "pnpm test",
+    "build": "pnpm build"
+  },
+  "runtime": {
+    "maxParallelAgents": 4
+  },
+  "repair": {
+    "enabled": true,
+    "maxAttempts": 3
+  },
+  "approval": {
+    "finalMerge": "required"
+  }
+}

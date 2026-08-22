@@ -1,0 +1,9 @@
+{
+  "stages": [
+    { "name": "plan" },
+    { "name": "build", "dependsOn": ["plan"] },
+    { "name": "verify", "dependsOn": ["build"] },
+    { "name": "approval", "dependsOn": ["verify"] },
+    { "name": "merge", "dependsOn": ["approval"] }
+  ]
+}

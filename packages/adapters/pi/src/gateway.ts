@@ -585,6 +585,15 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     onProgress: async (event) => {
       updateProgressWidget(ctx, progressLines, event);
     },
+    requestPlanApproval: async ({ runId, goal, planPath, taskCount, workflowStages }) => {
+      if (!ctx.ui.confirm) {
+        return true;
+      }
+      return ctx.ui.confirm(
+        "Approve Factory plan?",
+        `Approve plan for run ${runId}?\nGoal: ${goal}\nTasks: ${taskCount}\nStages: ${workflowStages.join(' -> ')}\nPlan: ${planPath}`,
+      );
+    },
     requestApproval: async ({ runId, goal }) => {
       if (!ctx.ui.confirm) {
         return true;

@@ -38,6 +38,7 @@ export interface RunFactoryControllerInput {
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
+  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[] }) => Promise<boolean>;
   requestApproval?: (input: { runId: string; goal: string; candidateSha?: string }) => Promise<boolean>;
   delayMs?: number;
 }
@@ -100,7 +101,7 @@ export async function runFactoryController(
     effectiveConfig: loaded.effectiveConfig,
   });
 
-  const phases = ["planning", "implementation", "integration", "verification", "review", "approval-ready", "merge", "complete"];
+  const phases = ["planning", "plan-approval", "implementation", "integration", "verification", "review", "approval-ready", "merge", "complete"];
   const delayMs = input.delayMs ?? 150;
   const builderExecutionPaths: string[] = [];
   let integrationPath: string | undefined;
@@ -193,6 +194,83 @@ export async function runFactoryController(
     },
   });
   await wait(delayMs);
+
+  await movePhase(run.statePath, run.eventsPath, run.runId, input, "plan-approval", "Plan ready for human approval");
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "plan.approval_required",
+    data: {
+      planPath,
+      taskCount: plan.tasks.length,
+      workflowStages: plan.workflowStages.map((stage) => stage.name),
+    },
+  });
+  await emitProgress(input, {
+    runId: run.runId,
+    phase: "plan-approval",
+    status: "RUNNING",
+    message: "Waiting for human plan approval",
+  });
+
+  const planApproved = (await input.requestPlanApproval?.({
+    runId: run.runId,
+    goal: input.goal,
+    planPath,
+    taskCount: plan.tasks.length,
+    workflowStages: plan.workflowStages.map((stage) => stage.name),
+  })) ?? true;
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: planApproved ? "plan.approved" : "plan.rejected",
+    data: { goal: input.goal, planPath },
+  });
+
+  if (!planApproved) {
+    const cancelledState = await updateFactoryRunState({
+      statePath: run.statePath,
+      patch: { status: "CANCELLED", phase: "plan-approval-rejected" },
+    });
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: "plan-approval-rejected",
+      status: "CANCELLED",
+      message: "Run stopped: plan approval rejected",
+    });
+    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+      runId: run.runId,
+      goal: input.goal,
+      status: "CANCELLED",
+      phase: cancelledState.phase,
+      approved: false,
+      planPath,
+      taskPaths,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      verificationPath: path.join(run.runDir, "verification.json"),
+      verificationStatus: "incomplete",
+    });
+
+    return {
+      runId: run.runId,
+      runDir: run.runDir,
+      executionCwd,
+      worktree,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      phases,
+      approved: false,
+      planPath,
+      taskPaths,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      verificationPath: path.join(run.runDir, "verification.json"),
+      summaryPath,
+    };
+  }
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "implementation", "Executing task artifacts");
 
@@ -1156,12 +1234,30 @@ function buildPlannerPrompt(
   constitutionContext?: string,
 ): string {
   return [
-    `Goal: ${goal}`,
+    "Act as a Principal Software Architect.",
+    `I want to build: ${goal}`,
+    "Do not write implementation code.",
+    "Do not inspect or modify files unless absolutely necessary.",
+    "Produce a short architecture plan for this repository and then stop.",
+    "",
     `Base branch: ${config.git.baseBranch}`,
     `Approval policy: ${config.approval.finalMerge}`,
     `Repair attempts: ${config.repair.maxAttempts}`,
     constitutionContext ? `Constitution context:\n${constitutionContext}` : undefined,
-    "Produce a concise implementation plan for this repository.",
+    "",
+    "Return exactly these sections and keep each section concise:",
+    "1. Requirements Breakdown",
+    "2. Technical Stack & Libraries",
+    "3. Architecture & File Structure",
+    "4. Step-by-Step Implementation Plan",
+    "5. Trade-offs & Edge Cases",
+    "",
+    "Constraints:",
+    "- Maximum 20 bullet points total across the whole response.",
+    "- Maximum 6 implementation steps.",
+    "- Reference likely files/modules only when strongly justified by repository evidence.",
+    "- Do not repeat the prompt or constitution context.",
+    "- End with exactly: WAITING_FOR_APPROVAL",
   ].filter(Boolean).join("\n");
 }
 

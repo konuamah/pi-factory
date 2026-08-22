@@ -27,7 +27,7 @@ export function createPiSdkSessionFactory(
         createOptions.tools = input.tools;
       }
 
-      if (input.model) {
+      if (input.model && sdk.ModelRuntime?.create) {
         const modelRuntime = await sdk.ModelRuntime.create();
         createOptions.modelRuntime = modelRuntime;
 
@@ -137,7 +137,7 @@ interface PiSdkModule {
   SessionManager: {
     inMemory(cwd?: string): unknown;
   };
-  ModelRuntime: {
+  ModelRuntime?: {
     create(): Promise<{
       getModel?: (provider: string, model: string) => unknown;
     }>;

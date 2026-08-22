@@ -66,9 +66,15 @@ export interface ConstitutionDiscovery {
   commands: Record<string, string>;
 }
 
+export type ConstitutionRefreshStrategy =
+  | "reuse-finalized"
+  | "targeted-interpretation"
+  | "full-interpretation";
+
 export interface ConstitutionScanResult {
   root: string;
   mode: "single-pipeline";
+  refreshStrategy: ConstitutionRefreshStrategy;
   refresh: {
     mode: "FAST" | "FULL";
     noChange: boolean;

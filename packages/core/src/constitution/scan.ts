@@ -3,7 +3,7 @@ import path from "node:path";
 import type { AgentExecutor } from "../runtime/interfaces.js";
 import { CONSTITUTION_AREA_DEFINITIONS } from "./areas.js";
 import { discoverConstitutionRepository } from "./discovery.js";
-import { detectConstitutionRefreshState } from "./refresh.js";
+import { detectConstitutionRefreshState, hasStructuralConstitutionChanges } from "./refresh.js";
 import { renderConstitutionMarkdown } from "./render.js";
 import type { ConstitutionArea, ConstitutionScanResult } from "./types.js";
 import { evaluateFoundationAreas } from "./evaluators/foundation.js";
@@ -53,6 +53,7 @@ export async function runConstitutionScan(input: {
     return {
       root: discovery.root,
       mode: "single-pipeline",
+      refreshStrategy: "reuse-finalized",
       discovery: previousFacts.discovery ?? discovery,
       refresh: {
         ...refresh,
@@ -71,6 +72,8 @@ export async function runConstitutionScan(input: {
     };
   }
 
+  const refreshStrategy = determineRefreshStrategy(refresh, previousMetadata?.finalized === true);
+
   const previousAreas = await readExistingConstitutionAreas(constitutionPath);
   const evaluatedAreas = await buildDeterministicAreas(discovery, refresh.impactedAreaIds, refresh.noChange);
   const areas = mergeAreasWithRefresh(previousAreas, evaluatedAreas, refresh.impactedAreaIds, refresh.noChange);
@@ -81,7 +84,13 @@ export async function runConstitutionScan(input: {
     const result = await input.constitutionExecutor.execute({
       executionId: `constitution-${Date.now()}`,
       cwd: discovery.root,
-      prompt: buildReasonerPrompt(discovery, areas, refresh.impactedAreaIds),
+      prompt: buildReasonerPrompt({
+        discovery,
+        areas,
+        impactedAreaIds: refresh.impactedAreaIds,
+        changedFiles: refresh.changedFiles,
+        strategy: refreshStrategy,
+      }),
       tools: ["read", "grep", "find", "ls"],
       metadata: { role: "constitution-reasoner" },
     });
@@ -115,6 +124,7 @@ export async function runConstitutionScan(input: {
         scannedAt: new Date().toISOString(),
         root: discovery.root,
         mode: "single-pipeline",
+        refreshStrategy,
         refresh,
         summary,
         discovery,
@@ -142,6 +152,7 @@ export async function runConstitutionScan(input: {
       {
         scannedAt: new Date().toISOString(),
         mode: "single-pipeline",
+        refreshStrategy,
         scanSha: refresh.currentScanSha,
         previousScanSha: refresh.previousScanSha,
         refreshMode: refresh.mode,
@@ -163,6 +174,7 @@ export async function runConstitutionScan(input: {
   return {
     root: discovery.root,
     mode: "single-pipeline",
+    refreshStrategy,
     discovery,
     refresh: {
       ...refresh,
@@ -227,6 +239,24 @@ async function buildDeterministicAreas(
       hasRelevantEvidence ? "LOW" : undefined,
     );
   });
+}
+
+function determineRefreshStrategy(
+  refresh: ConstitutionScanResult["refresh"],
+  hasFinalizedConstitution: boolean,
+): ConstitutionScanResult["refreshStrategy"] {
+  if (refresh.noChange && hasFinalizedConstitution) {
+    return "reuse-finalized";
+  }
+  if (
+    hasFinalizedConstitution &&
+    refresh.impactedAreaIds.length > 0 &&
+    refresh.impactedAreaIds.length <= 12 &&
+    !hasStructuralConstitutionChanges(refresh.changedFiles)
+  ) {
+    return "targeted-interpretation";
+  }
+  return "full-interpretation";
 }
 
 function buildSummary(
@@ -549,27 +579,38 @@ function looksGeneric(text: string): boolean {
   ].some((phrase) => normalized.includes(phrase));
 }
 
-function buildReasonerPrompt(
-  discovery: ConstitutionScanResult["discovery"],
-  areas: ConstitutionArea[],
-  impactedAreaIds: number[],
-): string {
+function buildReasonerPrompt(input: {
+  discovery: ConstitutionScanResult["discovery"];
+  areas: ConstitutionArea[];
+  impactedAreaIds: number[];
+  changedFiles: string[];
+  strategy: ConstitutionScanResult["refreshStrategy"];
+}): string {
+  const focusAreas = input.strategy === "targeted-interpretation"
+    ? input.areas.filter((area) => input.impactedAreaIds.includes(area.id))
+    : input.areas;
+
   return [
     "You are a constitution reasoner.",
     "Use only the provided repository evidence.",
-    `Root: ${discovery.root}`,
-    `Languages: ${discovery.languages.join(", ") || "none"}`,
-    `Package managers: ${discovery.packageManagers.join(", ") || "none"}`,
-    `Instructions: ${discovery.instructionFiles.slice(0, 20).join(", ") || "none"}`,
-    `Manifests: ${discovery.manifests.join(", ") || "none"}`,
-    `Tests: ${discovery.testFiles.slice(0, 20).join(", ") || "none"}`,
-    `CI: ${discovery.ciFiles.join(", ") || "none"}`,
-    "Summarize actual repository architecture and conventions briefly. Mention ambiguity explicitly.",
-    `Impacted areas: ${impactedAreaIds.join(", ") || "none"}`,
-    `Seed findings: ${areas.map((area) => `${area.id}:${area.title}=${area.status}`).join("; ")}`,
+    "Do not invent evidence paths or repository rules.",
+    `Refresh strategy: ${input.strategy}`,
+    `Root: ${input.discovery.root}`,
+    `Languages: ${input.discovery.languages.join(", ") || "none"}`,
+    `Package managers: ${input.discovery.packageManagers.join(", ") || "none"}`,
+    `Instructions: ${input.discovery.instructionFiles.slice(0, 20).join(", ") || "none"}`,
+    `Manifests: ${input.discovery.manifests.join(", ") || "none"}`,
+    `Tests: ${input.discovery.testFiles.slice(0, 20).join(", ") || "none"}`,
+    `CI: ${input.discovery.ciFiles.join(", ") || "none"}`,
+    `Changed files: ${input.changedFiles.slice(0, 40).join(", ") || "none"}`,
+    `Impacted areas: ${input.impactedAreaIds.join(", ") || "none"}`,
+    input.strategy === "targeted-interpretation"
+      ? "Interpret only the impacted areas and their immediate architectural implications. Keep output concise."
+      : "Summarize actual repository architecture and conventions briefly. Mention ambiguity explicitly.",
+    `Seed findings: ${focusAreas.map((area) => `${area.id}:${area.title}=${area.status} :: ${area.finding}`).join("; ")}`,
     "After your notes, optionally emit JSON between AI_AREA_PROPOSALS_START and AI_AREA_PROPOSALS_END.",
     "JSON format: [{ id, status, confidence?, finding, driftWarnings? }].",
-    "Only propose updates for impacted or uncertain areas. Do not invent evidence paths.",
+    "For targeted interpretation, only propose updates for impacted areas. For full interpretation, still avoid changing unrelated areas unless clearly warranted.",
   ].join("\n");
 }
 

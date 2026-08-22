@@ -14,6 +14,12 @@ export interface ConstitutionRefreshState {
   noChange: boolean;
 }
 
+export function hasStructuralConstitutionChanges(files: string[]): boolean {
+  return files.some((file) =>
+    /(^|\/)(package\.json|pnpm-workspace\.yaml|turbo\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|tsconfig(\.[^/]+)?\.json|factory\.ya?ml|config\.ya?ml|SKILL\.md|AGENTS\.md|CLAUDE\.md)$/i.test(file),
+  );
+}
+
 export async function detectConstitutionRefreshState(root: string): Promise<ConstitutionRefreshState> {
   const metadataPath = path.join(root, ".factory", "constitution", "metadata.json");
   const previous = await readJson<Record<string, unknown>>(metadataPath);

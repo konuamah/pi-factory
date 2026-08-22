@@ -129,4 +129,4 @@ Behavior:
 - real SDK harness path: `FACTORY_PI_USE_REAL_SDK=1 npm run harness:pi-runtime`
 - optional SDK package override: `FACTORY_PI_SDK_PACKAGE`
 
-Planner-only real SDK smoke tests are currently healthy; full real-SDK end-to-end runtime validation is still an active area for further tuning.
+Planner-only and full end-to-end real SDK validation are now both healthy. Further work there is optional performance tuning rather than basic runtime validation.

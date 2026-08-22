@@ -43,6 +43,39 @@ test('constitution scan emits 120 areas for a minimal repo', async () => {
   );
 });
 
+test('no-change finalized constitution is reused without requiring an executor', async () => {
+  await withTempProject(
+    {
+      'package.json': JSON.stringify({ name: 'tmp', type: 'module', scripts: { build: 'tsc -b' } }, null, 2),
+      'src/index.ts': 'export const hello = "world";\n',
+      'README.md': '# temp\n',
+    },
+    async (root) => {
+      const executor = {
+        async execute() {
+          return {
+            executionId: 'test',
+            status: 'completed',
+            outputText: 'AI_AREA_PROPOSALS_START\n[]\nAI_AREA_PROPOSALS_END\n',
+            events: [],
+          };
+        },
+        async cancel() {},
+      };
+
+      const first = await runConstitutionScan({ cwd: root, constitutionExecutor: executor });
+      assert.equal(first.finalized, true);
+      assert.equal(first.interpreter.status, 'completed');
+
+      const second = await runConstitutionScan({ cwd: root });
+      assert.equal(second.finalized, true);
+      assert.equal(second.interpreter.status, 'completed');
+      assert.equal(second.refresh.noChange, true);
+      assert.equal(second.refresh.reusedAreaIds.length, 120);
+    },
+  );
+});
+
 test('architecture evaluator detects package/module boundaries', async () => {
   await withTempProject(
     {

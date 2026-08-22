@@ -31,12 +31,50 @@ export async function runConstitutionScan(input: {
   const constitutionDir = path.join(discovery.root, ".factory", "constitution");
   const constitutionPath = path.join(discovery.root, "CONSTITUTION.md");
   const factsPath = path.join(constitutionDir, "facts.json");
+  const metadataPath = path.join(constitutionDir, "metadata.json");
+  await fs.mkdir(constitutionDir, { recursive: true });
+
+  const previousMetadata = await readJson<{
+    finalized?: boolean;
+    interpreter?: ConstitutionScanResult["interpreter"];
+  }>(metadataPath);
+  const previousFacts = await readJson<{
+    discovery?: ConstitutionScanResult["discovery"];
+    summary?: string[];
+    areas?: ConstitutionArea[];
+  }>(factsPath);
+
+  if (
+    refresh.noChange &&
+    previousMetadata?.finalized === true &&
+    Array.isArray(previousFacts?.areas) &&
+    previousFacts.areas.length > 0
+  ) {
+    return {
+      root: discovery.root,
+      mode: "single-pipeline",
+      discovery: previousFacts.discovery ?? discovery,
+      refresh: {
+        ...refresh,
+        reusedAreaIds: previousFacts.areas.map((area) => area.id),
+      },
+      areas: previousFacts.areas,
+      summary: previousFacts.summary ?? buildSummary(discovery, previousFacts.areas, refresh),
+      interpreter: previousMetadata.interpreter ?? {
+        required: true,
+        status: "completed",
+      },
+      constitutionPath,
+      metadataPath,
+      factsPath,
+      finalized: true,
+    };
+  }
+
   const previousAreas = await readExistingConstitutionAreas(constitutionPath);
   const evaluatedAreas = await buildDeterministicAreas(discovery, refresh.impactedAreaIds, refresh.noChange);
   const areas = mergeAreasWithRefresh(previousAreas, evaluatedAreas, refresh.impactedAreaIds, refresh.noChange);
   const summary = buildSummary(discovery, areas, refresh);
-  const metadataPath = path.join(constitutionDir, "metadata.json");
-  await fs.mkdir(constitutionDir, { recursive: true });
 
   let interpreter: ConstitutionScanResult["interpreter"];
   if (input.constitutionExecutor) {
@@ -251,6 +289,18 @@ function mergeAreasWithRefresh(
       driftWarnings: driftWarnings.length > 0 ? driftWarnings : undefined,
     };
   });
+}
+
+async function readJson<T>(filePath: string): Promise<T | undefined> {
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    return JSON.parse(raw) as T;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function readExistingConstitutionAreas(filePath: string): Promise<ConstitutionArea[]> {

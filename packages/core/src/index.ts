@@ -5,4 +5,6 @@ export * from "./config/paths.js";
 export * from "./config/validate.js";
 export * from "./project/discovery.js";
 export * from "./runtime/index.js";
+export * from "./runs/index.js";
+export * from "./doctor/index.js";
 export * from "./setup/index.js";

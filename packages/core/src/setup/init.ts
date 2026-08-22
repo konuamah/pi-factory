@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { discoverFactoryProject } from "../project/discovery.js";
+import { createFactoryRun, appendFactoryRunEvent, updateFactoryRunState } from "../runs/store.js";
+import { loadEffectiveConfig } from "../config/loader.js";
 
 export interface InitializeFactoryProjectOptions {
   cwd: string;
@@ -11,6 +13,8 @@ export interface InitializeFactoryProjectResult {
   root: string;
   created: string[];
   skipped: string[];
+  runId: string;
+  runDir: string;
 }
 
 export async function initializeFactoryProject(
@@ -47,7 +51,39 @@ export async function initializeFactoryProject(
     skipped,
   });
 
-  return { root, created, skipped };
+  const loaded = await loadEffectiveConfig({ cwd: root });
+  const run = await createFactoryRun({
+    runsDir: path.join(root, ".factory", "runs"),
+    initialPhase: "setup",
+    effectiveConfig: loaded.effectiveConfig,
+  });
+
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "setup.files_prepared",
+    data: {
+      created,
+      skipped,
+    },
+  });
+
+  await updateFactoryRunState({
+    statePath: run.statePath,
+    patch: {
+      status: "COMPLETED",
+      phase: "setup-complete",
+    },
+  });
+
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "setup.completed",
+    data: {
+      runId: run.runId,
+    },
+  });
+
+  return { root, created, skipped, runId: run.runId, runDir: run.runDir };
 }
 
 async function ensureFile(input: {

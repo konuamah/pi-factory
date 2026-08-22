@@ -62,6 +62,9 @@ function wrapPiSdkSession(session: PiSdkAgentSession): PiSessionLike {
     abort() {
       return session.abort();
     },
+    dispose() {
+      return session.dispose();
+    },
   };
 }
 
@@ -126,6 +129,7 @@ interface PiSdkAgentSession {
   prompt(text: string): Promise<void>;
   subscribe(listener: (event: Record<string, unknown>) => void): () => void;
   abort(): Promise<void>;
+  dispose(): Promise<void> | void;
 }
 
 interface PiSdkModule {

@@ -30,6 +30,7 @@ export async function runConstitutionScan(input: {
   const refresh = await detectConstitutionRefreshState(discovery.root);
   const constitutionDir = path.join(discovery.root, ".factory", "constitution");
   const constitutionPath = path.join(discovery.root, "CONSTITUTION.md");
+  const factsPath = path.join(constitutionDir, "facts.json");
   const previousAreas = await readExistingConstitutionAreas(constitutionPath);
   const evaluatedAreas = await buildDeterministicAreas(discovery, refresh.impactedAreaIds, refresh.noChange);
   const areas = mergeAreasWithRefresh(previousAreas, evaluatedAreas, refresh.impactedAreaIds, refresh.noChange);
@@ -37,7 +38,7 @@ export async function runConstitutionScan(input: {
   const metadataPath = path.join(constitutionDir, "metadata.json");
   await fs.mkdir(constitutionDir, { recursive: true });
 
-  let aiReasoning: ConstitutionScanResult["aiReasoning"];
+  let interpreter: ConstitutionScanResult["interpreter"];
   if (input.constitutionExecutor) {
     const result = await input.constitutionExecutor.execute({
       executionId: `constitution-${Date.now()}`,
@@ -47,46 +48,72 @@ export async function runConstitutionScan(input: {
       metadata: { role: "constitution-reasoner" },
     });
     const proposedAreas = parseAiAreaProposals(result.outputText, areas, refresh.impactedAreaIds);
-    aiReasoning = {
-      enabled: true,
+    interpreter = {
+      required: true,
       status: result.status === "completed" ? "completed" : "failed",
       outputText: stripAiAreaJson(result.outputText),
       errorMessage: result.errorMessage,
       proposedAreas,
     };
   } else {
-    aiReasoning = {
-      enabled: false,
-      status: "skipped",
+    interpreter = {
+      required: true,
+      status: "unavailable",
+      errorMessage: "No constitution interpreter executor was available.",
     };
   }
 
-  const aiMergedAreas = aiReasoning?.proposedAreas && aiReasoning.proposedAreas.length > 0
-    ? mergeAiAreas(areas, aiReasoning.proposedAreas, refresh.impactedAreaIds)
+  const interpretedAreas = interpreter.proposedAreas && interpreter.proposedAreas.length > 0
+    ? mergeAiAreas(areas, interpreter.proposedAreas, refresh.impactedAreaIds)
     : areas;
-  const critiquedAreas = critiqueAreas(aiMergedAreas);
+  const critiquedAreas = critiqueAreas(interpretedAreas);
   const finalAreas = detectAreaContradictions(critiquedAreas);
+  const finalized = interpreter.status === "completed";
 
-  const markdown = renderConstitutionMarkdown({
-    discovery,
-    areas: finalAreas,
-    summary,
-    aiOutputText: aiReasoning.outputText,
-  });
-  await fs.writeFile(constitutionPath, markdown, "utf8");
+  await fs.writeFile(
+    factsPath,
+    JSON.stringify(
+      {
+        scannedAt: new Date().toISOString(),
+        root: discovery.root,
+        mode: "single-pipeline",
+        refresh,
+        summary,
+        discovery,
+        areas: finalAreas,
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+
+  if (finalized) {
+    const markdown = renderConstitutionMarkdown({
+      discovery,
+      areas: finalAreas,
+      summary,
+      interpreterOutputText: interpreter.outputText,
+    });
+    await fs.writeFile(constitutionPath, markdown, "utf8");
+  }
+
   await fs.writeFile(
     metadataPath,
     JSON.stringify(
       {
         scannedAt: new Date().toISOString(),
-        mode: aiReasoning.enabled ? "hybrid" : "deterministic",
+        mode: "single-pipeline",
         scanSha: refresh.currentScanSha,
         previousScanSha: refresh.previousScanSha,
         refreshMode: refresh.mode,
         changedFiles: refresh.changedFiles,
         impactedAreaIds: refresh.impactedAreaIds,
         trackedFiles: discovery.trackedFiles.length,
-        aiReasoning,
+        interpreter,
+        finalized,
+        factsPath,
+        constitutionPath,
         criticWarnings: finalAreas.reduce((count, area) => count + (area.criticWarnings?.length ?? 0), 0),
       },
       null,
@@ -97,7 +124,7 @@ export async function runConstitutionScan(input: {
 
   return {
     root: discovery.root,
-    mode: aiReasoning.enabled ? "hybrid" : "deterministic",
+    mode: "single-pipeline",
     discovery,
     refresh: {
       ...refresh,
@@ -107,9 +134,11 @@ export async function runConstitutionScan(input: {
     },
     areas: finalAreas,
     summary,
-    aiReasoning,
+    interpreter,
     constitutionPath,
     metadataPath,
+    factsPath,
+    finalized,
   };
 }
 

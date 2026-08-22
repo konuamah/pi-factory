@@ -8,21 +8,41 @@
 - Docs roots: README.md
 - API files: 0
 - Data files: 0
-- Tests: 0
+- Tests: 1
 - CI: not detected
 - Deterministic areas evaluated: 120
 - Refresh mode: FAST
-- Changed files: 9
-- Impacted areas: 1, 2, 3
+- Changed files: 19
+- Impacted areas: 1, 2, 3, 4, 9, 10, 11, 20, 73, 81, 83, 85
 - Reused areas: none
 - Critic warnings: 0
+
+## Interpretation
+Brief repository-constitution summary from repo evidence:
+
+- **Layout / architecture:** This is a small **npm workspace monorepo** rooted at `package.json`, with TypeScript project references in `tsconfig.json` pointing at `packages/schemas`, `packages/core`, `packages/adapters/pi`, `packages/executors/fake`, and `packages/executors/pi`.
+- **Package roles:**  
+  - `packages/schemas/src` holds shared schema/types.  
+  - `packages/core/src` is the main domain package: config loading/merge/validation, constitution scanning, doctor, git/worktree support, setup, runs, and runtime control.  
+  - `packages/adapters/pi/src` contains the Pi adapter/extension-facing layer.  
+  - `packages/executors/fake/src` and `packages/executors/pi/src` provide executor implementations/harnesses.
+- **Source organization:** Each package follows `src/**/*.ts` with `rootDir: "src"` and `outDir: "dist"` in package `tsconfig.json` files. Root build/typecheck uses `tsc -b`, so static analysis is TypeScript composite-project based.
+- **Testing:** Tests live under `tests/`; naming is `*.test.mjs` at least at root (`tests/constitution.test.mjs`). The actual framework is **Node’s built-in test runner** (`node:test`), invoked via root script: `npm test` = `npm run build && node --test tests/**/*.test.mjs`. Tests import compiled output from `packages/core/dist/...`, so build-before-test is part of convention.
+- **Package/tooling conventions:** Package manager is clearly **npm** (`package-lock.json`, root scripts). Manifest conventions are standard per-package `package.json` plus per-package `tsconfig.json`.
+- **Module/dependency conventions:** Packages are ESM (`"type": "module"` everywhere). Internal package dependencies are explicit and directional: `core` depends on `schemas`; executors depend on `core`/`schemas`; Pi adapter depends on `core`, `schemas`, and Pi executor.
+- **Bootstrap/build:** Evidence shows local development is centered on `npm install`, `npm run build`, `npm run typecheck`, `npm test`, plus harness scripts `harness:pi-executor` and `harness:pi-runtime`.
+
+**Ambiguity explicitly noted:**
+- `README.md` describes project focus and runtime/setup behavior, but does **not** give a full step-by-step developer bootstrap guide.
+- No lint or format tool/config is present in the provided manifests/files, so **linting conventions are not defined** by evidence.
+- `packages/executors/pi/src` contains checked-in `.js`/`.d.ts` alongside `.ts`, which makes generated-file handling somewhat ambiguous from the available evidence.
 
 ## Project Snapshot
 - Root: D:/projects/pi-factory
 - Languages: JavaScript, TypeScript
 - Package managers: npm
-- Tracked files: 103
-- Test files: 0
+- Tracked files: 120
+- Test files: 1
 - CI files: 0
 - Docs files: 1
 - Script/tool files: 0
@@ -36,19 +56,19 @@
 - NOT_APPLICABLE
 - UNCERTAIN
 
-# Full Repository Constitution
+# Observable Facts
 
 ## 1. Repository layout
 - Status: DEFINED
-- Finding: Tracked repository with 103 files and source roots in packages. Refresh impact routing marked this area as affected by recent file changes.
+- Finding: Tracked repository with 120 files and source roots in packages.
+- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: packages — source root
-- Claim: [observed] Tracked repository with 103 files and source roots in packages. Refresh impact routing marked this area as affected by recent file changes.
+- Claim: [observed] Tracked repository with 120 files and source roots in packages.
   - Claim evidence: packages — source root
 
 ## 2. Monorepo / single-project model
-- Status: INFERRED (HIGH)
-- Finding: Repository appears to use a package-based monorepo layout. Refresh impact routing marked this area as affected by recent file changes.
-- Critic warning: Finding is generic or placeholder-like; deepen evidence before trusting this area.
+- Status: DEFINED (HIGH)
+- Finding: Root `package.json` declares `workspaces: ["packages/*"]`, and root `tsconfig.json` references multiple package projects, so the repository model is explicitly a monorepo.
 - Evidence: package.json — workspace/manifests
 - Evidence: packages/adapters/pi/package.json — workspace/manifests
 - Evidence: packages/adapters/pi/tsconfig.json — workspace/manifests
@@ -61,8 +81,7 @@
 - Evidence: packages/schemas/package.json — workspace/manifests
 - Evidence: packages/schemas/tsconfig.json — workspace/manifests
 - Evidence: tsconfig.json — workspace/manifests
-- Claim: [inferred/HIGH] Repository appears to use a package-based monorepo layout. Refresh impact routing marked this area as affected by recent file changes.
-  - Claim critic warning: Claim appears generic enough to fit unrelated repositories.
+- Claim: [observed/HIGH] Root `package.json` declares `workspaces: ["packages/*"]`, and root `tsconfig.json` references multiple package projects, so the repository model is explicitly a monorepo.
   - Claim evidence: package.json — workspace/manifests
   - Claim evidence: packages/adapters/pi/package.json — workspace/manifests
   - Claim evidence: packages/adapters/pi/tsconfig.json — workspace/manifests
@@ -78,15 +97,18 @@
 
 ## 3. Source directory organization
 - Status: DEFINED
-- Finding: Detected source roots: packages. Refresh impact routing marked this area as affected by recent file changes.
+- Finding: Detected source roots: packages.
+- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: packages — source organization
-- Claim: [observed] Detected source roots: packages. Refresh impact routing marked this area as affected by recent file changes.
+- Claim: [observed] Detected source roots: packages.
   - Claim evidence: packages — source organization
 
 ## 4. Test directory organization
-- Status: NOT_DEFINED
-- Finding: No test files detected.
-- Claim: [unknown] No test files detected.
+- Status: DEFINED (HIGH)
+- Finding: Test organization is explicitly evidenced by root `tests/` and `tests/constitution.test.mjs`, with root `package.json` running `node --test tests/**/*.test.mjs`.
+- Evidence: tests/constitution.test.mjs — test organization
+- Claim: [observed/HIGH] Test organization is explicitly evidenced by root `tests/` and `tests/constitution.test.mjs`, with root `package.json` running `node --test tests/**/*.test.mjs`.
+  - Claim evidence: tests/constitution.test.mjs — test organization
 
 ## 5. Documentation organization
 - Status: DEFINED
@@ -101,11 +123,10 @@
 - Claim: [unknown] No dedicated scripts/tools directories detected.
 
 ## 7. Generated/build directory handling
-- Status: INFERRED
-- Finding: Generated/build directories are excluded from constitution scanning by policy.
-- Critic warning: Area makes a concrete claim without supporting evidence.
-- Claim: [inferred] Generated/build directories are excluded from constitution scanning by policy.
-  - Claim critic warning: Claim lacks direct evidence references.
+- Status: NOT_DEFINED
+- Finding: No generated/build output handling evidence detected.
+- Drift warning: Status changed from INFERRED to NOT_DEFINED based on current repository evidence.
+- Claim: [unknown] No generated/build output handling evidence detected.
 
 ## 8. Asset/static file organization
 - Status: NOT_APPLICABLE
@@ -115,6 +136,7 @@
 ## 9. Package/dependency manager
 - Status: DEFINED
 - Finding: Detected package managers: npm.
+- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: package.json — package manager evidence
 - Evidence: packages/adapters/pi/package.json — package manager evidence
 - Evidence: packages/adapters/pi/tsconfig.json — package manager evidence
@@ -146,6 +168,7 @@
 ## 10. Manifest files
 - Status: DEFINED
 - Finding: Detected manifests: package.json, packages/adapters/pi/package.json, packages/adapters/pi/tsconfig.json, packages/core/package.json, packages/core/tsconfig.json, packages/executors/fake/package.json, packages/executors/fake/tsconfig.json, packages/executors/pi/package.json, packages/executors/pi/tsconfig.json, packages/schemas/package.json, packages/schemas/tsconfig.json, tsconfig.json.
+- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: package.json — manifest file
 - Evidence: packages/adapters/pi/package.json — manifest file
 - Evidence: packages/adapters/pi/tsconfig.json — manifest file
@@ -175,6 +198,7 @@
 ## 11. Lockfile strategy
 - Status: DEFINED
 - Finding: Detected lockfiles: package-lock.json.
+- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: package-lock.json — lockfile
 - Claim: [observed] Detected lockfiles: package-lock.json.
   - Claim evidence: package-lock.json — lockfile
@@ -183,12 +207,12 @@
 - Status: INFERRED (MEDIUM)
 - Finding: Dependency versioning policy is implied by lockfiles and/or manifest version expressions in package.json, packages/core/package.json, package-lock.json.
 - Critic warning: Finding is generic or placeholder-like; deepen evidence before trusting this area.
-- Evidence: package.json — ^2
+- Evidence: package.json — ^0
 - Evidence: packages/core/package.json — ^2
 - Evidence: package-lock.json — lockfile
 - Claim: [inferred/MEDIUM] Dependency versioning policy is implied by lockfiles and/or manifest version expressions in package.json, packages/core/package.json, package-lock.json.
   - Claim critic warning: Claim appears generic enough to fit unrelated repositories.
-  - Claim evidence: package.json — ^2
+  - Claim evidence: package.json — ^0
   - Claim evidence: packages/core/package.json — ^2
   - Claim evidence: package-lock.json — lockfile
 
@@ -215,6 +239,7 @@
 ## 17. Secrets handling
 - Status: NOT_DEFINED
 - Finding: No secrets handling evidence detected.
+- Drift warning: Status changed from INFERRED to NOT_DEFINED based on current repository evidence.
 - Claim: [unknown] No secrets handling evidence detected.
 
 ## 18. Configuration hierarchy
@@ -243,14 +268,17 @@
 
 ## 20. Local development bootstrap
 - Status: DEFINED
-- Finding: Repository bootstrap/developer commands are script-driven: build, typecheck, harness:pi-executor, harness:pi-runtime.
+- Finding: Repository bootstrap/developer commands are script-driven: build, typecheck, test, harness:pi-executor, harness:pi-runtime.
+- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: build: tsc -b
 - Evidence: typecheck: tsc -b --pretty false
+- Evidence: test: npm run build && node --test tests/**/*.test.mjs
 - Evidence: harness:pi-executor: node packages/executors/pi/dist/harness.js
 - Evidence: harness:pi-runtime: node packages/executors/pi/dist/runtime-harness.js
-- Claim: [observed] Repository bootstrap/developer commands are script-driven: build, typecheck, harness:pi-executor, harness:pi-runtime.
+- Claim: [observed] Repository bootstrap/developer commands are script-driven: build, typecheck, test, harness:pi-executor, harness:pi-runtime.
   - Claim evidence: build: tsc -b
   - Claim evidence: typecheck: tsc -b --pretty false
+  - Claim evidence: test: npm run build && node --test tests/**/*.test.mjs
   - Claim evidence: harness:pi-executor: node packages/executors/pi/dist/harness.js
   - Claim evidence: harness:pi-runtime: node packages/executors/pi/dist/runtime-harness.js
 
@@ -278,7 +306,7 @@
 - Evidence: packages/adapters/pi/src/types.ts — interface FactoryPiUi
 - Evidence: packages/core/src/config/loader.ts — interface LoadedFactoryConfig
 - Evidence: packages/core/src/constitution/areas.ts — interface ConstitutionAreaDefinition
-- Evidence: packages/core/src/constitution/refresh.ts — interface ConstitutionRefreshState
+- Evidence: packages/core/src/constitution/evaluators/shared.ts — interface ConstitutionEvaluationContext
 - Evidence: packages/executors/pi/src/executor.d.ts — class PiAgentExecutor
 - Evidence: packages/executors/pi/src/executor.js — class PiAgentExecutor
 - Evidence: packages/executors/pi/src/executor.ts — class PiAgentExecutor
@@ -287,7 +315,7 @@
   - Claim evidence: packages/adapters/pi/src/types.ts — interface FactoryPiUi
   - Claim evidence: packages/core/src/config/loader.ts — interface LoadedFactoryConfig
   - Claim evidence: packages/core/src/constitution/areas.ts — interface ConstitutionAreaDefinition
-  - Claim evidence: packages/core/src/constitution/refresh.ts — interface ConstitutionRefreshState
+  - Claim evidence: packages/core/src/constitution/evaluators/shared.ts — interface ConstitutionEvaluationContext
   - Claim evidence: packages/executors/pi/src/executor.d.ts — class PiAgentExecutor
   - Claim evidence: packages/executors/pi/src/executor.js — class PiAgentExecutor
   - Claim evidence: packages/executors/pi/src/executor.ts — class PiAgentExecutor
@@ -453,27 +481,31 @@
 - Status: INFERRED (MEDIUM)
 - Finding: Repository uses inline comments and/or markdown documentation files for developer guidance.
 - Evidence: packages/core/src/constitution/discovery.ts — //
-- Evidence: packages/core/src/constitution/refresh.ts — //
-- Evidence: packages/core/src/runtime/controller.ts — //
-- Evidence: packages/executors/pi/src/executor.d.ts — //
-- Evidence: packages/executors/pi/src/factory.d.ts — //
-- Evidence: packages/executors/pi/src/fake-session-factory.d.ts — //
+- Evidence: packages/core/src/constitution/evaluators/api.ts — //
+- Evidence: packages/core/src/constitution/evaluators/architecture.ts — //
+- Evidence: packages/core/src/constitution/evaluators/data.ts — //
+- Evidence: packages/core/src/constitution/evaluators/maintainability.ts — //
+- Evidence: packages/core/src/constitution/evaluators/observability.ts — //
 - Evidence: README.md — markdown documentation file
 - Claim: [inferred/MEDIUM] Repository uses inline comments and/or markdown documentation files for developer guidance.
   - Claim evidence: packages/core/src/constitution/discovery.ts — //
-  - Claim evidence: packages/core/src/constitution/refresh.ts — //
-  - Claim evidence: packages/core/src/runtime/controller.ts — //
-  - Claim evidence: packages/executors/pi/src/executor.d.ts — //
-  - Claim evidence: packages/executors/pi/src/factory.d.ts — //
-  - Claim evidence: packages/executors/pi/src/fake-session-factory.d.ts — //
+  - Claim evidence: packages/core/src/constitution/evaluators/api.ts — //
+  - Claim evidence: packages/core/src/constitution/evaluators/architecture.ts — //
+  - Claim evidence: packages/core/src/constitution/evaluators/data.ts — //
+  - Claim evidence: packages/core/src/constitution/evaluators/maintainability.ts — //
+  - Claim evidence: packages/core/src/constitution/evaluators/observability.ts — //
   - Claim evidence: README.md — markdown documentation file
 
 ## 31. TODO/FIXME/HACK conventions
 - Status: INFERRED (MEDIUM)
-- Finding: TODO/FIXME/HACK markers are used in files such as packages/core/src/constitution/areas.ts.
+- Finding: TODO/FIXME/HACK markers are used in files such as packages/core/src/constitution/areas.ts, packages/core/src/constitution/evaluators/maintainability.ts, packages/core/src/constitution/evaluators/style.ts.
 - Evidence: packages/core/src/constitution/areas.ts — TODO
-- Claim: [inferred/MEDIUM] TODO/FIXME/HACK markers are used in files such as packages/core/src/constitution/areas.ts.
+- Evidence: packages/core/src/constitution/evaluators/maintainability.ts — TODO
+- Evidence: packages/core/src/constitution/evaluators/style.ts — todo
+- Claim: [inferred/MEDIUM] TODO/FIXME/HACK markers are used in files such as packages/core/src/constitution/areas.ts, packages/core/src/constitution/evaluators/maintainability.ts, packages/core/src/constitution/evaluators/style.ts.
   - Claim evidence: packages/core/src/constitution/areas.ts — TODO
+  - Claim evidence: packages/core/src/constitution/evaluators/maintainability.ts — TODO
+  - Claim evidence: packages/core/src/constitution/evaluators/style.ts — todo
 
 ## 32. Overall application architecture
 - Status: INFERRED (MEDIUM)
@@ -515,18 +547,12 @@
 - Status: INFERRED (MEDIUM)
 - Finding: Adapters and executors import core packages, suggesting inward dependency direction toward shared core logic.
 - Evidence: packages/adapters/pi/src/gateway.ts — imports @factory/core
-- Evidence: packages/executors/pi/src/executor.d.ts — imports @factory/core
-- Evidence: packages/executors/pi/src/executor.ts — imports @factory/core
-- Evidence: packages/executors/pi/src/runtime-harness.ts — imports @factory/core
 - Evidence: packages/adapters/pi/src/gateway.ts — cross-package import @factory/core
 - Evidence: packages/core/src/config/defaults.ts — cross-package import @factory/schemas
 - Evidence: packages/core/src/config/loader.ts — cross-package import @factory/schemas
 - Evidence: packages/core/src/config/merge.ts — cross-package import @factory/schemas
 - Claim: [inferred/MEDIUM] Adapters and executors import core packages, suggesting inward dependency direction toward shared core logic.
   - Claim evidence: packages/adapters/pi/src/gateway.ts — imports @factory/core
-  - Claim evidence: packages/executors/pi/src/executor.d.ts — imports @factory/core
-  - Claim evidence: packages/executors/pi/src/executor.ts — imports @factory/core
-  - Claim evidence: packages/executors/pi/src/runtime-harness.ts — imports @factory/core
   - Claim evidence: packages/adapters/pi/src/gateway.ts — cross-package import @factory/core
   - Claim evidence: packages/core/src/config/defaults.ts — cross-package import @factory/schemas
   - Claim evidence: packages/core/src/config/loader.ts — cross-package import @factory/schemas
@@ -607,9 +633,9 @@
 - Evidence: tsconfig reference: ./packages/executors/fake
 - Evidence: tsconfig reference: ./packages/executors/pi
 - Evidence: packages/core/src/config/loader.ts — relative boundary import ../project/discovery.js
-- Evidence: packages/core/src/constitution/scan.ts — relative boundary import ../runtime/interfaces.js
-- Evidence: packages/core/src/doctor/check.ts — relative boundary import ../project/discovery.js
-- Evidence: packages/core/src/doctor/check.ts — relative boundary import ../config/loader.js
+- Evidence: packages/core/src/constitution/evaluators/api.ts — relative boundary import ../types.js
+- Evidence: packages/core/src/constitution/evaluators/architecture.ts — relative boundary import ../types.js
+- Evidence: packages/core/src/constitution/evaluators/cicd.ts — relative boundary import ../types.js
 - Claim: [inferred/MEDIUM] TypeScript project references provide some structural boundary enforcement between packages.
   - Claim evidence: tsconfig reference: ./packages/schemas
   - Claim evidence: tsconfig reference: ./packages/core
@@ -617,9 +643,9 @@
   - Claim evidence: tsconfig reference: ./packages/executors/fake
   - Claim evidence: tsconfig reference: ./packages/executors/pi
   - Claim evidence: packages/core/src/config/loader.ts — relative boundary import ../project/discovery.js
-  - Claim evidence: packages/core/src/constitution/scan.ts — relative boundary import ../runtime/interfaces.js
-  - Claim evidence: packages/core/src/doctor/check.ts — relative boundary import ../project/discovery.js
-  - Claim evidence: packages/core/src/doctor/check.ts — relative boundary import ../config/loader.js
+  - Claim evidence: packages/core/src/constitution/evaluators/api.ts — relative boundary import ../types.js
+  - Claim evidence: packages/core/src/constitution/evaluators/architecture.ts — relative boundary import ../types.js
+  - Claim evidence: packages/core/src/constitution/evaluators/cicd.ts — relative boundary import ../types.js
 
 ## 40. API style/protocols
 - Status: NOT_APPLICABLE
@@ -869,14 +895,18 @@
 - Claim: [unknown] No security-header or network trust-boundary evidence detected.
 
 ## 73. Test framework/tooling
-- Status: NOT_DEFINED
-- Finding: No test framework/tooling evidence detected.
-- Claim: [unknown] No test framework/tooling evidence detected.
+- Status: DEFINED (MEDIUM)
+- Finding: Testing tooling is explicitly Node's built-in test runner: `tests/constitution.test.mjs` imports from `node:test`, and root `package.json` runs `node --test tests/**/*.test.mjs`.
+- Evidence: tests/constitution.test.mjs — test framework evidence
+- Claim: [observed/MEDIUM] Testing tooling is explicitly Node's built-in test runner: `tests/constitution.test.mjs` imports from `node:test`, and root `package.json` runs `node --test tests/**/*.test.mjs`.
+  - Claim evidence: tests/constitution.test.mjs — test framework evidence
 
 ## 74. Unit test conventions
-- Status: NOT_DEFINED
-- Finding: No unit test conventions detected.
-- Claim: [unknown] No unit test conventions detected.
+- Status: INFERRED (MEDIUM)
+- Finding: Unit-style tests detected in tests/constitution.test.mjs.
+- Evidence: tests/constitution.test.mjs — unit-style test
+- Claim: [inferred/MEDIUM] Unit-style tests detected in tests/constitution.test.mjs.
+  - Claim evidence: tests/constitution.test.mjs — unit-style test
 
 ## 75. Integration test conventions
 - Status: NOT_DEFINED
@@ -889,19 +919,25 @@
 - Claim: [unknown] No end-to-end test conventions detected.
 
 ## 77. Test naming/location conventions
-- Status: NOT_DEFINED
-- Finding: No test naming or location conventions detected.
-- Claim: [unknown] No test naming or location conventions detected.
+- Status: DEFINED (HIGH)
+- Finding: Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs.
+- Evidence: tests/constitution.test.mjs — test naming/location
+- Claim: [observed/HIGH] Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs.
+  - Claim evidence: tests/constitution.test.mjs — test naming/location
 
 ## 78. Mock/fake/test-double strategy
-- Status: NOT_DEFINED
-- Finding: No mock, fake, or test-double strategy evidence detected.
-- Claim: [unknown] No mock, fake, or test-double strategy evidence detected.
+- Status: INFERRED (MEDIUM)
+- Finding: Mock/fake/test-double patterns detected in tests/constitution.test.mjs.
+- Evidence: tests/constitution.test.mjs — test double
+- Claim: [inferred/MEDIUM] Mock/fake/test-double patterns detected in tests/constitution.test.mjs.
+  - Claim evidence: tests/constitution.test.mjs — test double
 
 ## 79. Test data/factory/fixture strategy
-- Status: NOT_DEFINED
-- Finding: No test data, factory, or fixture strategy evidence detected.
-- Claim: [unknown] No test data, factory, or fixture strategy evidence detected.
+- Status: INFERRED (MEDIUM)
+- Finding: Fixture/factory/test-data patterns detected in tests/constitution.test.mjs.
+- Evidence: tests/constitution.test.mjs — factory
+- Claim: [inferred/MEDIUM] Fixture/factory/test-data patterns detected in tests/constitution.test.mjs.
+  - Claim evidence: tests/constitution.test.mjs — factory
 
 ## 80. Coverage/flaky-test/quality gates
 - Status: NOT_DEFINED
@@ -911,6 +947,7 @@
 ## 81. Build commands/tooling
 - Status: DEFINED
 - Finding: Build command detected: tsc -b.
+- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: build: tsc -b
 - Claim: [observed] Build command detected: tsc -b.
   - Claim evidence: build: tsc -b
@@ -923,8 +960,8 @@
 
 ## 83. Linting rules/tooling
 - Status: NOT_DEFINED
-- Finding: No linting rules/tooling detected.
-- Claim: [unknown] No linting rules/tooling detected.
+- Finding: No ESLint, Prettier, Biome, or similar linting configuration or lint script is present in the provided repository evidence.
+- Claim: [unknown] No ESLint, Prettier, Biome, or similar linting configuration or lint script is present in the provided repository evidence.
 
 ## 84. Formatting rules/tooling
 - Status: NOT_DEFINED
@@ -934,6 +971,7 @@
 ## 85. Type checking/static analysis
 - Status: DEFINED
 - Finding: Type checking/static analysis evidence detected with command tsc -b --pretty false.
+- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: packages/adapters/pi/tsconfig.json — typecheck config
 - Evidence: packages/core/tsconfig.json — typecheck config
 - Evidence: packages/executors/fake/tsconfig.json — typecheck config
@@ -1112,16 +1150,16 @@
 
 ## 107. Commit message conventions
 - Status: INFERRED (LOW)
-- Finding: Recent commit subjects appear free-form, e.g. Add hybrid constitution engine and context-driven runtime | Add worktree-aware runtime and builder executor flow | Add reviewer executor phase to prototype runtime | Add Pi executor skeleton and repair-capable runtime harness.
+- Finding: Recent commit subjects appear free-form, e.g. Deepen constitution evaluator coverage and add regression tests | Add hybrid constitution engine and context-driven runtime | Add worktree-aware runtime and builder executor flow | Add reviewer executor phase to prototype runtime.
+- Evidence: commit: Deepen constitution evaluator coverage and add regression tests
 - Evidence: commit: Add hybrid constitution engine and context-driven runtime
 - Evidence: commit: Add worktree-aware runtime and builder executor flow
 - Evidence: commit: Add reviewer executor phase to prototype runtime
-- Evidence: commit: Add Pi executor skeleton and repair-capable runtime harness
-- Claim: [inferred/LOW] Recent commit subjects appear free-form, e.g. Add hybrid constitution engine and context-driven runtime | Add worktree-aware runtime and builder executor flow | Add reviewer executor phase to prototype runtime | Add Pi executor skeleton and repair-capable runtime harness.
+- Claim: [inferred/LOW] Recent commit subjects appear free-form, e.g. Deepen constitution evaluator coverage and add regression tests | Add hybrid constitution engine and context-driven runtime | Add worktree-aware runtime and builder executor flow | Add reviewer executor phase to prototype runtime.
+  - Claim evidence: commit: Deepen constitution evaluator coverage and add regression tests
   - Claim evidence: commit: Add hybrid constitution engine and context-driven runtime
   - Claim evidence: commit: Add worktree-aware runtime and builder executor flow
   - Claim evidence: commit: Add reviewer executor phase to prototype runtime
-  - Claim evidence: commit: Add Pi executor skeleton and repair-capable runtime harness
 
 ## 108. Pull request conventions
 - Status: INFERRED (MEDIUM)
@@ -1139,6 +1177,12 @@
   - Claim evidence: README.md — approval
 - Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
   - Claim evidence: README.md — approval
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
+  - Claim evidence: README.md — approval
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
+  - Claim evidence: README.md — approval
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
+  - Claim evidence: README.md — approval
 
 ## 110. Protected branch/force-push rules
 - Status: NOT_DEFINED
@@ -1146,12 +1190,18 @@
 - Critic warning: Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 - Claim: [unknown] No protected branch or force-push rule evidence detected.
 - Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 
 ## 111. Code ownership rules
 - Status: NOT_DEFINED
 - Finding: No CODEOWNERS evidence detected.
 - Critic warning: Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 - Claim: [unknown] No CODEOWNERS evidence detected.
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 - Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 
 ## 112. Deployment model

@@ -89,6 +89,10 @@ class FakePiSession implements PiSessionLike {
     });
   }
 
+  dispose(): void {
+    this.listeners.clear();
+  }
+
   private emit(event: PiSessionEvent): void {
     for (const listener of this.listeners) {
       listener(event);

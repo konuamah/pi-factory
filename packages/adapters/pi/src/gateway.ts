@@ -82,7 +82,7 @@ export async function handleFactoryCommand(
       "/factory cancel  mark the latest run cancelled",
       "/factory worktree <branch> create or detect isolated workspace",
       "/factory cleanup [retain-count] prune old runs/worktrees/branches",
-      "/factory constitution [--executor=fake|sdk] scan repository constitution",
+      "/factory constitution scan repository constitution via facts + AI interpretation",
       "/factory <goal>  run a minimal end-to-end prototype flow",
     ]);
     ctx.ui.notify("Factory command ready", "info");
@@ -405,21 +405,23 @@ async function handleResume(ctx: FactoryPiCommandContext): Promise<void> {
   ctx.ui.notify(result.resumed ? "Factory run resumed" : "No resumable Factory run", result.resumed ? "info" : "warning");
 }
 
-async function handleConstitution(args: string[], ctx: FactoryPiCommandContext): Promise<void> {
-  const parsed = parseGoalRequest(args.join(" "));
-  const executorBundle = await createOptionalExecutorBundle(parsed.executorMode);
+async function handleConstitution(_args: string[], ctx: FactoryPiCommandContext): Promise<void> {
+  const executor = await createRequiredConstitutionExecutor();
   const result = await runConstitutionScan({
     cwd: ctx.cwd,
-    constitutionExecutor: executorBundle?.plannerExecutor,
+    constitutionExecutor: executor,
   });
 
   renderLines(ctx, [
     "Factory constitution",
     `mode: ${result.mode}`,
+    `finalized: ${result.finalized ? "yes" : "no"}`,
+    `interpreter: ${result.interpreter.status}`,
     `refresh mode: ${result.refresh.mode}`,
     `no change: ${result.refresh.noChange ? "yes" : "no"}`,
     `root: ${result.root}`,
     `constitution: ${result.constitutionPath}`,
+    `facts: ${result.factsPath}`,
     `metadata: ${result.metadataPath}`,
     `languages: ${result.discovery.languages.join(", ") || "none"}`,
     `package managers: ${result.discovery.packageManagers.join(", ") || "none"}`,
@@ -429,10 +431,10 @@ async function handleConstitution(args: string[], ctx: FactoryPiCommandContext):
     `impacted areas: ${result.refresh.impactedAreaIds.join(", ") || "none"}`,
     `reused areas: ${result.refresh.reusedAreaIds?.join(", ") || "none"}`,
     `areas: ${result.areas.length}`,
-    `ai reasoning: ${result.aiReasoning?.status ?? "skipped"}`,
+    ...(result.interpreter.errorMessage ? [`interpreter error: ${result.interpreter.errorMessage}`] : []),
   ]);
 
-  ctx.ui.notify("Factory constitution updated", "info");
+  ctx.ui.notify(result.finalized ? "Factory constitution updated" : "Factory constitution facts captured; interpretation unavailable", result.finalized ? "info" : "warning");
 }
 
 async function handleCleanup(retainArg: string | undefined, ctx: FactoryPiCommandContext): Promise<void> {
@@ -548,6 +550,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
   ];
 
   const executorBundle = await createOptionalExecutorBundle(parsed.executorMode);
+  const constitutionExecutor = await createRequiredConstitutionExecutor();
 
   renderLines(ctx, [
     ...progressLines,
@@ -557,12 +560,13 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
 
   const constitutionResult = await runConstitutionScan({
     cwd: ctx.cwd,
-    constitutionExecutor: executorBundle?.plannerExecutor,
+    constitutionExecutor: constitutionExecutor,
   });
 
   renderLines(ctx, [
     ...progressLines,
     `constitution mode: ${constitutionResult.mode}`,
+    `constitution finalized: ${constitutionResult.finalized ? "yes" : "no"}`,
     `constitution refresh: ${constitutionResult.refresh.mode}`,
     `constitution changed files: ${constitutionResult.refresh.changedFiles.length}`,
     "phase: planning",
@@ -595,6 +599,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     `goal: ${trimmedGoal}`,
     `executor mode: ${parsed.executorMode ?? "off"}`,
     `constitution mode: ${constitutionResult.mode}`,
+    `constitution finalized: ${constitutionResult.finalized ? "yes" : "no"}`,
     `constitution refresh: ${constitutionResult.refresh.mode}`,
     `constitution changed files: ${constitutionResult.refresh.changedFiles.length}`,
     `run id: ${result.runId}`,
@@ -665,6 +670,17 @@ function parseGoalRequest(raw: string): {
     goal: remaining.join(" "),
     executorMode,
   };
+}
+
+async function createRequiredConstitutionExecutor(): Promise<AgentExecutor> {
+  const executors = (await loadExecutorModule()) as {
+    PiAgentExecutor: new (input: { sessionFactory: unknown }) => AgentExecutor;
+    createPiSdkSessionFactory: (input: { packageName?: string }) => unknown;
+  };
+  const sessionFactory = executors.createPiSdkSessionFactory({
+    packageName: process.env.FACTORY_PI_SDK_PACKAGE,
+  });
+  return new executors.PiAgentExecutor({ sessionFactory });
 }
 
 async function createOptionalExecutorBundle(

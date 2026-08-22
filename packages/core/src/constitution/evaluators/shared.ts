@@ -32,13 +32,7 @@ export function makeArea(
   };
 }
 
-export function buildRefreshNote(areaId: number, impactedAreaIds: number[], noChange: boolean): string {
-  if (noChange) {
-    return " Refresh detected no file changes since the last scan.";
-  }
-  if (impactedAreaIds.includes(areaId)) {
-    return " Refresh impact routing marked this area as affected by recent file changes.";
-  }
+export function buildRefreshNote(_areaId: number, _impactedAreaIds: number[], _noChange: boolean): string {
   return "";
 }
 

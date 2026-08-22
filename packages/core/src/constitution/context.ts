@@ -12,9 +12,9 @@ export async function selectConstitutionContext(input: {
     return undefined;
   }
 
-  const summary = extractSection(text, "## Agent Operating Summary", "## Project Snapshot");
+  const summary = extractSection(text, "## Agent Operating Summary", "## Interpretation");
   const projectSnapshot = extractSection(text, "## Project Snapshot", "## Status Legend");
-  const fullBody = extractSection(text, "# Full Repository Constitution");
+  const fullBody = extractSection(text, "# Observable Facts");
 
   const relevant = [
     findArea(fullBody, /Repository layout/i),

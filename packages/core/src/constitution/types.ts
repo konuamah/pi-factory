@@ -68,7 +68,7 @@ export interface ConstitutionDiscovery {
 
 export interface ConstitutionScanResult {
   root: string;
-  mode: "deterministic" | "hybrid";
+  mode: "single-pipeline";
   refresh: {
     mode: "FAST" | "FULL";
     noChange: boolean;
@@ -81,13 +81,15 @@ export interface ConstitutionScanResult {
   discovery: ConstitutionDiscovery;
   areas: ConstitutionArea[];
   summary: string[];
-  aiReasoning?: {
-    enabled: boolean;
-    status: "completed" | "failed" | "skipped";
+  interpreter: {
+    required: true;
+    status: "completed" | "failed" | "unavailable";
     outputText?: string;
     errorMessage?: string;
     proposedAreas?: ConstitutionArea[];
   };
   constitutionPath: string;
   metadataPath: string;
+  factsPath: string;
+  finalized: boolean;
 }

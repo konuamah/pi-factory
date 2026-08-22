@@ -4,14 +4,14 @@ export function renderConstitutionMarkdown(input: {
   discovery: ConstitutionDiscovery;
   areas: ConstitutionArea[];
   summary: string[];
-  aiOutputText?: string;
+  interpreterOutputText?: string;
 }): string {
   return [
     "# Codebase Constitution",
     "",
     "## Agent Operating Summary",
     ...input.summary.map((line) => `- ${line}`),
-    ...(input.aiOutputText ? ["", "### AI Reasoner Notes", input.aiOutputText.trim()] : []),
+    ...(input.interpreterOutputText ? ["", "## Interpretation", input.interpreterOutputText.trim()] : []),
     "",
     "## Project Snapshot",
     `- Root: ${input.discovery.root}`,
@@ -32,7 +32,7 @@ export function renderConstitutionMarkdown(input: {
     "- NOT_APPLICABLE",
     "- UNCERTAIN",
     "",
-    "# Full Repository Constitution",
+    "# Observable Facts",
     "",
     ...input.areas.flatMap((area) => [
       `## ${area.id}. ${area.title}`,

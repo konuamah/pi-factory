@@ -1,29 +1,262 @@
 {
-  "scannedAt": "2026-08-22T11:07:51.383Z",
-  "mode": "deterministic",
-  "scanSha": "7780150b0f35d0c59ddb3bb670f2369047046c91",
-  "previousScanSha": "7780150b0f35d0c59ddb3bb670f2369047046c91",
+  "scannedAt": "2026-08-22T11:38:44.966Z",
+  "mode": "single-pipeline",
+  "scanSha": "5c91081bdf92e38d7db7fe4b8db812add1abe21f",
+  "previousScanSha": "5c91081bdf92e38d7db7fe4b8db812add1abe21f",
   "refreshMode": "FAST",
   "changedFiles": [
+    ".factory/constitution/facts.json",
     ".factory/constitution/metadata.json",
     "CONSTITUTION.md",
     "NUL",
-    "constitution_120_areas_handoff.md",
-    "packages/core/src/constitution/discovery.ts",
-    "packages/core/src/constitution/evaluators/",
+    "package-lock.json",
+    "package.json",
+    "packages/adapters/pi/src/gateway.ts",
+    "packages/core/src/constitution/context.ts",
+    "packages/core/src/constitution/evaluators/dependencies.ts",
+    "packages/core/src/constitution/evaluators/foundation.ts",
+    "packages/core/src/constitution/evaluators/shared.ts",
     "packages/core/src/constitution/render.ts",
     "packages/core/src/constitution/scan.ts",
-    "packages/core/src/constitution/types.ts"
+    "packages/core/src/constitution/types.ts",
+    "packages/executors/pi/src/executor.ts",
+    "packages/executors/pi/src/fake-session-factory.ts",
+    "packages/executors/pi/src/sdk-factory.ts",
+    "packages/executors/pi/src/types.ts",
+    "tests/constitution.test.mjs"
   ],
   "impactedAreaIds": [
     1,
     2,
-    3
+    3,
+    4,
+    9,
+    10,
+    11,
+    20,
+    73,
+    81,
+    83,
+    85
   ],
-  "trackedFiles": 103,
-  "aiReasoning": {
-    "enabled": false,
-    "status": "skipped"
+  "trackedFiles": 120,
+  "interpreter": {
+    "required": true,
+    "status": "completed",
+    "outputText": "Brief repository-constitution summary from repo evidence:\n\n- **Layout / architecture:** This is a small **npm workspace monorepo** rooted at `package.json`, with TypeScript project references in `tsconfig.json` pointing at `packages/schemas`, `packages/core`, `packages/adapters/pi`, `packages/executors/fake`, and `packages/executors/pi`.\n- **Package roles:**  \n  - `packages/schemas/src` holds shared schema/types.  \n  - `packages/core/src` is the main domain package: config loading/merge/validation, constitution scanning, doctor, git/worktree support, setup, runs, and runtime control.  \n  - `packages/adapters/pi/src` contains the Pi adapter/extension-facing layer.  \n  - `packages/executors/fake/src` and `packages/executors/pi/src` provide executor implementations/harnesses.\n- **Source organization:** Each package follows `src/**/*.ts` with `rootDir: \"src\"` and `outDir: \"dist\"` in package `tsconfig.json` files. Root build/typecheck uses `tsc -b`, so static analysis is TypeScript composite-project based.\n- **Testing:** Tests live under `tests/`; naming is `*.test.mjs` at least at root (`tests/constitution.test.mjs`). The actual framework is **Node’s built-in test runner** (`node:test`), invoked via root script: `npm test` = `npm run build && node --test tests/**/*.test.mjs`. Tests import compiled output from `packages/core/dist/...`, so build-before-test is part of convention.\n- **Package/tooling conventions:** Package manager is clearly **npm** (`package-lock.json`, root scripts). Manifest conventions are standard per-package `package.json` plus per-package `tsconfig.json`.\n- **Module/dependency conventions:** Packages are ESM (`\"type\": \"module\"` everywhere). Internal package dependencies are explicit and directional: `core` depends on `schemas`; executors depend on `core`/`schemas`; Pi adapter depends on `core`, `schemas`, and Pi executor.\n- **Bootstrap/build:** Evidence shows local development is centered on `npm install`, `npm run build`, `npm run typecheck`, `npm test`, plus harness scripts `harness:pi-executor` and `harness:pi-runtime`.\n\n**Ambiguity explicitly noted:**\n- `README.md` describes project focus and runtime/setup behavior, but does **not** give a full step-by-step developer bootstrap guide.\n- No lint or format tool/config is present in the provided manifests/files, so **linting conventions are not defined** by evidence.\n- `packages/executors/pi/src` contains checked-in `.js`/`.d.ts` alongside `.ts`, which makes generated-file handling somewhat ambiguous from the available evidence.",
+    "proposedAreas": [
+      {
+        "id": 2,
+        "title": "Monorepo / single-project model",
+        "status": "DEFINED",
+        "confidence": "HIGH",
+        "finding": "Root `package.json` declares `workspaces: [\"packages/*\"]`, and root `tsconfig.json` references multiple package projects, so the repository model is explicitly a monorepo.",
+        "evidence": [
+          {
+            "kind": "file",
+            "path": "package.json",
+            "detail": "workspace/manifests"
+          },
+          {
+            "kind": "file",
+            "path": "packages/adapters/pi/package.json",
+            "detail": "workspace/manifests"
+          },
+          {
+            "kind": "file",
+            "path": "packages/adapters/pi/tsconfig.json",
+            "detail": "workspace/manifests"
+          },
+          {
+            "kind": "file",
+            "path": "packages/core/package.json",
+            "detail": "workspace/manifests"
+          },
+          {
+            "kind": "file",
+            "path": "packages/core/tsconfig.json",
+            "detail": "workspace/manifests"
+          },
+          {
+            "kind": "file",
+            "path": "packages/executors/fake/package.json",
+            "detail": "workspace/manifests"
+          },
+          {
+            "kind": "file",
+            "path": "packages/executors/fake/tsconfig.json",
+            "detail": "workspace/manifests"
+          },
+          {
+            "kind": "file",
+            "path": "packages/executors/pi/package.json",
+            "detail": "workspace/manifests"
+          },
+          {
+            "kind": "file",
+            "path": "packages/executors/pi/tsconfig.json",
+            "detail": "workspace/manifests"
+          },
+          {
+            "kind": "file",
+            "path": "packages/schemas/package.json",
+            "detail": "workspace/manifests"
+          },
+          {
+            "kind": "file",
+            "path": "packages/schemas/tsconfig.json",
+            "detail": "workspace/manifests"
+          },
+          {
+            "kind": "file",
+            "path": "tsconfig.json",
+            "detail": "workspace/manifests"
+          }
+        ],
+        "claims": [
+          {
+            "statement": "Repository appears to use a package-based monorepo layout.",
+            "kind": "inferred",
+            "confidence": "HIGH",
+            "evidence": [
+              {
+                "kind": "file",
+                "path": "package.json",
+                "detail": "workspace/manifests"
+              },
+              {
+                "kind": "file",
+                "path": "packages/adapters/pi/package.json",
+                "detail": "workspace/manifests"
+              },
+              {
+                "kind": "file",
+                "path": "packages/adapters/pi/tsconfig.json",
+                "detail": "workspace/manifests"
+              },
+              {
+                "kind": "file",
+                "path": "packages/core/package.json",
+                "detail": "workspace/manifests"
+              },
+              {
+                "kind": "file",
+                "path": "packages/core/tsconfig.json",
+                "detail": "workspace/manifests"
+              },
+              {
+                "kind": "file",
+                "path": "packages/executors/fake/package.json",
+                "detail": "workspace/manifests"
+              },
+              {
+                "kind": "file",
+                "path": "packages/executors/fake/tsconfig.json",
+                "detail": "workspace/manifests"
+              },
+              {
+                "kind": "file",
+                "path": "packages/executors/pi/package.json",
+                "detail": "workspace/manifests"
+              },
+              {
+                "kind": "file",
+                "path": "packages/executors/pi/tsconfig.json",
+                "detail": "workspace/manifests"
+              },
+              {
+                "kind": "file",
+                "path": "packages/schemas/package.json",
+                "detail": "workspace/manifests"
+              },
+              {
+                "kind": "file",
+                "path": "packages/schemas/tsconfig.json",
+                "detail": "workspace/manifests"
+              },
+              {
+                "kind": "file",
+                "path": "tsconfig.json",
+                "detail": "workspace/manifests"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Test directory organization",
+        "status": "DEFINED",
+        "confidence": "HIGH",
+        "finding": "Test organization is explicitly evidenced by root `tests/` and `tests/constitution.test.mjs`, with root `package.json` running `node --test tests/**/*.test.mjs`.",
+        "evidence": [
+          {
+            "kind": "file",
+            "path": "tests/constitution.test.mjs",
+            "detail": "test organization"
+          }
+        ],
+        "claims": [
+          {
+            "statement": "Detected 1 test files and directories.",
+            "kind": "inferred",
+            "confidence": "HIGH",
+            "evidence": [
+              {
+                "kind": "file",
+                "path": "tests/constitution.test.mjs",
+                "detail": "test organization"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 73,
+        "title": "Test framework/tooling",
+        "status": "DEFINED",
+        "confidence": "MEDIUM",
+        "finding": "Testing tooling is explicitly Node's built-in test runner: `tests/constitution.test.mjs` imports from `node:test`, and root `package.json` runs `node --test tests/**/*.test.mjs`.",
+        "evidence": [
+          {
+            "kind": "file",
+            "path": "tests/constitution.test.mjs",
+            "detail": "test framework evidence"
+          }
+        ],
+        "claims": [
+          {
+            "statement": "Test tooling is implied by test file presence and package scripts.",
+            "kind": "inferred",
+            "confidence": "MEDIUM",
+            "evidence": [
+              {
+                "kind": "file",
+                "path": "tests/constitution.test.mjs",
+                "detail": "test framework evidence"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 83,
+        "title": "Linting rules/tooling",
+        "status": "NOT_DEFINED",
+        "finding": "No ESLint, Prettier, Biome, or similar linting configuration or lint script is present in the provided repository evidence.",
+        "evidence": [],
+        "claims": [
+          {
+            "statement": "No linting rules/tooling detected.",
+            "kind": "unknown",
+            "evidence": []
+          }
+        ]
+      }
+    ]
   },
-  "criticWarnings": 6
+  "finalized": true,
+  "factsPath": "D:\\projects\\pi-factory\\.factory\\constitution\\facts.json",
+  "constitutionPath": "D:\\projects\\pi-factory\\CONSTITUTION.md",
+  "criticWarnings": 4
 }

@@ -34,6 +34,9 @@ test('constitution scan emits 120 areas for a minimal repo', async () => {
     },
     async (root) => {
       const result = await runConstitutionScan({ cwd: root });
+      assert.equal(result.mode, 'single-pipeline');
+      assert.equal(result.finalized, false);
+      assert.equal(result.interpreter.status, 'unavailable');
       assert.equal(result.areas.length, 120);
       assert.equal(getArea(result, 1).status, 'DEFINED');
     },

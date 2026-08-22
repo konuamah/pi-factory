@@ -23,7 +23,10 @@ export async function evaluateDependencyAndConfigAreas(context: ConstitutionEval
     !/package-lock\.json$/i.test(file.path),
   );
   const vulnLicenseHits = inspected.filter((file) => /(dependabot|npm audit|snyk|osv|trivy|dependency review)/i.test(file.content) || /dependabot\.ya?ml/i.test(file.path));
-  const secretsHandlingHits = inspected.filter((file) => /(secret|token|credential|vault|environment variables)/i.test(file.content));
+  const secretsHandlingHits = inspected.filter((file) =>
+    /(secret|token|credential|vault|environment variables)/i.test(file.content) &&
+    !/(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/i.test(file.path),
+  );
   const configHierarchyHits = inspected.filter((file) => /(built-ins < global defaults < project config < run overrides|global defaults|project config|run overrides|override)/i.test(file.content));
 
   return [

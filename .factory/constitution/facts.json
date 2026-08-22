@@ -1,0 +1,5229 @@
+{
+  "scannedAt": "2026-08-22T11:38:44.961Z",
+  "root": "D:/projects/pi-factory",
+  "mode": "single-pipeline",
+  "refresh": {
+    "previousScanSha": "5c91081bdf92e38d7db7fe4b8db812add1abe21f",
+    "currentScanSha": "5c91081bdf92e38d7db7fe4b8db812add1abe21f",
+    "changedFiles": [
+      ".factory/constitution/facts.json",
+      ".factory/constitution/metadata.json",
+      "CONSTITUTION.md",
+      "NUL",
+      "package-lock.json",
+      "package.json",
+      "packages/adapters/pi/src/gateway.ts",
+      "packages/core/src/constitution/context.ts",
+      "packages/core/src/constitution/evaluators/dependencies.ts",
+      "packages/core/src/constitution/evaluators/foundation.ts",
+      "packages/core/src/constitution/evaluators/shared.ts",
+      "packages/core/src/constitution/render.ts",
+      "packages/core/src/constitution/scan.ts",
+      "packages/core/src/constitution/types.ts",
+      "packages/executors/pi/src/executor.ts",
+      "packages/executors/pi/src/fake-session-factory.ts",
+      "packages/executors/pi/src/sdk-factory.ts",
+      "packages/executors/pi/src/types.ts",
+      "tests/constitution.test.mjs"
+    ],
+    "impactedAreaIds": [
+      1,
+      2,
+      3,
+      4,
+      9,
+      10,
+      11,
+      20,
+      73,
+      81,
+      83,
+      85
+    ],
+    "mode": "FAST",
+    "noChange": false
+  },
+  "summary": [
+    "Repository root: D:/projects/pi-factory",
+    "Languages: JavaScript, TypeScript",
+    "Package managers: npm",
+    "Source roots: packages",
+    "Docs roots: README.md",
+    "API files: 0",
+    "Data files: 0",
+    "Tests: 1",
+    "CI: not detected",
+    "Deterministic areas evaluated: 120",
+    "Refresh mode: FAST",
+    "Changed files: 19",
+    "Impacted areas: 1, 2, 3, 4, 9, 10, 11, 20, 73, 81, 83, 85",
+    "Reused areas: none",
+    "Critic warnings: 0"
+  ],
+  "discovery": {
+    "root": "D:/projects/pi-factory",
+    "trackedFiles": [
+      ".factory/config.example.json",
+      ".factory/constitution/metadata.json",
+      ".gitignore",
+      ".pi/extensions/factory/index.ts",
+      "CONSTITUTION.md",
+      "README.md",
+      "SKILL.md",
+      "constitution_120_areas_handoff.md",
+      "factory.example.json",
+      "package-lock.json",
+      "package.json",
+      "packages/adapters/pi/package.json",
+      "packages/adapters/pi/src/extension.ts",
+      "packages/adapters/pi/src/gateway.ts",
+      "packages/adapters/pi/src/index.ts",
+      "packages/adapters/pi/src/types.ts",
+      "packages/adapters/pi/tsconfig.json",
+      "packages/core/package.json",
+      "packages/core/src/config/defaults.ts",
+      "packages/core/src/config/loader.ts",
+      "packages/core/src/config/merge.ts",
+      "packages/core/src/config/paths.ts",
+      "packages/core/src/config/validate.ts",
+      "packages/core/src/constitution/areas.ts",
+      "packages/core/src/constitution/context.ts",
+      "packages/core/src/constitution/discovery.ts",
+      "packages/core/src/constitution/evaluators/api.ts",
+      "packages/core/src/constitution/evaluators/architecture.ts",
+      "packages/core/src/constitution/evaluators/cicd.ts",
+      "packages/core/src/constitution/evaluators/data.ts",
+      "packages/core/src/constitution/evaluators/dependencies.ts",
+      "packages/core/src/constitution/evaluators/foundation.ts",
+      "packages/core/src/constitution/evaluators/governance.ts",
+      "packages/core/src/constitution/evaluators/maintainability.ts",
+      "packages/core/src/constitution/evaluators/observability.ts",
+      "packages/core/src/constitution/evaluators/reliability.ts",
+      "packages/core/src/constitution/evaluators/security.ts",
+      "packages/core/src/constitution/evaluators/shared.ts",
+      "packages/core/src/constitution/evaluators/style.ts",
+      "packages/core/src/constitution/evaluators/testing.ts",
+      "packages/core/src/constitution/evaluators/tooling.ts",
+      "packages/core/src/constitution/index.ts",
+      "packages/core/src/constitution/refresh.ts",
+      "packages/core/src/constitution/render.ts",
+      "packages/core/src/constitution/scan.ts",
+      "packages/core/src/constitution/types.ts",
+      "packages/core/src/doctor/check.ts",
+      "packages/core/src/doctor/index.ts",
+      "packages/core/src/git/index.ts",
+      "packages/core/src/git/worktree.ts",
+      "packages/core/src/index.ts",
+      "packages/core/src/project/discovery.ts",
+      "packages/core/src/runs/cancel.ts",
+      "packages/core/src/runs/cleanup.ts",
+      "packages/core/src/runs/index.ts",
+      "packages/core/src/runs/inspect.ts",
+      "packages/core/src/runs/list.ts",
+      "packages/core/src/runs/logs-by-id.ts",
+      "packages/core/src/runs/logs.ts",
+      "packages/core/src/runs/resume.ts",
+      "packages/core/src/runs/show.ts",
+      "packages/core/src/runs/status.ts",
+      "packages/core/src/runs/store.ts",
+      "packages/core/src/runs/summary.ts",
+      "packages/core/src/runtime/artifacts.ts",
+      "packages/core/src/runtime/controller.ts",
+      "packages/core/src/runtime/harness.ts",
+      "packages/core/src/runtime/index.ts",
+      "packages/core/src/runtime/interfaces.ts",
+      "packages/core/src/runtime/planner.ts",
+      "packages/core/src/runtime/prototype.ts",
+      "packages/core/src/runtime/tasks.ts",
+      "packages/core/src/runtime/verification.ts",
+      "packages/core/src/setup/index.ts",
+      "packages/core/src/setup/init.ts",
+      "packages/core/tsconfig.json",
+      "packages/executors/fake/package.json",
+      "packages/executors/fake/src/index.ts",
+      "packages/executors/fake/tsconfig.json",
+      "packages/executors/pi/package.json",
+      "packages/executors/pi/src/executor.d.ts",
+      "packages/executors/pi/src/executor.d.ts.map",
+      "packages/executors/pi/src/executor.js",
+      "packages/executors/pi/src/executor.ts",
+      "packages/executors/pi/src/factory.d.ts",
+      "packages/executors/pi/src/factory.d.ts.map",
+      "packages/executors/pi/src/factory.js",
+      "packages/executors/pi/src/factory.ts",
+      "packages/executors/pi/src/fake-session-factory.d.ts",
+      "packages/executors/pi/src/fake-session-factory.d.ts.map",
+      "packages/executors/pi/src/fake-session-factory.js",
+      "packages/executors/pi/src/fake-session-factory.ts",
+      "packages/executors/pi/src/harness.d.ts",
+      "packages/executors/pi/src/harness.d.ts.map",
+      "packages/executors/pi/src/harness.js",
+      "packages/executors/pi/src/harness.ts",
+      "packages/executors/pi/src/index.d.ts",
+      "packages/executors/pi/src/index.d.ts.map",
+      "packages/executors/pi/src/index.js",
+      "packages/executors/pi/src/index.ts",
+      "packages/executors/pi/src/runtime-harness.d.ts",
+      "packages/executors/pi/src/runtime-harness.d.ts.map",
+      "packages/executors/pi/src/runtime-harness.js",
+      "packages/executors/pi/src/runtime-harness.ts",
+      "packages/executors/pi/src/sdk-factory.d.ts",
+      "packages/executors/pi/src/sdk-factory.d.ts.map",
+      "packages/executors/pi/src/sdk-factory.js",
+      "packages/executors/pi/src/sdk-factory.ts",
+      "packages/executors/pi/src/types.d.ts",
+      "packages/executors/pi/src/types.d.ts.map",
+      "packages/executors/pi/src/types.js",
+      "packages/executors/pi/src/types.ts",
+      "packages/executors/pi/tsconfig.json",
+      "packages/schemas/package.json",
+      "packages/schemas/src/config.ts",
+      "packages/schemas/src/index.ts",
+      "packages/schemas/tsconfig.json",
+      "pi_native_factory_support_research.md",
+      "tests/constitution.test.mjs",
+      "tsconfig.json"
+    ],
+    "instructionFiles": [
+      "README.md"
+    ],
+    "manifests": [
+      "package.json",
+      "packages/adapters/pi/package.json",
+      "packages/adapters/pi/tsconfig.json",
+      "packages/core/package.json",
+      "packages/core/tsconfig.json",
+      "packages/executors/fake/package.json",
+      "packages/executors/fake/tsconfig.json",
+      "packages/executors/pi/package.json",
+      "packages/executors/pi/tsconfig.json",
+      "packages/schemas/package.json",
+      "packages/schemas/tsconfig.json",
+      "tsconfig.json"
+    ],
+    "lockfiles": [
+      "package-lock.json"
+    ],
+    "ciFiles": [],
+    "testFiles": [
+      "tests/constitution.test.mjs"
+    ],
+    "dockerFiles": [],
+    "sourceFiles": [
+      "packages/adapters/pi/package.json",
+      "packages/adapters/pi/src/extension.ts",
+      "packages/adapters/pi/src/gateway.ts",
+      "packages/adapters/pi/src/index.ts",
+      "packages/adapters/pi/src/types.ts",
+      "packages/adapters/pi/tsconfig.json",
+      "packages/core/package.json",
+      "packages/core/src/config/defaults.ts",
+      "packages/core/src/config/loader.ts",
+      "packages/core/src/config/merge.ts",
+      "packages/core/src/config/paths.ts",
+      "packages/core/src/config/validate.ts",
+      "packages/core/src/constitution/areas.ts",
+      "packages/core/src/constitution/context.ts",
+      "packages/core/src/constitution/discovery.ts",
+      "packages/core/src/constitution/evaluators/api.ts",
+      "packages/core/src/constitution/evaluators/architecture.ts",
+      "packages/core/src/constitution/evaluators/cicd.ts",
+      "packages/core/src/constitution/evaluators/data.ts",
+      "packages/core/src/constitution/evaluators/dependencies.ts",
+      "packages/core/src/constitution/evaluators/foundation.ts",
+      "packages/core/src/constitution/evaluators/governance.ts",
+      "packages/core/src/constitution/evaluators/maintainability.ts",
+      "packages/core/src/constitution/evaluators/observability.ts",
+      "packages/core/src/constitution/evaluators/reliability.ts",
+      "packages/core/src/constitution/evaluators/security.ts",
+      "packages/core/src/constitution/evaluators/shared.ts",
+      "packages/core/src/constitution/evaluators/style.ts",
+      "packages/core/src/constitution/evaluators/testing.ts",
+      "packages/core/src/constitution/evaluators/tooling.ts",
+      "packages/core/src/constitution/index.ts",
+      "packages/core/src/constitution/refresh.ts",
+      "packages/core/src/constitution/render.ts",
+      "packages/core/src/constitution/scan.ts",
+      "packages/core/src/constitution/types.ts",
+      "packages/core/src/doctor/check.ts",
+      "packages/core/src/doctor/index.ts",
+      "packages/core/src/git/index.ts",
+      "packages/core/src/git/worktree.ts",
+      "packages/core/src/index.ts",
+      "packages/core/src/project/discovery.ts",
+      "packages/core/src/runs/cancel.ts",
+      "packages/core/src/runs/cleanup.ts",
+      "packages/core/src/runs/index.ts",
+      "packages/core/src/runs/inspect.ts",
+      "packages/core/src/runs/list.ts",
+      "packages/core/src/runs/logs-by-id.ts",
+      "packages/core/src/runs/logs.ts",
+      "packages/core/src/runs/resume.ts",
+      "packages/core/src/runs/show.ts",
+      "packages/core/src/runs/status.ts",
+      "packages/core/src/runs/store.ts",
+      "packages/core/src/runs/summary.ts",
+      "packages/core/src/runtime/artifacts.ts",
+      "packages/core/src/runtime/controller.ts",
+      "packages/core/src/runtime/harness.ts",
+      "packages/core/src/runtime/index.ts",
+      "packages/core/src/runtime/interfaces.ts",
+      "packages/core/src/runtime/planner.ts",
+      "packages/core/src/runtime/prototype.ts",
+      "packages/core/src/runtime/tasks.ts",
+      "packages/core/src/runtime/verification.ts",
+      "packages/core/src/setup/index.ts",
+      "packages/core/src/setup/init.ts",
+      "packages/core/tsconfig.json",
+      "packages/executors/fake/package.json",
+      "packages/executors/fake/src/index.ts",
+      "packages/executors/fake/tsconfig.json",
+      "packages/executors/pi/package.json",
+      "packages/executors/pi/src/executor.d.ts",
+      "packages/executors/pi/src/executor.d.ts.map",
+      "packages/executors/pi/src/executor.js",
+      "packages/executors/pi/src/executor.ts",
+      "packages/executors/pi/src/factory.d.ts",
+      "packages/executors/pi/src/factory.d.ts.map",
+      "packages/executors/pi/src/factory.js",
+      "packages/executors/pi/src/factory.ts",
+      "packages/executors/pi/src/fake-session-factory.d.ts",
+      "packages/executors/pi/src/fake-session-factory.d.ts.map",
+      "packages/executors/pi/src/fake-session-factory.js",
+      "packages/executors/pi/src/fake-session-factory.ts",
+      "packages/executors/pi/src/harness.d.ts",
+      "packages/executors/pi/src/harness.d.ts.map",
+      "packages/executors/pi/src/harness.js",
+      "packages/executors/pi/src/harness.ts",
+      "packages/executors/pi/src/index.d.ts",
+      "packages/executors/pi/src/index.d.ts.map",
+      "packages/executors/pi/src/index.js",
+      "packages/executors/pi/src/index.ts",
+      "packages/executors/pi/src/runtime-harness.d.ts",
+      "packages/executors/pi/src/runtime-harness.d.ts.map",
+      "packages/executors/pi/src/runtime-harness.js",
+      "packages/executors/pi/src/runtime-harness.ts",
+      "packages/executors/pi/src/sdk-factory.d.ts",
+      "packages/executors/pi/src/sdk-factory.d.ts.map",
+      "packages/executors/pi/src/sdk-factory.js",
+      "packages/executors/pi/src/sdk-factory.ts",
+      "packages/executors/pi/src/types.d.ts",
+      "packages/executors/pi/src/types.d.ts.map",
+      "packages/executors/pi/src/types.js",
+      "packages/executors/pi/src/types.ts",
+      "packages/executors/pi/tsconfig.json",
+      "packages/schemas/package.json",
+      "packages/schemas/src/config.ts",
+      "packages/schemas/src/index.ts",
+      "packages/schemas/tsconfig.json"
+    ],
+    "docsFiles": [
+      "README.md"
+    ],
+    "scriptFiles": [],
+    "generatedFiles": [],
+    "assetFiles": [],
+    "envFiles": [],
+    "versionFiles": [
+      "package.json",
+      "packages/adapters/pi/package.json",
+      "packages/core/package.json",
+      "packages/executors/fake/package.json",
+      "packages/executors/pi/package.json",
+      "packages/schemas/package.json"
+    ],
+    "lintFiles": [],
+    "formatFiles": [],
+    "typecheckFiles": [
+      "packages/adapters/pi/tsconfig.json",
+      "packages/core/tsconfig.json",
+      "packages/executors/fake/tsconfig.json",
+      "packages/executors/pi/tsconfig.json",
+      "packages/schemas/tsconfig.json",
+      "tsconfig.json"
+    ],
+    "apiFiles": [],
+    "dataFiles": [],
+    "languages": [
+      "JavaScript",
+      "TypeScript"
+    ],
+    "packageManagers": [
+      "npm"
+    ],
+    "commands": {
+      "build": "tsc -b",
+      "typecheck": "tsc -b --pretty false",
+      "test": "npm run build && node --test tests/**/*.test.mjs",
+      "harness:pi-executor": "node packages/executors/pi/dist/harness.js",
+      "harness:pi-runtime": "node packages/executors/pi/dist/runtime-harness.js"
+    }
+  },
+  "areas": [
+    {
+      "id": 1,
+      "title": "Repository layout",
+      "status": "DEFINED",
+      "finding": "Tracked repository with 120 files and source roots in packages.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages",
+          "detail": "source root"
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Tracked repository with 120 files and source roots in packages.",
+          "kind": "observed",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages",
+              "detail": "source root"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ],
+      "driftWarnings": [
+        "Finding changed for this impacted area during refresh."
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Monorepo / single-project model",
+      "status": "DEFINED",
+      "confidence": "HIGH",
+      "finding": "Root `package.json` declares `workspaces: [\"packages/*\"]`, and root `tsconfig.json` references multiple package projects, so the repository model is explicitly a monorepo.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "package.json",
+          "detail": "workspace/manifests"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/package.json",
+          "detail": "workspace/manifests"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/tsconfig.json",
+          "detail": "workspace/manifests"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/package.json",
+          "detail": "workspace/manifests"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/tsconfig.json",
+          "detail": "workspace/manifests"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/fake/package.json",
+          "detail": "workspace/manifests"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/fake/tsconfig.json",
+          "detail": "workspace/manifests"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/package.json",
+          "detail": "workspace/manifests"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/tsconfig.json",
+          "detail": "workspace/manifests"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas/package.json",
+          "detail": "workspace/manifests"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas/tsconfig.json",
+          "detail": "workspace/manifests"
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "detail": "workspace/manifests"
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Root `package.json` declares `workspaces: [\"packages/*\"]`, and root `tsconfig.json` references multiple package projects, so the repository model is explicitly a monorepo.",
+          "kind": "observed",
+          "confidence": "HIGH",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "package.json",
+              "detail": "workspace/manifests"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/package.json",
+              "detail": "workspace/manifests"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/tsconfig.json",
+              "detail": "workspace/manifests"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/package.json",
+              "detail": "workspace/manifests"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/tsconfig.json",
+              "detail": "workspace/manifests"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/fake/package.json",
+              "detail": "workspace/manifests"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/fake/tsconfig.json",
+              "detail": "workspace/manifests"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/package.json",
+              "detail": "workspace/manifests"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/tsconfig.json",
+              "detail": "workspace/manifests"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas/package.json",
+              "detail": "workspace/manifests"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas/tsconfig.json",
+              "detail": "workspace/manifests"
+            },
+            {
+              "kind": "file",
+              "path": "tsconfig.json",
+              "detail": "workspace/manifests"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Source directory organization",
+      "status": "DEFINED",
+      "finding": "Detected source roots: packages.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages",
+          "detail": "source organization"
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Detected source roots: packages.",
+          "kind": "observed",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages",
+              "detail": "source organization"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ],
+      "driftWarnings": [
+        "Finding changed for this impacted area during refresh."
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Test directory organization",
+      "status": "DEFINED",
+      "confidence": "HIGH",
+      "finding": "Test organization is explicitly evidenced by root `tests/` and `tests/constitution.test.mjs`, with root `package.json` running `node --test tests/**/*.test.mjs`.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "tests/constitution.test.mjs",
+          "detail": "test organization"
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Test organization is explicitly evidenced by root `tests/` and `tests/constitution.test.mjs`, with root `package.json` running `node --test tests/**/*.test.mjs`.",
+          "kind": "observed",
+          "confidence": "HIGH",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "tests/constitution.test.mjs",
+              "detail": "test organization"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Documentation organization",
+      "status": "DEFINED",
+      "finding": "Detected documentation files in README.md.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "documentation file"
+        }
+      ],
+      "claims": [
+        {
+          "kind": "observed",
+          "statement": "Detected documentation files in README.md.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "documentation file"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Script/tool directory organization",
+      "status": "NOT_DEFINED",
+      "finding": "No dedicated scripts/tools directories detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No dedicated scripts/tools directories detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Generated/build directory handling",
+      "status": "NOT_DEFINED",
+      "finding": "No generated/build output handling evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "statement": "No generated/build output handling evidence detected.",
+          "kind": "unknown",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ],
+      "driftWarnings": [
+        "Status changed from INFERRED to NOT_DEFINED based on current repository evidence."
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Asset/static file organization",
+      "status": "NOT_APPLICABLE",
+      "finding": "No obvious asset/static file organization detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No obvious asset/static file organization detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Package/dependency manager",
+      "status": "DEFINED",
+      "finding": "Detected package managers: npm.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "package.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/package.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/tsconfig.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/package.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/tsconfig.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/fake/package.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/fake/tsconfig.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/package.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/tsconfig.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas/package.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas/tsconfig.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "detail": "package manager evidence"
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "detail": "package manager evidence"
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Detected package managers: npm.",
+          "kind": "observed",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "package.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/package.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/tsconfig.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/package.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/tsconfig.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/fake/package.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/fake/tsconfig.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/package.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/tsconfig.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas/package.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas/tsconfig.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "tsconfig.json",
+              "detail": "package manager evidence"
+            },
+            {
+              "kind": "file",
+              "path": "package-lock.json",
+              "detail": "package manager evidence"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ],
+      "driftWarnings": [
+        "Finding changed for this impacted area during refresh."
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Manifest files",
+      "status": "DEFINED",
+      "finding": "Detected manifests: package.json, packages/adapters/pi/package.json, packages/adapters/pi/tsconfig.json, packages/core/package.json, packages/core/tsconfig.json, packages/executors/fake/package.json, packages/executors/fake/tsconfig.json, packages/executors/pi/package.json, packages/executors/pi/tsconfig.json, packages/schemas/package.json, packages/schemas/tsconfig.json, tsconfig.json.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "package.json",
+          "detail": "manifest file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/package.json",
+          "detail": "manifest file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/tsconfig.json",
+          "detail": "manifest file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/package.json",
+          "detail": "manifest file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/tsconfig.json",
+          "detail": "manifest file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/fake/package.json",
+          "detail": "manifest file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/fake/tsconfig.json",
+          "detail": "manifest file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/package.json",
+          "detail": "manifest file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/tsconfig.json",
+          "detail": "manifest file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas/package.json",
+          "detail": "manifest file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas/tsconfig.json",
+          "detail": "manifest file"
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "detail": "manifest file"
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Detected manifests: package.json, packages/adapters/pi/package.json, packages/adapters/pi/tsconfig.json, packages/core/package.json, packages/core/tsconfig.json, packages/executors/fake/package.json, packages/executors/fake/tsconfig.json, packages/executors/pi/package.json, packages/executors/pi/tsconfig.json, packages/schemas/package.json, packages/schemas/tsconfig.json, tsconfig.json.",
+          "kind": "observed",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "package.json",
+              "detail": "manifest file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/package.json",
+              "detail": "manifest file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/tsconfig.json",
+              "detail": "manifest file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/package.json",
+              "detail": "manifest file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/tsconfig.json",
+              "detail": "manifest file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/fake/package.json",
+              "detail": "manifest file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/fake/tsconfig.json",
+              "detail": "manifest file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/package.json",
+              "detail": "manifest file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/tsconfig.json",
+              "detail": "manifest file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas/package.json",
+              "detail": "manifest file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas/tsconfig.json",
+              "detail": "manifest file"
+            },
+            {
+              "kind": "file",
+              "path": "tsconfig.json",
+              "detail": "manifest file"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ],
+      "driftWarnings": [
+        "Finding changed for this impacted area during refresh."
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Lockfile strategy",
+      "status": "DEFINED",
+      "finding": "Detected lockfiles: package-lock.json.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "detail": "lockfile"
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Detected lockfiles: package-lock.json.",
+          "kind": "observed",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "package-lock.json",
+              "detail": "lockfile"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ],
+      "driftWarnings": [
+        "Finding changed for this impacted area during refresh."
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Dependency version policy",
+      "status": "INFERRED",
+      "finding": "Dependency versioning policy is implied by lockfiles and/or manifest version expressions in package.json, packages/core/package.json, package-lock.json.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "package.json",
+          "detail": "^0"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/package.json",
+          "detail": "^2"
+        },
+        {
+          "kind": "file",
+          "path": "package-lock.json",
+          "detail": "lockfile"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Dependency versioning policy is implied by lockfiles and/or manifest version expressions in package.json, packages/core/package.json, package-lock.json.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "package.json",
+              "detail": "^0"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/package.json",
+              "detail": "^2"
+            },
+            {
+              "kind": "file",
+              "path": "package-lock.json",
+              "detail": "lockfile"
+            }
+          ],
+          "criticWarnings": [
+            "Claim appears generic enough to fit unrelated repositories."
+          ]
+        }
+      ],
+      "criticWarnings": [
+        "Finding is generic or placeholder-like; deepen evidence before trusting this area."
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Private registry/package source usage",
+      "status": "NOT_DEFINED",
+      "finding": "No private registry or package-source override evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No private registry or package-source override evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Dependency vulnerability/licensing controls",
+      "status": "NOT_DEFINED",
+      "finding": "No dependency vulnerability or licensing control evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No dependency vulnerability or licensing control evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Environment separation",
+      "status": "NOT_DEFINED",
+      "finding": "No environment separation files detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No environment separation files detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Environment variable conventions",
+      "status": "NOT_DEFINED",
+      "finding": "No environment variable convention evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No environment variable convention evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Secrets handling",
+      "status": "NOT_DEFINED",
+      "finding": "No secrets handling evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "statement": "No secrets handling evidence detected.",
+          "kind": "unknown",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ],
+      "driftWarnings": [
+        "Status changed from INFERRED to NOT_DEFINED based on current repository evidence."
+      ]
+    },
+    {
+      "id": 18,
+      "title": "Configuration hierarchy",
+      "status": "INFERRED",
+      "finding": "Configuration precedence or override layering is documented in README.md.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "built-ins < global defaults < project config < run overrides"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Configuration precedence or override layering is documented in README.md.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "built-ins < global defaults < project config < run overrides"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Runtime/language version pinning",
+      "status": "DEFINED",
+      "finding": "Detected runtime/version pinning evidence in package.json, packages/adapters/pi/package.json, packages/core/package.json, packages/executors/fake/package.json, packages/executors/pi/package.json, packages/schemas/package.json.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "package.json",
+          "detail": "runtime/version file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/package.json",
+          "detail": "runtime/version file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/package.json",
+          "detail": "runtime/version file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/fake/package.json",
+          "detail": "runtime/version file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/package.json",
+          "detail": "runtime/version file"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas/package.json",
+          "detail": "runtime/version file"
+        }
+      ],
+      "claims": [
+        {
+          "kind": "observed",
+          "statement": "Detected runtime/version pinning evidence in package.json, packages/adapters/pi/package.json, packages/core/package.json, packages/executors/fake/package.json, packages/executors/pi/package.json, packages/schemas/package.json.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "package.json",
+              "detail": "runtime/version file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/package.json",
+              "detail": "runtime/version file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/package.json",
+              "detail": "runtime/version file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/fake/package.json",
+              "detail": "runtime/version file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/package.json",
+              "detail": "runtime/version file"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas/package.json",
+              "detail": "runtime/version file"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Local development bootstrap",
+      "status": "DEFINED",
+      "finding": "Repository bootstrap/developer commands are script-driven: build, typecheck, test, harness:pi-executor, harness:pi-runtime.",
+      "evidence": [
+        {
+          "kind": "pattern",
+          "detail": "build: tsc -b"
+        },
+        {
+          "kind": "pattern",
+          "detail": "typecheck: tsc -b --pretty false"
+        },
+        {
+          "kind": "pattern",
+          "detail": "test: npm run build && node --test tests/**/*.test.mjs"
+        },
+        {
+          "kind": "pattern",
+          "detail": "harness:pi-executor: node packages/executors/pi/dist/harness.js"
+        },
+        {
+          "kind": "pattern",
+          "detail": "harness:pi-runtime: node packages/executors/pi/dist/runtime-harness.js"
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Repository bootstrap/developer commands are script-driven: build, typecheck, test, harness:pi-executor, harness:pi-runtime.",
+          "kind": "observed",
+          "evidence": [
+            {
+              "kind": "pattern",
+              "detail": "build: tsc -b"
+            },
+            {
+              "kind": "pattern",
+              "detail": "typecheck: tsc -b --pretty false"
+            },
+            {
+              "kind": "pattern",
+              "detail": "test: npm run build && node --test tests/**/*.test.mjs"
+            },
+            {
+              "kind": "pattern",
+              "detail": "harness:pi-executor: node packages/executors/pi/dist/harness.js"
+            },
+            {
+              "kind": "pattern",
+              "detail": "harness:pi-runtime: node packages/executors/pi/dist/runtime-harness.js"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ],
+      "driftWarnings": [
+        "Finding changed for this impacted area during refresh."
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Containerized development/runtime configuration",
+      "status": "NOT_APPLICABLE",
+      "finding": "No containerized runtime configuration detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No containerized runtime configuration detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "title": "File naming conventions",
+      "status": "INFERRED",
+      "finding": "File names commonly use kebab-case patterns such as packages/core/src/runs/logs-by-id.ts, packages/executors/pi/src/fake-session-factory.js, packages/executors/pi/src/fake-session-factory.ts, packages/executors/pi/src/runtime-harness.js, packages/executors/pi/src/runtime-harness.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/logs-by-id.ts",
+          "detail": "kebab-case file name"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/fake-session-factory.js",
+          "detail": "kebab-case file name"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/fake-session-factory.ts",
+          "detail": "kebab-case file name"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/runtime-harness.js",
+          "detail": "kebab-case file name"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "File names commonly use kebab-case patterns such as packages/core/src/runs/logs-by-id.ts, packages/executors/pi/src/fake-session-factory.js, packages/executors/pi/src/fake-session-factory.ts, packages/executors/pi/src/runtime-harness.js, packages/executors/pi/src/runtime-harness.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/logs-by-id.ts",
+              "detail": "kebab-case file name"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/fake-session-factory.js",
+              "detail": "kebab-case file name"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/fake-session-factory.ts",
+              "detail": "kebab-case file name"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/runtime-harness.js",
+              "detail": "kebab-case file name"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "Type/class/component naming",
+      "status": "INFERRED",
+      "finding": "Types, interfaces, or classes commonly use PascalCase identifiers.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/types.ts",
+          "detail": "interface FactoryPiUi"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "interface LoadedFactoryConfig"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/areas.ts",
+          "detail": "interface ConstitutionAreaDefinition"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/evaluators/shared.ts",
+          "detail": "interface ConstitutionEvaluationContext"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/executor.d.ts",
+          "detail": "class PiAgentExecutor"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/executor.js",
+          "detail": "class PiAgentExecutor"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/executor.ts",
+          "detail": "class PiAgentExecutor"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/fake-session-factory.js",
+          "detail": "class FakePiSession"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Types, interfaces, or classes commonly use PascalCase identifiers.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/types.ts",
+              "detail": "interface FactoryPiUi"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "interface LoadedFactoryConfig"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/areas.ts",
+              "detail": "interface ConstitutionAreaDefinition"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/evaluators/shared.ts",
+              "detail": "interface ConstitutionEvaluationContext"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/executor.d.ts",
+              "detail": "class PiAgentExecutor"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/executor.js",
+              "detail": "class PiAgentExecutor"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/executor.ts",
+              "detail": "class PiAgentExecutor"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/fake-session-factory.js",
+              "detail": "class FakePiSession"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "title": "Variable/function naming",
+      "status": "INFERRED",
+      "finding": "Functions and local identifiers commonly use camelCase names.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/extension.ts",
+          "detail": "function registerFactoryPiExtension"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "function getFactoryCommandCompletions"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "function loadEffectiveConfig"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/merge.ts",
+          "detail": "function mergeConfigLayers"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/paths.ts",
+          "detail": "function buildProjectPaths"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/validate.ts",
+          "detail": "function validateEffectiveConfig"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/areas.ts",
+          "detail": "function naming"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/context.ts",
+          "detail": "function selectConstitutionContext"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Functions and local identifiers commonly use camelCase names.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/extension.ts",
+              "detail": "function registerFactoryPiExtension"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "function getFactoryCommandCompletions"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "function loadEffectiveConfig"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/merge.ts",
+              "detail": "function mergeConfigLayers"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/paths.ts",
+              "detail": "function buildProjectPaths"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/validate.ts",
+              "detail": "function validateEffectiveConfig"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/areas.ts",
+              "detail": "function naming"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/context.ts",
+              "detail": "function selectConstitutionContext"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "title": "Constant naming",
+      "status": "INFERRED",
+      "finding": "Some constants use SCREAMING_SNAKE_CASE identifiers.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "const FACTORY_WIDGET_ID"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/areas.ts",
+          "detail": "const CONSTITUTION_AREA_DEFINITIONS"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/discovery.ts",
+          "detail": "const execFileAsync"
+        }
+      ],
+      "confidence": "LOW",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "LOW",
+          "statement": "Some constants use SCREAMING_SNAKE_CASE identifiers.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "const FACTORY_WIDGET_ID"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/areas.ts",
+              "detail": "const CONSTITUTION_AREA_DEFINITIONS"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/discovery.ts",
+              "detail": "const execFileAsync"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "title": "Import/export conventions",
+      "status": "DEFINED",
+      "confidence": "HIGH",
+      "finding": "Modules consistently use ES module import/export syntax.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/extension.ts",
+          "detail": "import type { FactoryPiExtensionApiLike } from \"./types.js\""
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "import {\n  discoverFactoryProject,\n  initializeFactoryProject,\n  loadEffectiveConfig,\n  cancelLatestFactoryRun,\n  cleanupFactoryRuns,\n  createGitWorktree,\n  inspectFactoryRun,\n  runConstitutionScan,\n  inspectGitIsolation,\n  listFactoryRuns,\n  readFactoryRunLogs,\n  readLatestFactoryRunLogs,\n  readLatestFactoryRunStatus,\n  readLatestFactoryRunSummary,\n  resumeLatestFactoryRun,\n  runFactoryDoctor,\n  runPrototypeFactoryFlow,\n  showFactoryRun,\n  type AgentExecutor,\n  type FactoryRunProgressEvent,\n} from \"@factory/core\""
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/types.ts",
+          "detail": "export interface"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/defaults.ts",
+          "detail": "import type { FactoryBuiltInDefaults } from \"@factory/schemas\""
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "import fs from \"node:fs/promises\""
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/merge.ts",
+          "detail": "import type {\n  EffectiveFactoryConfig,\n  FactoryBuiltInDefaults,\n  GlobalFactoryConfig,\n  ProjectFactoryConfig,\n  RunOverrides,\n  WorkflowConfig,\n} from \"@factory/schemas\""
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/paths.ts",
+          "detail": "import path from \"node:path\""
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/validate.ts",
+          "detail": "import type { EffectiveFactoryConfig } from \"@factory/schemas\""
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Modules consistently use ES module import/export syntax.",
+          "kind": "observed",
+          "confidence": "HIGH",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/extension.ts",
+              "detail": "import type { FactoryPiExtensionApiLike } from \"./types.js\""
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "import {\n  discoverFactoryProject,\n  initializeFactoryProject,\n  loadEffectiveConfig,\n  cancelLatestFactoryRun,\n  cleanupFactoryRuns,\n  createGitWorktree,\n  inspectFactoryRun,\n  runConstitutionScan,\n  inspectGitIsolation,\n  listFactoryRuns,\n  readFactoryRunLogs,\n  readLatestFactoryRunLogs,\n  readLatestFactoryRunStatus,\n  readLatestFactoryRunSummary,\n  resumeLatestFactoryRun,\n  runFactoryDoctor,\n  runPrototypeFactoryFlow,\n  showFactoryRun,\n  type AgentExecutor,\n  type FactoryRunProgressEvent,\n} from \"@factory/core\""
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/types.ts",
+              "detail": "export interface"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/defaults.ts",
+              "detail": "import type { FactoryBuiltInDefaults } from \"@factory/schemas\""
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "import fs from \"node:fs/promises\""
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/merge.ts",
+              "detail": "import type {\n  EffectiveFactoryConfig,\n  FactoryBuiltInDefaults,\n  GlobalFactoryConfig,\n  ProjectFactoryConfig,\n  RunOverrides,\n  WorkflowConfig,\n} from \"@factory/schemas\""
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/paths.ts",
+              "detail": "import path from \"node:path\""
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/validate.ts",
+              "detail": "import type { EffectiveFactoryConfig } from \"@factory/schemas\""
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "title": "In-file organization",
+      "status": "INFERRED",
+      "finding": "Files typically start with imports and expose named exports, suggesting conventional in-file organization.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/extension.ts",
+          "detail": "imports/exports present"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "imports/exports present"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/types.ts",
+          "detail": "imports/exports present"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/defaults.ts",
+          "detail": "imports/exports present"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "imports/exports present"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/merge.ts",
+          "detail": "imports/exports present"
+        }
+      ],
+      "confidence": "LOW",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "LOW",
+          "statement": "Files typically start with imports and expose named exports, suggesting conventional in-file organization.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/extension.ts",
+              "detail": "imports/exports present"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "imports/exports present"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/types.ts",
+              "detail": "imports/exports present"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/defaults.ts",
+              "detail": "imports/exports present"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "imports/exports present"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/merge.ts",
+              "detail": "imports/exports present"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "title": "File size conventions",
+      "status": "INFERRED",
+      "finding": "Repository appears to prefer multiple smaller source files over a single monolithic entrypoint, but explicit file size limits are not enforced.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/extension.ts",
+          "detail": "source file sample"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "source file sample"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/index.ts",
+          "detail": "source file sample"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/types.ts",
+          "detail": "source file sample"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/defaults.ts",
+          "detail": "source file sample"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "source file sample"
+        }
+      ],
+      "confidence": "LOW",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "LOW",
+          "statement": "Repository appears to prefer multiple smaller source files over a single monolithic entrypoint, but explicit file size limits are not enforced.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/extension.ts",
+              "detail": "source file sample"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "source file sample"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/index.ts",
+              "detail": "source file sample"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/types.ts",
+              "detail": "source file sample"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/defaults.ts",
+              "detail": "source file sample"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "source file sample"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "title": "Function/method size conventions",
+      "status": "UNCERTAIN",
+      "finding": "Functions are present, but deterministic function-size enforcement is not explicitly detectable from current heuristics.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/extension.ts",
+          "detail": "function sample"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "function sample"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "function sample"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/merge.ts",
+          "detail": "function sample"
+        }
+      ],
+      "confidence": "LOW",
+      "claims": [
+        {
+          "kind": "unknown",
+          "confidence": "LOW",
+          "statement": "Functions are present, but deterministic function-size enforcement is not explicitly detectable from current heuristics.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/extension.ts",
+              "detail": "function sample"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "function sample"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "function sample"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/merge.ts",
+              "detail": "function sample"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "title": "Comment/documentation conventions",
+      "status": "INFERRED",
+      "finding": "Repository uses inline comments and/or markdown documentation files for developer guidance.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/discovery.ts",
+          "detail": "//"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/evaluators/api.ts",
+          "detail": "//"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/evaluators/architecture.ts",
+          "detail": "//"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/evaluators/data.ts",
+          "detail": "//"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/evaluators/maintainability.ts",
+          "detail": "//"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/evaluators/observability.ts",
+          "detail": "//"
+        },
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "markdown documentation file"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Repository uses inline comments and/or markdown documentation files for developer guidance.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/discovery.ts",
+              "detail": "//"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/evaluators/api.ts",
+              "detail": "//"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/evaluators/architecture.ts",
+              "detail": "//"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/evaluators/data.ts",
+              "detail": "//"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/evaluators/maintainability.ts",
+              "detail": "//"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/evaluators/observability.ts",
+              "detail": "//"
+            },
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "markdown documentation file"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "title": "TODO/FIXME/HACK conventions",
+      "status": "INFERRED",
+      "finding": "TODO/FIXME/HACK markers are used in files such as packages/core/src/constitution/areas.ts, packages/core/src/constitution/evaluators/maintainability.ts, packages/core/src/constitution/evaluators/style.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/areas.ts",
+          "detail": "TODO"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/evaluators/maintainability.ts",
+          "detail": "TODO"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/evaluators/style.ts",
+          "detail": "todo"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "TODO/FIXME/HACK markers are used in files such as packages/core/src/constitution/areas.ts, packages/core/src/constitution/evaluators/maintainability.ts, packages/core/src/constitution/evaluators/style.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/areas.ts",
+              "detail": "TODO"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/evaluators/maintainability.ts",
+              "detail": "TODO"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/evaluators/style.ts",
+              "detail": "todo"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "title": "Overall application architecture",
+      "status": "INFERRED",
+      "finding": "Repository is organized into multiple top-level packages such as packages/adapters, packages/core, packages/executors, packages/schemas, suggesting a modular package-based architecture.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters",
+          "detail": "top-level package/module"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core",
+          "detail": "top-level package/module"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors",
+          "detail": "top-level package/module"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas",
+          "detail": "top-level package/module"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Repository is organized into multiple top-level packages such as packages/adapters, packages/core, packages/executors, packages/schemas, suggesting a modular package-based architecture.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters",
+              "detail": "top-level package/module"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core",
+              "detail": "top-level package/module"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors",
+              "detail": "top-level package/module"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas",
+              "detail": "top-level package/module"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "title": "Module/package boundaries",
+      "status": "DEFINED",
+      "finding": "Package/module boundaries are explicit via directories and TypeScript project references.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters",
+          "detail": "package boundary"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core",
+          "detail": "package boundary"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors",
+          "detail": "package boundary"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas",
+          "detail": "package boundary"
+        },
+        {
+          "kind": "file",
+          "detail": "tsconfig reference: ./packages/schemas"
+        },
+        {
+          "kind": "file",
+          "detail": "tsconfig reference: ./packages/core"
+        },
+        {
+          "kind": "file",
+          "detail": "tsconfig reference: ./packages/adapters/pi"
+        },
+        {
+          "kind": "file",
+          "detail": "tsconfig reference: ./packages/executors/fake"
+        },
+        {
+          "kind": "file",
+          "detail": "tsconfig reference: ./packages/executors/pi"
+        }
+      ],
+      "confidence": "HIGH",
+      "claims": [
+        {
+          "kind": "observed",
+          "confidence": "HIGH",
+          "statement": "Package/module boundaries are explicit via directories and TypeScript project references.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters",
+              "detail": "package boundary"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core",
+              "detail": "package boundary"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors",
+              "detail": "package boundary"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas",
+              "detail": "package boundary"
+            },
+            {
+              "kind": "file",
+              "detail": "tsconfig reference: ./packages/schemas"
+            },
+            {
+              "kind": "file",
+              "detail": "tsconfig reference: ./packages/core"
+            },
+            {
+              "kind": "file",
+              "detail": "tsconfig reference: ./packages/adapters/pi"
+            },
+            {
+              "kind": "file",
+              "detail": "tsconfig reference: ./packages/executors/fake"
+            },
+            {
+              "kind": "file",
+              "detail": "tsconfig reference: ./packages/executors/pi"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "title": "Layering/dependency direction",
+      "status": "INFERRED",
+      "finding": "Adapters and executors import core packages, suggesting inward dependency direction toward shared core logic.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "imports @factory/core"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "cross-package import @factory/core"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/defaults.ts",
+          "detail": "cross-package import @factory/schemas"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "cross-package import @factory/schemas"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/merge.ts",
+          "detail": "cross-package import @factory/schemas"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Adapters and executors import core packages, suggesting inward dependency direction toward shared core logic.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "imports @factory/core"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "cross-package import @factory/core"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/defaults.ts",
+              "detail": "cross-package import @factory/schemas"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "cross-package import @factory/schemas"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/merge.ts",
+              "detail": "cross-package import @factory/schemas"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "title": "Feature/domain organization",
+      "status": "INFERRED",
+      "finding": "Code is partitioned by package/function (for example packages/adapters, packages/core, packages/executors, packages/schemas) more than by a single flat source tree.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters",
+          "detail": "feature/domain package"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core",
+          "detail": "feature/domain package"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors",
+          "detail": "feature/domain package"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas",
+          "detail": "feature/domain package"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Code is partitioned by package/function (for example packages/adapters, packages/core, packages/executors, packages/schemas) more than by a single flat source tree.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters",
+              "detail": "feature/domain package"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core",
+              "detail": "feature/domain package"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors",
+              "detail": "feature/domain package"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas",
+              "detail": "feature/domain package"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "title": "Shared/common code strategy",
+      "status": "INFERRED",
+      "finding": "Shared logic appears centralized in reusable core/schema packages rather than duplicated per adapter.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/core/package.json",
+          "detail": "shared/common path"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/defaults.ts",
+          "detail": "shared/common path"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "shared/common path"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/merge.ts",
+          "detail": "shared/common path"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/paths.ts",
+          "detail": "shared/common path"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/validate.ts",
+          "detail": "shared/common path"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core",
+          "detail": "shared package"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas",
+          "detail": "shared package"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Shared logic appears centralized in reusable core/schema packages rather than duplicated per adapter.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/core/package.json",
+              "detail": "shared/common path"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/defaults.ts",
+              "detail": "shared/common path"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "shared/common path"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/merge.ts",
+              "detail": "shared/common path"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/paths.ts",
+              "detail": "shared/common path"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/validate.ts",
+              "detail": "shared/common path"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core",
+              "detail": "shared package"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas",
+              "detail": "shared package"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "title": "Dependency injection/inversion approach",
+      "status": "INFERRED",
+      "finding": "Factory/session abstractions suggest dependency injection via interchangeable factories and executors.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/factory.ts",
+          "detail": "factory/injection boundary"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/fake-session-factory.ts",
+          "detail": "factory/injection boundary"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/sdk-factory.ts",
+          "detail": "factory/injection boundary"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Factory/session abstractions suggest dependency injection via interchangeable factories and executors.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/factory.ts",
+              "detail": "factory/injection boundary"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/fake-session-factory.ts",
+              "detail": "factory/injection boundary"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/sdk-factory.ts",
+              "detail": "factory/injection boundary"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "title": "Cross-module communication rules",
+      "status": "INFERRED",
+      "finding": "Cross-module communication is primarily expressed through package imports such as @factory/core, @factory/schemas, @factory/schemas, @factory/schemas, @factory/schemas.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "imports @factory/core"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/defaults.ts",
+          "detail": "imports @factory/schemas"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "imports @factory/schemas"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/merge.ts",
+          "detail": "imports @factory/schemas"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/paths.ts",
+          "detail": "imports @factory/schemas"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/validate.ts",
+          "detail": "imports @factory/schemas"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/project/discovery.ts",
+          "detail": "imports @factory/schemas"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/store.ts",
+          "detail": "imports @factory/schemas"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Cross-module communication is primarily expressed through package imports such as @factory/core, @factory/schemas, @factory/schemas, @factory/schemas, @factory/schemas.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "imports @factory/core"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/defaults.ts",
+              "detail": "imports @factory/schemas"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "imports @factory/schemas"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/merge.ts",
+              "detail": "imports @factory/schemas"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/paths.ts",
+              "detail": "imports @factory/schemas"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/validate.ts",
+              "detail": "imports @factory/schemas"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/project/discovery.ts",
+              "detail": "imports @factory/schemas"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/store.ts",
+              "detail": "imports @factory/schemas"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "title": "Architectural boundary enforcement",
+      "status": "INFERRED",
+      "finding": "TypeScript project references provide some structural boundary enforcement between packages.",
+      "evidence": [
+        {
+          "kind": "file",
+          "detail": "tsconfig reference: ./packages/schemas"
+        },
+        {
+          "kind": "file",
+          "detail": "tsconfig reference: ./packages/core"
+        },
+        {
+          "kind": "file",
+          "detail": "tsconfig reference: ./packages/adapters/pi"
+        },
+        {
+          "kind": "file",
+          "detail": "tsconfig reference: ./packages/executors/fake"
+        },
+        {
+          "kind": "file",
+          "detail": "tsconfig reference: ./packages/executors/pi"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "relative boundary import ../project/discovery.js"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/evaluators/api.ts",
+          "detail": "relative boundary import ../types.js"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/evaluators/architecture.ts",
+          "detail": "relative boundary import ../types.js"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/constitution/evaluators/cicd.ts",
+          "detail": "relative boundary import ../types.js"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "TypeScript project references provide some structural boundary enforcement between packages.",
+          "evidence": [
+            {
+              "kind": "file",
+              "detail": "tsconfig reference: ./packages/schemas"
+            },
+            {
+              "kind": "file",
+              "detail": "tsconfig reference: ./packages/core"
+            },
+            {
+              "kind": "file",
+              "detail": "tsconfig reference: ./packages/adapters/pi"
+            },
+            {
+              "kind": "file",
+              "detail": "tsconfig reference: ./packages/executors/fake"
+            },
+            {
+              "kind": "file",
+              "detail": "tsconfig reference: ./packages/executors/pi"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "relative boundary import ../project/discovery.js"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/evaluators/api.ts",
+              "detail": "relative boundary import ../types.js"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/evaluators/architecture.ts",
+              "detail": "relative boundary import ../types.js"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/constitution/evaluators/cicd.ts",
+              "detail": "relative boundary import ../types.js"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "title": "API style/protocols",
+      "status": "NOT_APPLICABLE",
+      "finding": "No API files detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No API files detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "title": "Route/endpoint organization",
+      "status": "NOT_APPLICABLE",
+      "finding": "No route or endpoint files detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No route or endpoint files detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "title": "API versioning",
+      "status": "NOT_DEFINED",
+      "finding": "No API versioning evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No API versioning evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "title": "Request validation",
+      "status": "NOT_DEFINED",
+      "finding": "No request validation evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No request validation evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "title": "Response contracts",
+      "status": "NOT_DEFINED",
+      "finding": "No response contract evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No response contract evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "title": "Error response format",
+      "status": "NOT_DEFINED",
+      "finding": "No API error format evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No API error format evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "title": "Pagination/filtering conventions",
+      "status": "NOT_DEFINED",
+      "finding": "No pagination or filtering evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No pagination or filtering evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "title": "Idempotency/rate-limit contract handling",
+      "status": "NOT_DEFINED",
+      "finding": "No idempotency or rate-limit evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No idempotency or rate-limit evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "title": "Database/storage technologies",
+      "status": "NOT_APPLICABLE",
+      "finding": "No database or persistence files detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No database or persistence files detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "title": "ORM/query/data-access approach",
+      "status": "NOT_DEFINED",
+      "finding": "No explicit ORM or query-layer patterns detected in inspected data files.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No explicit ORM or query-layer patterns detected in inspected data files.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "title": "Model/schema organization",
+      "status": "NOT_DEFINED",
+      "finding": "No model or schema organization evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No model or schema organization evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "title": "Migration strategy",
+      "status": "NOT_DEFINED",
+      "finding": "No migration files detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No migration files detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "title": "Transaction boundaries",
+      "status": "NOT_DEFINED",
+      "finding": "No transaction boundary patterns detected in inspected data files.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No transaction boundary patterns detected in inspected data files.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "title": "Query performance conventions",
+      "status": "NOT_DEFINED",
+      "finding": "No explicit query performance convention evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No explicit query performance convention evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "title": "Indexing/data access conventions",
+      "status": "NOT_DEFINED",
+      "finding": "No indexing or access-path evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No indexing or access-path evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "title": "Seed/fixture/reference-data handling",
+      "status": "NOT_DEFINED",
+      "finding": "No seed, fixture, or reference-data files detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No seed, fixture, or reference-data files detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "title": "Error handling conventions",
+      "status": "INFERRED",
+      "finding": "Error handling patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/validate.ts, packages/core/src/doctor/check.ts, packages/core/src/git/worktree.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "try {"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "try {"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/validate.ts",
+          "detail": "throw new Error"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/doctor/check.ts",
+          "detail": "try {"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/git/worktree.ts",
+          "detail": "try {"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/project/discovery.ts",
+          "detail": "try {"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/cleanup.ts",
+          "detail": "try {"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/inspect.ts",
+          "detail": "try {"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Error handling patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/validate.ts, packages/core/src/doctor/check.ts, packages/core/src/git/worktree.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "try {"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "try {"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/validate.ts",
+              "detail": "throw new Error"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/doctor/check.ts",
+              "detail": "try {"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/git/worktree.ts",
+              "detail": "try {"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/project/discovery.ts",
+              "detail": "try {"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/cleanup.ts",
+              "detail": "try {"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/inspect.ts",
+              "detail": "try {"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 57,
+      "title": "Timeout conventions",
+      "status": "INFERRED",
+      "finding": "Timeout or abort-control patterns detected in packages/core/src/runtime/controller.ts, packages/executors/pi/src/executor.ts, packages/executors/pi/src/fake-session-factory.ts, packages/executors/pi/src/sdk-factory.ts, packages/executors/pi/src/types.d.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/controller.ts",
+          "detail": "setTimeout("
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/executor.ts",
+          "detail": "abort("
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/fake-session-factory.ts",
+          "detail": "abort("
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/sdk-factory.ts",
+          "detail": "abort("
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/types.d.ts",
+          "detail": "abort("
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/types.ts",
+          "detail": "abort("
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Timeout or abort-control patterns detected in packages/core/src/runtime/controller.ts, packages/executors/pi/src/executor.ts, packages/executors/pi/src/fake-session-factory.ts, packages/executors/pi/src/sdk-factory.ts, packages/executors/pi/src/types.d.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/controller.ts",
+              "detail": "setTimeout("
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/executor.ts",
+              "detail": "abort("
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/fake-session-factory.ts",
+              "detail": "abort("
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/sdk-factory.ts",
+              "detail": "abort("
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/types.d.ts",
+              "detail": "abort("
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/types.ts",
+              "detail": "abort("
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 58,
+      "title": "Retry/backoff policy",
+      "status": "INFERRED",
+      "finding": "Retry or backoff patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runtime/artifacts.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "maxAttempts"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/defaults.ts",
+          "detail": "maxAttempts"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/merge.ts",
+          "detail": "maxAttempts"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/validate.ts",
+          "detail": "maxAttempts"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/artifacts.ts",
+          "detail": "attempt"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/controller.ts",
+          "detail": "attempt"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/planner.ts",
+          "detail": "maxAttempts"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/setup/init.ts",
+          "detail": "maxAttempts"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Retry or backoff patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runtime/artifacts.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "maxAttempts"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/defaults.ts",
+              "detail": "maxAttempts"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/merge.ts",
+              "detail": "maxAttempts"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/validate.ts",
+              "detail": "maxAttempts"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/artifacts.ts",
+              "detail": "attempt"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/controller.ts",
+              "detail": "attempt"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/planner.ts",
+              "detail": "maxAttempts"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/setup/init.ts",
+              "detail": "maxAttempts"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 59,
+      "title": "Circuit-breaking/failure isolation",
+      "status": "INFERRED",
+      "finding": "Failure-isolation or circuit-breaker patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/git/worktree.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "isolated workspace"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/git/worktree.ts",
+          "detail": "isolated workspace"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Failure-isolation or circuit-breaker patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/git/worktree.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "isolated workspace"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/git/worktree.ts",
+              "detail": "isolated workspace"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "title": "Graceful degradation/fallbacks",
+      "status": "INFERRED",
+      "finding": "Fallback or graceful-degradation language detected in packages/core/src/git/worktree.ts, packages/core/src/runs/resume.ts, README.md.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/core/src/git/worktree.ts",
+          "detail": "working in place"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/resume.ts",
+          "detail": "fallback"
+        },
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "fallback"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Fallback or graceful-degradation language detected in packages/core/src/git/worktree.ts, packages/core/src/runs/resume.ts, README.md.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/core/src/git/worktree.ts",
+              "detail": "working in place"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/resume.ts",
+              "detail": "fallback"
+            },
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "fallback"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 61,
+      "title": "Health/readiness/liveness checks",
+      "status": "INFERRED",
+      "finding": "Health, readiness, liveness, or diagnostic checks are referenced in packages/adapters/pi/src/gateway.ts, packages/core/src/doctor/check.ts, packages/core/src/index.ts, README.md.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "Doctor"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/doctor/check.ts",
+          "detail": "Doctor"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/index.ts",
+          "detail": "doctor"
+        },
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "doctor"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Health, readiness, liveness, or diagnostic checks are referenced in packages/adapters/pi/src/gateway.ts, packages/core/src/doctor/check.ts, packages/core/src/index.ts, README.md.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "Doctor"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/doctor/check.ts",
+              "detail": "Doctor"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/index.ts",
+              "detail": "doctor"
+            },
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "doctor"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 62,
+      "title": "Idempotent operation handling",
+      "status": "INFERRED",
+      "finding": "Idempotency or replay-safe operation patterns detected in README.md.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "resume event"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Idempotency or replay-safe operation patterns detected in README.md.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "resume event"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 63,
+      "title": "Authentication approach",
+      "status": "NOT_DEFINED",
+      "finding": "No authentication approach evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No authentication approach evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 64,
+      "title": "Authorization/permission model",
+      "status": "NOT_DEFINED",
+      "finding": "No authorization or permission model evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No authorization or permission model evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 65,
+      "title": "Input validation/sanitization",
+      "status": "INFERRED",
+      "finding": "Validation or sanitization patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/paths.ts, packages/core/src/doctor/check.ts, packages/core/src/git/worktree.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "joi"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "joi"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/paths.ts",
+          "detail": "joi"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/doctor/check.ts",
+          "detail": "joi"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/git/worktree.ts",
+          "detail": "joi"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/project/discovery.ts",
+          "detail": "joi"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/cancel.ts",
+          "detail": "joi"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/cleanup.ts",
+          "detail": "joi"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Validation or sanitization patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/paths.ts, packages/core/src/doctor/check.ts, packages/core/src/git/worktree.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "joi"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "joi"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/paths.ts",
+              "detail": "joi"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/doctor/check.ts",
+              "detail": "joi"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/git/worktree.ts",
+              "detail": "joi"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/project/discovery.ts",
+              "detail": "joi"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/cancel.ts",
+              "detail": "joi"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/cleanup.ts",
+              "detail": "joi"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 66,
+      "title": "Output encoding/XSS controls",
+      "status": "NOT_DEFINED",
+      "finding": "No output encoding or XSS-control evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No output encoding or XSS-control evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 67,
+      "title": "CSRF/CORS/browser security controls",
+      "status": "NOT_DEFINED",
+      "finding": "No CSRF, CORS, or browser-security control evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No CSRF, CORS, or browser-security control evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 68,
+      "title": "Secrets scanning/storage",
+      "status": "NOT_DEFINED",
+      "finding": "No secrets scanning or storage evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No secrets scanning or storage evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 69,
+      "title": "Dependency/SCA security scanning",
+      "status": "NOT_DEFINED",
+      "finding": "No dependency or SCA security scanning evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No dependency or SCA security scanning evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 70,
+      "title": "Static code/security analysis",
+      "status": "UNCERTAIN",
+      "finding": "Static analysis exists via typecheck tooling, but dedicated security analysis is not explicit.",
+      "evidence": [
+        {
+          "kind": "file",
+          "detail": "typecheck: tsc -b --pretty false"
+        }
+      ],
+      "confidence": "LOW",
+      "claims": [
+        {
+          "kind": "unknown",
+          "confidence": "LOW",
+          "statement": "Static analysis exists via typecheck tooling, but dedicated security analysis is not explicit.",
+          "evidence": [
+            {
+              "kind": "file",
+              "detail": "typecheck: tsc -b --pretty false"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 71,
+      "title": "Encryption/TLS/data protection",
+      "status": "NOT_DEFINED",
+      "finding": "No encryption, TLS, or data-protection evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No encryption, TLS, or data-protection evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 72,
+      "title": "Security headers/network trust boundaries",
+      "status": "NOT_DEFINED",
+      "finding": "No security-header or network trust-boundary evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No security-header or network trust-boundary evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 73,
+      "title": "Test framework/tooling",
+      "status": "DEFINED",
+      "confidence": "MEDIUM",
+      "finding": "Testing tooling is explicitly Node's built-in test runner: `tests/constitution.test.mjs` imports from `node:test`, and root `package.json` runs `node --test tests/**/*.test.mjs`.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "tests/constitution.test.mjs",
+          "detail": "test framework evidence"
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Testing tooling is explicitly Node's built-in test runner: `tests/constitution.test.mjs` imports from `node:test`, and root `package.json` runs `node --test tests/**/*.test.mjs`.",
+          "kind": "observed",
+          "confidence": "MEDIUM",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "tests/constitution.test.mjs",
+              "detail": "test framework evidence"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 74,
+      "title": "Unit test conventions",
+      "status": "INFERRED",
+      "finding": "Unit-style tests detected in tests/constitution.test.mjs.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "tests/constitution.test.mjs",
+          "detail": "unit-style test"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Unit-style tests detected in tests/constitution.test.mjs.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "tests/constitution.test.mjs",
+              "detail": "unit-style test"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 75,
+      "title": "Integration test conventions",
+      "status": "NOT_DEFINED",
+      "finding": "No integration test conventions detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No integration test conventions detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 76,
+      "title": "End-to-end test conventions",
+      "status": "NOT_DEFINED",
+      "finding": "No end-to-end test conventions detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No end-to-end test conventions detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 77,
+      "title": "Test naming/location conventions",
+      "status": "DEFINED",
+      "finding": "Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "tests/constitution.test.mjs",
+          "detail": "test naming/location"
+        }
+      ],
+      "confidence": "HIGH",
+      "claims": [
+        {
+          "kind": "observed",
+          "confidence": "HIGH",
+          "statement": "Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "tests/constitution.test.mjs",
+              "detail": "test naming/location"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 78,
+      "title": "Mock/fake/test-double strategy",
+      "status": "INFERRED",
+      "finding": "Mock/fake/test-double patterns detected in tests/constitution.test.mjs.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "tests/constitution.test.mjs",
+          "detail": "test double"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Mock/fake/test-double patterns detected in tests/constitution.test.mjs.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "tests/constitution.test.mjs",
+              "detail": "test double"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 79,
+      "title": "Test data/factory/fixture strategy",
+      "status": "INFERRED",
+      "finding": "Fixture/factory/test-data patterns detected in tests/constitution.test.mjs.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "tests/constitution.test.mjs",
+          "detail": "factory"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Fixture/factory/test-data patterns detected in tests/constitution.test.mjs.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "tests/constitution.test.mjs",
+              "detail": "factory"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 80,
+      "title": "Coverage/flaky-test/quality gates",
+      "status": "NOT_DEFINED",
+      "finding": "No coverage, flaky-test, or test quality-gate evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No coverage, flaky-test, or test quality-gate evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 81,
+      "title": "Build commands/tooling",
+      "status": "DEFINED",
+      "finding": "Build command detected: tsc -b.",
+      "evidence": [
+        {
+          "kind": "pattern",
+          "detail": "build: tsc -b"
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Build command detected: tsc -b.",
+          "kind": "observed",
+          "evidence": [
+            {
+              "kind": "pattern",
+              "detail": "build: tsc -b"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ],
+      "driftWarnings": [
+        "Finding changed for this impacted area during refresh."
+      ]
+    },
+    {
+      "id": 82,
+      "title": "Development/start commands",
+      "status": "NOT_DEFINED",
+      "finding": "Full deterministic evaluation for this area is not implemented yet.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "Full deterministic evaluation for this area is not implemented yet.",
+          "evidence": [],
+          "criticWarnings": [
+            "Claim appears generic enough to fit unrelated repositories."
+          ]
+        }
+      ]
+    },
+    {
+      "id": 83,
+      "title": "Linting rules/tooling",
+      "status": "NOT_DEFINED",
+      "finding": "No ESLint, Prettier, Biome, or similar linting configuration or lint script is present in the provided repository evidence.",
+      "evidence": [],
+      "claims": [
+        {
+          "statement": "No ESLint, Prettier, Biome, or similar linting configuration or lint script is present in the provided repository evidence.",
+          "kind": "unknown",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 84,
+      "title": "Formatting rules/tooling",
+      "status": "NOT_DEFINED",
+      "finding": "No formatting rules/tooling detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No formatting rules/tooling detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 85,
+      "title": "Type checking/static analysis",
+      "status": "DEFINED",
+      "finding": "Type checking/static analysis evidence detected with command tsc -b --pretty false.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/tsconfig.json",
+          "detail": "typecheck config"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/tsconfig.json",
+          "detail": "typecheck config"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/fake/tsconfig.json",
+          "detail": "typecheck config"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/tsconfig.json",
+          "detail": "typecheck config"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas/tsconfig.json",
+          "detail": "typecheck config"
+        },
+        {
+          "kind": "file",
+          "path": "tsconfig.json",
+          "detail": "typecheck config"
+        },
+        {
+          "kind": "pattern",
+          "detail": "typecheck: tsc -b --pretty false"
+        }
+      ],
+      "claims": [
+        {
+          "statement": "Type checking/static analysis evidence detected with command tsc -b --pretty false.",
+          "kind": "observed",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/tsconfig.json",
+              "detail": "typecheck config"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/tsconfig.json",
+              "detail": "typecheck config"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/fake/tsconfig.json",
+              "detail": "typecheck config"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/tsconfig.json",
+              "detail": "typecheck config"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas/tsconfig.json",
+              "detail": "typecheck config"
+            },
+            {
+              "kind": "file",
+              "path": "tsconfig.json",
+              "detail": "typecheck config"
+            },
+            {
+              "kind": "pattern",
+              "detail": "typecheck: tsc -b --pretty false"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ],
+      "driftWarnings": [
+        "Finding changed for this impacted area during refresh."
+      ]
+    },
+    {
+      "id": 86,
+      "title": "Repository automation scripts",
+      "status": "NOT_DEFINED",
+      "finding": "Full deterministic evaluation for this area is not implemented yet.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "Full deterministic evaluation for this area is not implemented yet.",
+          "evidence": [],
+          "criticWarnings": [
+            "Claim appears generic enough to fit unrelated repositories."
+          ]
+        }
+      ]
+    },
+    {
+      "id": 87,
+      "title": "CI/CD platform",
+      "status": "NOT_DEFINED",
+      "finding": "No CI/CD platform detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No CI/CD platform detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 88,
+      "title": "Pipeline stages",
+      "status": "NOT_DEFINED",
+      "finding": "No CI pipeline stages detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No CI pipeline stages detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 89,
+      "title": "Branch/PR pipeline triggers",
+      "status": "NOT_DEFINED",
+      "finding": "No CI trigger configuration detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No CI trigger configuration detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 90,
+      "title": "Required quality checks",
+      "status": "NOT_DEFINED",
+      "finding": "No required quality checks detected from CI configuration.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No required quality checks detected from CI configuration.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 91,
+      "title": "Build artifact creation/retention",
+      "status": "NOT_DEFINED",
+      "finding": "No build artifact or retention evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No build artifact or retention evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 92,
+      "title": "Pipeline dependency/build caching",
+      "status": "NOT_DEFINED",
+      "finding": "No CI caching configuration detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No CI caching configuration detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 93,
+      "title": "Deployment automation",
+      "status": "NOT_DEFINED",
+      "finding": "No deployment automation configuration detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No deployment automation configuration detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 94,
+      "title": "Logging format/conventions",
+      "status": "NOT_DEFINED",
+      "finding": "No logging format or convention evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No logging format or convention evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 95,
+      "title": "Log levels and production logging",
+      "status": "INFERRED",
+      "finding": "Log-level or severity language detected in packages/adapters/pi/src/gateway.ts, packages/adapters/pi/src/types.ts, packages/core/src/config/loader.ts, packages/core/src/config/validate.ts, packages/core/src/doctor/check.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "info"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/types.ts",
+          "detail": "info"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/loader.ts",
+          "detail": "error"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/validate.ts",
+          "detail": "Error"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/doctor/check.ts",
+          "detail": "error"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/git/worktree.ts",
+          "detail": "error"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/cleanup.ts",
+          "detail": "warn"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/inspect.ts",
+          "detail": "error"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Log-level or severity language detected in packages/adapters/pi/src/gateway.ts, packages/adapters/pi/src/types.ts, packages/core/src/config/loader.ts, packages/core/src/config/validate.ts, packages/core/src/doctor/check.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "info"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/types.ts",
+              "detail": "info"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/loader.ts",
+              "detail": "error"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/validate.ts",
+              "detail": "Error"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/doctor/check.ts",
+              "detail": "error"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/git/worktree.ts",
+              "detail": "error"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/cleanup.ts",
+              "detail": "warn"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/inspect.ts",
+              "detail": "error"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 96,
+      "title": "Request/trace/correlation IDs",
+      "status": "NOT_DEFINED",
+      "finding": "No request/trace/correlation ID evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No request/trace/correlation ID evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 97,
+      "title": "Metrics instrumentation",
+      "status": "NOT_DEFINED",
+      "finding": "No metrics instrumentation evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No metrics instrumentation evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 98,
+      "title": "Distributed tracing",
+      "status": "NOT_DEFINED",
+      "finding": "No distributed tracing evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No distributed tracing evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 99,
+      "title": "Alerting/operational monitoring",
+      "status": "NOT_DEFINED",
+      "finding": "No alerting or operational monitoring evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No alerting or operational monitoring evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 100,
+      "title": "Caching strategy",
+      "status": "INFERRED",
+      "finding": "Caching-related patterns detected in packages/executors/pi/src/sdk-factory.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/sdk-factory.ts",
+          "detail": "lRu"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Caching-related patterns detected in packages/executors/pi/src/sdk-factory.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/sdk-factory.ts",
+              "detail": "lRu"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "title": "Async/background work",
+      "status": "INFERRED",
+      "finding": "Async or background-work patterns detected in packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/schemas/src/config.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/defaults.ts",
+          "detail": "Worker"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/merge.ts",
+          "detail": "Worker"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas/src/config.ts",
+          "detail": "Worker"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Async or background-work patterns detected in packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/schemas/src/config.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/defaults.ts",
+              "detail": "Worker"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/merge.ts",
+              "detail": "Worker"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas/src/config.ts",
+              "detail": "Worker"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "title": "Payload/upload size controls",
+      "status": "INFERRED",
+      "finding": "Payload or upload size control patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/logs.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "limit"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/logs-by-id.ts",
+          "detail": "limit"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/logs.ts",
+          "detail": "limit"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Payload or upload size control patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/logs.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "limit"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/logs-by-id.ts",
+              "detail": "limit"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/logs.ts",
+              "detail": "limit"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "title": "Connection/resource pooling",
+      "status": "NOT_DEFINED",
+      "finding": "No connection or resource pooling evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No connection or resource pooling evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "title": "Performance profiling/benchmarking",
+      "status": "NOT_DEFINED",
+      "finding": "No performance profiling or benchmarking evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No performance profiling or benchmarking evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 105,
+      "title": "Scalability/concurrency conventions",
+      "status": "INFERRED",
+      "finding": "Concurrency or scalability-oriented patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runtime/controller.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "parallel"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/defaults.ts",
+          "detail": "maxParallel"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/merge.ts",
+          "detail": "maxParallel"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/validate.ts",
+          "detail": "maxParallel"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/controller.ts",
+          "detail": "maxParallel"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/setup/init.ts",
+          "detail": "maxParallel"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas/src/config.ts",
+          "detail": "maxParallel"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Concurrency or scalability-oriented patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runtime/controller.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "parallel"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/defaults.ts",
+              "detail": "maxParallel"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/merge.ts",
+              "detail": "maxParallel"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/validate.ts",
+              "detail": "maxParallel"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/controller.ts",
+              "detail": "maxParallel"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/setup/init.ts",
+              "detail": "maxParallel"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas/src/config.ts",
+              "detail": "maxParallel"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 106,
+      "title": "Branch naming/workflow",
+      "status": "INFERRED",
+      "finding": "Branch names suggest a task- or feature-oriented workflow, e.g. create-a-prototype-implementation-plan-1787389718933, create-a-prototype-implementation-plan-1787389899712, create-a-prototype-implementation-plan-1787390395486, create-a-prototype-implementation-plan-1787390432329, create-a-prototype-implementation-plan-1787390588229.",
+      "evidence": [
+        {
+          "kind": "file",
+          "detail": "branch: create-a-prototype-implementation-plan-1787389718933"
+        },
+        {
+          "kind": "file",
+          "detail": "branch: create-a-prototype-implementation-plan-1787389899712"
+        },
+        {
+          "kind": "file",
+          "detail": "branch: create-a-prototype-implementation-plan-1787390395486"
+        },
+        {
+          "kind": "file",
+          "detail": "branch: create-a-prototype-implementation-plan-1787390432329"
+        },
+        {
+          "kind": "file",
+          "detail": "branch: create-a-prototype-implementation-plan-1787390588229"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Branch names suggest a task- or feature-oriented workflow, e.g. create-a-prototype-implementation-plan-1787389718933, create-a-prototype-implementation-plan-1787389899712, create-a-prototype-implementation-plan-1787390395486, create-a-prototype-implementation-plan-1787390432329, create-a-prototype-implementation-plan-1787390588229.",
+          "evidence": [
+            {
+              "kind": "file",
+              "detail": "branch: create-a-prototype-implementation-plan-1787389718933"
+            },
+            {
+              "kind": "file",
+              "detail": "branch: create-a-prototype-implementation-plan-1787389899712"
+            },
+            {
+              "kind": "file",
+              "detail": "branch: create-a-prototype-implementation-plan-1787390395486"
+            },
+            {
+              "kind": "file",
+              "detail": "branch: create-a-prototype-implementation-plan-1787390432329"
+            },
+            {
+              "kind": "file",
+              "detail": "branch: create-a-prototype-implementation-plan-1787390588229"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 107,
+      "title": "Commit message conventions",
+      "status": "INFERRED",
+      "finding": "Recent commit subjects appear free-form, e.g. Deepen constitution evaluator coverage and add regression tests | Add hybrid constitution engine and context-driven runtime | Add worktree-aware runtime and builder executor flow | Add reviewer executor phase to prototype runtime.",
+      "evidence": [
+        {
+          "kind": "file",
+          "detail": "commit: Deepen constitution evaluator coverage and add regression tests"
+        },
+        {
+          "kind": "file",
+          "detail": "commit: Add hybrid constitution engine and context-driven runtime"
+        },
+        {
+          "kind": "file",
+          "detail": "commit: Add worktree-aware runtime and builder executor flow"
+        },
+        {
+          "kind": "file",
+          "detail": "commit: Add reviewer executor phase to prototype runtime"
+        }
+      ],
+      "confidence": "LOW",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "LOW",
+          "statement": "Recent commit subjects appear free-form, e.g. Deepen constitution evaluator coverage and add regression tests | Add hybrid constitution engine and context-driven runtime | Add worktree-aware runtime and builder executor flow | Add reviewer executor phase to prototype runtime.",
+          "evidence": [
+            {
+              "kind": "file",
+              "detail": "commit: Deepen constitution evaluator coverage and add regression tests"
+            },
+            {
+              "kind": "file",
+              "detail": "commit: Add hybrid constitution engine and context-driven runtime"
+            },
+            {
+              "kind": "file",
+              "detail": "commit: Add worktree-aware runtime and builder executor flow"
+            },
+            {
+              "kind": "file",
+              "detail": "commit: Add reviewer executor phase to prototype runtime"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 108,
+      "title": "Pull request conventions",
+      "status": "INFERRED",
+      "finding": "Pull request or review process guidance detected in README.md.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "approval"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Pull request or review process guidance detected in README.md.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "approval"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 109,
+      "title": "Review/approval requirements",
+      "status": "INFERRED",
+      "finding": "Review or approval requirements are referenced in README.md.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "approval"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Review or approval requirements are referenced in README.md.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "approval"
+            }
+          ],
+          "criticWarnings": []
+        },
+        {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "approval"
+            }
+          ],
+          "criticWarnings": []
+        },
+        {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "approval"
+            }
+          ],
+          "criticWarnings": []
+        },
+        {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "approval"
+            }
+          ],
+          "criticWarnings": []
+        },
+        {
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "approval"
+            }
+          ]
+        }
+      ],
+      "criticWarnings": [
+        "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident."
+      ]
+    },
+    {
+      "id": 110,
+      "title": "Protected branch/force-push rules",
+      "status": "NOT_DEFINED",
+      "finding": "No protected branch or force-push rule evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No protected branch or force-push rule evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        },
+        {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "evidence": [],
+          "criticWarnings": []
+        },
+        {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "evidence": [],
+          "criticWarnings": []
+        },
+        {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "evidence": [],
+          "criticWarnings": []
+        },
+        {
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "evidence": []
+        }
+      ],
+      "criticWarnings": [
+        "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident."
+      ]
+    },
+    {
+      "id": 111,
+      "title": "Code ownership rules",
+      "status": "NOT_DEFINED",
+      "finding": "No CODEOWNERS evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No CODEOWNERS evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        },
+        {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "evidence": [],
+          "criticWarnings": []
+        },
+        {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "evidence": [],
+          "criticWarnings": []
+        },
+        {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "evidence": [],
+          "criticWarnings": []
+        },
+        {
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "evidence": []
+        }
+      ],
+      "criticWarnings": [
+        "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident."
+      ]
+    },
+    {
+      "id": 112,
+      "title": "Deployment model",
+      "status": "NOT_DEFINED",
+      "finding": "No deployment model evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No deployment model evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 113,
+      "title": "Environment promotion strategy",
+      "status": "NOT_DEFINED",
+      "finding": "No environment promotion strategy evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No environment promotion strategy evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 114,
+      "title": "Versioning/release strategy",
+      "status": "NOT_DEFINED",
+      "finding": "No release or versioning strategy evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No release or versioning strategy evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 115,
+      "title": "Feature flag/release-control strategy",
+      "status": "NOT_DEFINED",
+      "finding": "No feature flag or release-control strategy evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No feature flag or release-control strategy evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 116,
+      "title": "Rollback/recovery strategy",
+      "status": "INFERRED",
+      "finding": "Rollback or recovery guidance detected in README.md.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "recover"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Rollback or recovery guidance detected in README.md.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "recover"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 117,
+      "title": "Sensitive/PII data handling",
+      "status": "NOT_DEFINED",
+      "finding": "No sensitive/PII data handling evidence detected.",
+      "evidence": [],
+      "claims": [
+        {
+          "kind": "unknown",
+          "statement": "No sensitive/PII data handling evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 118,
+      "title": "Audit/retention/access logging controls",
+      "status": "INFERRED",
+      "finding": "Audit, retention, or access-logging evidence detected in README.md, packages/core/src/runs/cancel.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/resume.ts, packages/core/src/runs/store.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "events.jsonl"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/cancel.ts",
+          "detail": "appendFactoryRunEvent"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/logs-by-id.ts",
+          "detail": "events.jsonl"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/resume.ts",
+          "detail": "appendFactoryRunEvent"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/store.ts",
+          "detail": "events.jsonl"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/controller.ts",
+          "detail": "appendFactoryRunEvent"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/setup/init.ts",
+          "detail": "appendFactoryRunEvent"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Audit, retention, or access-logging evidence detected in README.md, packages/core/src/runs/cancel.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/resume.ts, packages/core/src/runs/store.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "events.jsonl"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/cancel.ts",
+              "detail": "appendFactoryRunEvent"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/logs-by-id.ts",
+              "detail": "events.jsonl"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/resume.ts",
+              "detail": "appendFactoryRunEvent"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/store.ts",
+              "detail": "events.jsonl"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/controller.ts",
+              "detail": "appendFactoryRunEvent"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/setup/init.ts",
+              "detail": "appendFactoryRunEvent"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 119,
+      "title": "Complexity/duplication/technical-debt controls",
+      "status": "INFERRED",
+      "finding": "Technical-debt or cleanup signals appear in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runs/cleanup.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "cleanup"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/defaults.ts",
+          "detail": "cleanup"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/merge.ts",
+          "detail": "cleanup"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/config/validate.ts",
+          "detail": "cleanup"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/cleanup.ts",
+          "detail": "Cleanup"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/index.ts",
+          "detail": "cleanup"
+        },
+        {
+          "kind": "file",
+          "path": "packages/schemas/src/config.ts",
+          "detail": "cleanup"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Technical-debt or cleanup signals appear in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runs/cleanup.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "cleanup"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/defaults.ts",
+              "detail": "cleanup"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/merge.ts",
+              "detail": "cleanup"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/config/validate.ts",
+              "detail": "cleanup"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/cleanup.ts",
+              "detail": "Cleanup"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/index.ts",
+              "detail": "cleanup"
+            },
+            {
+              "kind": "file",
+              "path": "packages/schemas/src/config.ts",
+              "detail": "cleanup"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    },
+    {
+      "id": 120,
+      "title": "Simplicity/reuse/anti-overengineering conventions",
+      "status": "INFERRED",
+      "finding": "Simplicity, reuse, or minimalism language detected in README.md, packages/adapters/pi/src/gateway.ts, packages/core/src/runtime/artifacts.ts, packages/core/src/runtime/controller.ts, packages/core/src/runtime/index.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "minimal"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "Prototype"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/artifacts.ts",
+          "detail": "Prototype"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/controller.ts",
+          "detail": "Prototype"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/index.ts",
+          "detail": "prototype"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/prototype.ts",
+          "detail": "Prototype"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/tasks.ts",
+          "detail": "Prototype"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/harness.ts",
+          "detail": "prototype"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core",
+          "detail": "shared core package"
+        }
+      ],
+      "confidence": "MEDIUM",
+      "claims": [
+        {
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "statement": "Simplicity, reuse, or minimalism language detected in README.md, packages/adapters/pi/src/gateway.ts, packages/core/src/runtime/artifacts.ts, packages/core/src/runtime/controller.ts, packages/core/src/runtime/index.ts.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "minimal"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "Prototype"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/artifacts.ts",
+              "detail": "Prototype"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/controller.ts",
+              "detail": "Prototype"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/index.ts",
+              "detail": "prototype"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/prototype.ts",
+              "detail": "Prototype"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/tasks.ts",
+              "detail": "Prototype"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/harness.ts",
+              "detail": "prototype"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core",
+              "detail": "shared core package"
+            }
+          ],
+          "criticWarnings": []
+        }
+      ]
+    }
+  ]
+}

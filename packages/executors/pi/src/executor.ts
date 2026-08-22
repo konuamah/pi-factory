@@ -54,6 +54,7 @@ export class PiAgentExecutor implements AgentExecutor {
       };
     } finally {
       unsubscribe();
+      await created.session.dispose?.();
       this.activeSessions.delete(input.executionId);
     }
   }

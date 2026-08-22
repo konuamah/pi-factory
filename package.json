@@ -8,7 +8,9 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "harness:pi-executor": "node packages/executors/pi/dist/harness.js",
+    "harness:pi-runtime": "node packages/executors/pi/dist/runtime-harness.js"
   },
   "dependencies": {
     "yaml": "^2.5.1"

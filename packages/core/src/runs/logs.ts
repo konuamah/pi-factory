@@ -10,7 +10,7 @@ export async function readLatestFactoryRunLogs(
 ): Promise<FactoryRunLogsResult> {
   const latest = await readLatestFactoryRunStatus(runsDir);
   if (!latest.state?.runId) {
-    return { events: [] };
+    return { events: [], repairExecutionPaths: [] };
   }
 
   return readFactoryRunLogs(runsDir, latest.state.runId, options);

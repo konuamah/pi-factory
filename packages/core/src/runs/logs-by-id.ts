@@ -8,6 +8,7 @@ export interface FactoryRunLogsByIdResult {
   planPath?: string;
   verificationPath?: string;
   summaryPath?: string;
+  repairExecutionPaths: string[];
   state?: Record<string, unknown>;
   events: string[];
 }
@@ -19,7 +20,7 @@ export async function readFactoryRunLogs(
 ): Promise<FactoryRunLogsByIdResult> {
   const runDir = path.join(runsDir, runId);
   if (!(await exists(runDir))) {
-    return { events: [] };
+    return { events: [], repairExecutionPaths: [] };
   }
 
   const statePath = path.join(runDir, "state.json");
@@ -40,9 +41,25 @@ export async function readFactoryRunLogs(
     planPath: (await exists(planPath)) ? planPath : undefined,
     verificationPath: (await exists(verificationPath)) ? verificationPath : undefined,
     summaryPath: (await exists(summaryPath)) ? summaryPath : undefined,
+    repairExecutionPaths: await listRepairExecutionPaths(runDir),
     state,
     events,
   };
+}
+
+async function listRepairExecutionPaths(runDir: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(runDir);
+    return entries
+      .filter((entry) => /^repair-execution-\d+\.json$/.test(entry))
+      .sort()
+      .map((entry) => path.join(runDir, entry));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
 }
 
 async function readJsonFile(filePath: string): Promise<Record<string, unknown> | undefined> {

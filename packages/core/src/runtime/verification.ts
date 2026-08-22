@@ -26,6 +26,21 @@ export async function runVerificationCommands(input: {
     build?: string;
   };
 }): Promise<VerificationRunResult> {
+  if (process.env.FACTORY_PI_FORCE_VERIFY_FAIL === "1") {
+    return {
+      commands: [
+        {
+          name: "forced-failure",
+          command: "FACTORY_PI_FORCE_VERIFY_FAIL=1",
+          status: "failed",
+          exitCode: 1,
+          stderr: "Verification failure forced by environment",
+        },
+      ],
+      overallStatus: "failed",
+    };
+  }
+
   const results: VerificationCommandResult[] = [];
 
   for (const [name, command] of Object.entries(input.commands)) {

@@ -248,6 +248,7 @@ async function handleLogs(ctx: FactoryPiCommandContext, runId?: string): Promise
     `plan path: ${logs.planPath ?? "none"}`,
     `verification path: ${logs.verificationPath ?? "none"}`,
     `summary path: ${logs.summaryPath ?? "none"}`,
+    `repair executions: ${logs.repairExecutionPaths.length}`,
     `status: ${String(logs.state?.status ?? "none")}`,
     `phase: ${String(logs.state?.phase ?? "none")}`,
     "",
@@ -321,6 +322,23 @@ async function handleShow(runId: string | undefined, ctx: FactoryPiCommandContex
   const verificationCommands = Array.isArray(result.verification?.commands)
     ? result.verification.commands.length
     : 0;
+  const plannerStatus =
+    result.plannerExecution && typeof result.plannerExecution.status === "string"
+      ? result.plannerExecution.status
+      : "none";
+  const repairAttempts = Array.isArray(result.repairExecutions) ? result.repairExecutions.length : 0;
+  const repairStatuses = Array.isArray(result.repairExecutions)
+    ? result.repairExecutions
+        .map((item) => {
+          const attempt = item?.attempt;
+          const status = item?.status;
+          return typeof attempt === "number" || typeof status === "string"
+            ? `${attempt ?? "?"}:${status ?? "unknown"}`
+            : undefined;
+        })
+        .filter(Boolean)
+        .join(", ")
+    : "none";
 
   renderLines(ctx, [
     "Factory show",
@@ -333,6 +351,9 @@ async function handleShow(runId: string | undefined, ctx: FactoryPiCommandContex
     `verification: ${String(result.summary?.verificationStatus ?? result.verification?.overallStatus ?? "none")}`,
     `task count: ${taskCount}`,
     `workflow stages: ${workflowStages}`,
+    `planner execution: ${plannerStatus}`,
+    `repair attempts: ${repairAttempts}`,
+    `repair statuses: ${repairStatuses || "none"}`,
     `verification commands: ${verificationCommands}`,
   ]);
 
@@ -433,6 +454,7 @@ async function handlePrototypeGoal(goal: string, ctx: FactoryPiCommandContext): 
     `events path: ${result.eventsPath}`,
     `plan path: ${result.planPath}`,
     `task artifacts: ${result.taskPaths.length}`,
+    `planner execution path: ${result.plannerExecutionPath ?? "none"}`,
     `verification path: ${result.verificationPath}`,
     `summary path: ${result.summaryPath}`,
     `approved: ${result.approved ? "yes" : "no"}`,

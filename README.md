@@ -30,6 +30,13 @@ Initial scaffold for a Pi-native Factory with project-authoritative configuratio
 - `/factory logs <run-id>` historical event inspection
 - `/factory show <run-id>` merged run view
 - run-id autocomplete for historical commands
+- PiAgentExecutor skeleton with injectable and optional Pi SDK session factory
+- fake Pi session factory and local executor harness
+- optional AgentExecutor-wired planning path
+- end-to-end fake Pi runtime harness
+- opt-in real Pi SDK runtime harness mode
+- repair loop using executor abstraction
+- repair-aware logs/show output
 
 ## Precedence
 
@@ -94,6 +101,13 @@ Each run now also writes `summary.json` with final outcome and key artifact path
 `/factory logs <run-id>` can inspect the event tail and artifact paths for a historical run.
 `/factory show <run-id>` presents a compact merged summary of state, summary, plan, and verification.
 Run-id autocomplete is now provided for `status`, `logs`, and `show`.
+A PiAgentExecutor skeleton now exists, with an injected session-factory boundary ready for Pi SDK wiring.
+An optional `createPiSdkSessionFactory()` adapter now loads the Pi SDK dynamically at runtime and wraps `createAgentSession()` when the package is installed.
+A fake session factory and `harness:pi-executor` script now make it easy to validate executor event capture, output accumulation, and failure/cancel semantics locally.
+The runtime controller now also supports optional `plannerExecutor` and `repairExecutor` hooks, writing `planner-execution.json` and `repair-execution-<n>.json` artifacts when supplied.
+An end-to-end `harness:pi-runtime` demo now drives the Factory runtime through fake Pi-backed planner/repair executors.
+`/factory logs` and `/factory show <run-id>` now surface repair execution counts/details.
+Set `FACTORY_PI_USE_REAL_SDK=1` to make that harness try the real Pi SDK session factory instead, with `FACTORY_PI_SDK_PACKAGE` optionally overriding the package name.
 `verification.json` now captures real configured command execution results for lint/typecheck/test/build when present.
 `/factory logs` shows the latest run state, event tail, and artifact paths.
 `/factory resume` marks the latest interrupted run as resumed and records a resume event.

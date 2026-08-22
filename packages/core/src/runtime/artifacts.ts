@@ -37,6 +37,29 @@ export interface PrototypeVerificationArtifact {
   overallStatus: "passed" | "failed" | "incomplete";
 }
 
+export interface PrototypePlannerExecutionArtifact {
+  executionId: string;
+  status: "completed" | "failed" | "cancelled";
+  outputText: string;
+  events: Array<{
+    type: string;
+    data?: Record<string, unknown>;
+  }>;
+  errorMessage?: string;
+}
+
+export interface PrototypeRepairExecutionArtifact {
+  attempt: number;
+  executionId: string;
+  status: "completed" | "failed" | "cancelled";
+  outputText: string;
+  events: Array<{
+    type: string;
+    data?: Record<string, unknown>;
+  }>;
+  errorMessage?: string;
+}
+
 export interface PrototypeSummaryArtifact {
   runId: string;
   goal: string;
@@ -45,6 +68,8 @@ export interface PrototypeSummaryArtifact {
   approved: boolean;
   planPath: string;
   taskPaths: string[];
+  plannerExecutionPath?: string;
+  repairExecutionPaths?: string[];
   verificationPath: string;
   verificationStatus: "passed" | "failed" | "incomplete";
 }
@@ -80,6 +105,24 @@ export async function writePrototypeVerificationArtifact(
   artifact: PrototypeVerificationArtifact,
 ): Promise<string> {
   const filePath = path.join(runDir, "verification.json");
+  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
+export async function writePrototypePlannerExecutionArtifact(
+  runDir: string,
+  artifact: PrototypePlannerExecutionArtifact,
+): Promise<string> {
+  const filePath = path.join(runDir, "planner-execution.json");
+  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
+export async function writePrototypeRepairExecutionArtifact(
+  runDir: string,
+  artifact: PrototypeRepairExecutionArtifact,
+): Promise<string> {
+  const filePath = path.join(runDir, `repair-execution-${artifact.attempt}.json`);
   await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
   return filePath;
 }

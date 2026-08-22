@@ -3,10 +3,13 @@ import { loadEffectiveConfig } from "../config/loader.js";
 import { appendFactoryRunEvent, createFactoryRun, updateFactoryRunState } from "../runs/store.js";
 import {
   writePrototypePlanArtifact,
+  writePrototypePlannerExecutionArtifact,
+  writePrototypeRepairExecutionArtifact,
   writePrototypeSummaryArtifact,
   writePrototypeTaskArtifacts,
   writePrototypeVerificationArtifact,
 } from "./artifacts.js";
+import type { AgentExecutor } from "./interfaces.js";
 import { buildPlanArtifact } from "./planner.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { runVerificationCommands } from "./verification.js";
@@ -21,6 +24,8 @@ export interface FactoryRunProgressEvent {
 export interface RunFactoryControllerInput {
   cwd: string;
   goal: string;
+  plannerExecutor?: AgentExecutor;
+  repairExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
   requestApproval?: (input: { runId: string; goal: string }) => Promise<boolean>;
   delayMs?: number;
@@ -35,6 +40,8 @@ export interface RunFactoryControllerResult {
   approved: boolean;
   planPath: string;
   taskPaths: string[];
+  plannerExecutionPath?: string;
+  repairExecutionPaths: string[];
   verificationPath: string;
   summaryPath: string;
 }
@@ -53,6 +60,7 @@ export async function runFactoryController(
 
   const phases = ["planning", "implementation", "verification", "approval-ready", "complete"];
   const delayMs = input.delayMs ?? 150;
+  const repairExecutionPaths: string[] = [];
 
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
@@ -68,6 +76,31 @@ export async function runFactoryController(
   });
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "planning", "Building plan");
+
+  let plannerExecutionPath: string | undefined;
+  if (input.plannerExecutor) {
+    const plannerResult = await input.plannerExecutor.execute({
+      executionId: `${run.runId}-planner`,
+      cwd: input.cwd,
+      prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig),
+      model: loaded.effectiveConfig.models.planner,
+      tools: ["read", "grep", "find", "ls"],
+      metadata: {
+        role: "planner",
+        runId: run.runId,
+      },
+    });
+    plannerExecutionPath = await writePrototypePlannerExecutionArtifact(run.runDir, plannerResult);
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "planning.executor_completed",
+      data: {
+        plannerExecutionPath,
+        plannerStatus: plannerResult.status,
+      },
+    });
+  }
+
   const plan = buildPlanArtifact({
     goal: input.goal,
     config: loaded.effectiveConfig,
@@ -91,6 +124,7 @@ export async function runFactoryController(
       taskCount: plan.tasks.length,
       workflowStages: plan.workflowStages.map((stage) => stage.name),
       tasksDir: taskPaths.length > 0 ? path.dirname(taskPaths[0]!) : undefined,
+      plannerExecutionPath,
     },
   });
   await wait(delayMs);
@@ -144,11 +178,11 @@ export async function runFactoryController(
   await wait(delayMs);
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "verification", "Running configured verification commands");
-  const verification = await runVerificationCommands({
+  let verification = await runVerificationCommands({
     cwd: input.cwd,
     commands: loaded.effectiveConfig.commands,
   });
-  const verificationPath = await writePrototypeVerificationArtifact(run.runDir, verification);
+  let verificationPath = await writePrototypeVerificationArtifact(run.runDir, verification);
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "verification.commands_detected",
@@ -171,6 +205,62 @@ export async function runFactoryController(
     message: `Verification ${verification.overallStatus}`,
   });
 
+  if (verification.overallStatus === "failed" && input.repairExecutor && loaded.effectiveConfig.repair.enabled) {
+    for (let attempt = 1; attempt <= loaded.effectiveConfig.repair.maxAttempts; attempt++) {
+      await emitProgress(input, {
+        runId: run.runId,
+        phase: "repair",
+        status: "RUNNING",
+        message: `Repair attempt ${attempt}`,
+      });
+      const repairResult = await input.repairExecutor.execute({
+        executionId: `${run.runId}-repair-${attempt}`,
+        cwd: input.cwd,
+        prompt: buildRepairPrompt(input.goal, verification),
+        model: loaded.effectiveConfig.models.repair,
+        tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+        metadata: {
+          role: "repair",
+          runId: run.runId,
+          attempt,
+        },
+      });
+      const repairExecutionPath = await writePrototypeRepairExecutionArtifact(run.runDir, {
+        attempt,
+        ...repairResult,
+      });
+      repairExecutionPaths.push(repairExecutionPath);
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "repair.attempt_completed",
+        data: {
+          attempt,
+          repairExecutionPath,
+          repairStatus: repairResult.status,
+        },
+      });
+
+      verification = await runVerificationCommands({
+        cwd: input.cwd,
+        commands: loaded.effectiveConfig.commands,
+      });
+      verificationPath = await writePrototypeVerificationArtifact(run.runDir, verification);
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "verification.recheck_completed",
+        data: {
+          attempt,
+          overallStatus: verification.overallStatus,
+          verificationPath,
+        },
+      });
+
+      if (verification.overallStatus !== "failed") {
+        break;
+      }
+    }
+  }
+
   if (verification.overallStatus === "failed") {
     const failedState = await updateFactoryRunState({
       statePath: run.statePath,
@@ -189,6 +279,8 @@ export async function runFactoryController(
       approved: false,
       planPath,
       taskPaths,
+      plannerExecutionPath,
+      repairExecutionPaths,
       verificationPath,
       verificationStatus: verification.overallStatus,
     });
@@ -202,6 +294,8 @@ export async function runFactoryController(
       approved: false,
       planPath,
       taskPaths,
+      plannerExecutionPath,
+      repairExecutionPaths,
       verificationPath,
       summaryPath,
     };
@@ -251,6 +345,8 @@ export async function runFactoryController(
       approved: false,
       planPath,
       taskPaths,
+      plannerExecutionPath,
+      repairExecutionPaths,
       verificationPath,
       verificationStatus: verification.overallStatus,
     });
@@ -264,6 +360,8 @@ export async function runFactoryController(
       approved: false,
       planPath,
       taskPaths,
+      plannerExecutionPath,
+      repairExecutionPaths,
       verificationPath,
       summaryPath,
     };
@@ -295,6 +393,8 @@ export async function runFactoryController(
     approved: true,
     planPath,
     taskPaths,
+    plannerExecutionPath,
+    repairExecutionPaths,
     verificationPath,
     verificationStatus: verification.overallStatus,
   });
@@ -308,9 +408,38 @@ export async function runFactoryController(
     approved: true,
     planPath,
     taskPaths,
+    plannerExecutionPath,
+    repairExecutionPaths,
     verificationPath,
     summaryPath,
   };
+}
+
+function buildPlannerPrompt(goal: string, config: { git: { baseBranch: string }; approval: { finalMerge: string }; repair: { maxAttempts: number } }): string {
+  return [
+    `Goal: ${goal}`,
+    `Base branch: ${config.git.baseBranch}`,
+    `Approval policy: ${config.approval.finalMerge}`,
+    `Repair attempts: ${config.repair.maxAttempts}`,
+    "Produce a concise implementation plan for this repository.",
+  ].join("\n");
+}
+
+function buildRepairPrompt(
+  goal: string,
+  verification: { overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string; stderr?: string }> },
+): string {
+  const failures = verification.commands
+    .filter((command) => command.status === "failed")
+    .map((command) => `${command.name}: ${command.stderr ?? "failed"}`)
+    .join("\n");
+
+  return [
+    `Goal: ${goal}`,
+    `Verification status: ${verification.overallStatus}`,
+    failures ? `Failures:\n${failures}` : "Failures: none recorded",
+    "Repair the code so verification can pass.",
+  ].join("\n");
 }
 
 async function movePhase(

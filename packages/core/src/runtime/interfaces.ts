@@ -1,5 +1,28 @@
+export interface AgentExecutionInput {
+  executionId: string;
+  cwd: string;
+  prompt: string;
+  model?: {
+    provider?: string;
+    model: string;
+  };
+  tools?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface AgentExecutionResult {
+  executionId: string;
+  status: "completed" | "failed" | "cancelled";
+  outputText: string;
+  events: Array<{
+    type: string;
+    data?: Record<string, unknown>;
+  }>;
+  errorMessage?: string;
+}
+
 export interface AgentExecutor {
-  execute(input: unknown): Promise<unknown>;
+  execute(input: AgentExecutionInput): Promise<AgentExecutionResult>;
   cancel(executionId: string): Promise<void>;
 }
 

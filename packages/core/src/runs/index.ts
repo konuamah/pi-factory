@@ -1,5 +1,6 @@
 export * from "./status.js";
 export * from "./summary.js";
+export * from "./plan.js";
 export * from "./inspect.js";
 export * from "./show.js";
 export * from "./list.js";

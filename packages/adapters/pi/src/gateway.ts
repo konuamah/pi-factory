@@ -13,6 +13,7 @@ import {
   readLatestFactoryRunLogs,
   readLatestFactoryRunStatus,
   readLatestFactoryRunSummary,
+  readLatestFactoryRunPlan,
   resumeLatestFactoryRun,
   runFactoryDoctor,
   runPrototypeFactoryFlow,
@@ -23,7 +24,7 @@ import {
 import type { FactoryPiAutocompleteItem, FactoryPiCommandContext } from "./types.js";
 
 const FACTORY_WIDGET_ID = "factory-status";
-const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "resume", "cancel", "worktree", "cleanup", "constitution"];
+const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "plan", "resume", "cancel", "worktree", "cleanup", "constitution"];
 
 export async function getFactoryCommandCompletions(
   prefix: string,
@@ -78,6 +79,7 @@ export async function handleFactoryCommand(
       "/factory logs [run-id] inspect latest or specific run state, events, and artifacts",
       "/factory list    list known run ids",
       "/factory show <run-id> show merged run details",
+      "/factory plan    show latest run plan summary",
       "/factory resume  mark the latest interrupted run resumed",
       "/factory cancel  mark the latest run cancelled",
       "/factory worktree <branch> create or detect isolated workspace",
@@ -109,6 +111,9 @@ export async function handleFactoryCommand(
       return;
     case "show":
       await handleShow(rest[0], ctx);
+      return;
+    case "plan":
+      await handlePlan(ctx);
       return;
     case "resume":
       await handleResume(ctx);
@@ -380,6 +385,52 @@ async function handleShow(runId: string | undefined, ctx: FactoryPiCommandContex
   ]);
 
   ctx.ui.notify("Factory run loaded", "info");
+}
+
+async function handlePlan(ctx: FactoryPiCommandContext): Promise<void> {
+  const project = await discoverFactoryProject(ctx.cwd);
+  const result = await readLatestFactoryRunPlan(project.paths.runsDir);
+
+  if (!result.runDir) {
+    renderLines(ctx, [
+      "Factory plan",
+      "No runs found.",
+      `runs dir: ${project.paths.runsDir}`,
+    ]);
+    ctx.ui.notify("No Factory runs found", "warning");
+    return;
+  }
+
+  if (!result.planPath || !result.tasks) {
+    renderLines(ctx, [
+      "Factory plan",
+      `run id: ${result.runId ?? "none"}`,
+      `run dir: ${result.runDir}`,
+      `status: ${result.status ?? "none"}`,
+      `phase: ${result.phase ?? "none"}`,
+      "No plan artifact found for the latest run.",
+    ]);
+    ctx.ui.notify("Latest Factory run has no plan artifact", "warning");
+    return;
+  }
+
+  renderLines(ctx, [
+    "Factory plan",
+    `run id: ${result.runId ?? "none"}`,
+    `run dir: ${result.runDir}`,
+    `plan path: ${result.planPath}`,
+    `goal: ${result.goal ?? "none"}`,
+    `status: ${result.status ?? "none"}`,
+    `phase: ${result.phase ?? "none"}`,
+    `workflow: ${result.workflowStages?.map((stage) => stage.name).join(" -> ") ?? "none"}`,
+    `tasks: ${result.tasks.length}`,
+    ...(result.summary ? ["", "Summary", result.summary] : []),
+    "",
+    "Task list",
+    ...result.tasks.slice(0, 12).map((task) => `- ${task.id ?? "?"} [${task.stage ?? "unknown"}] ${task.title ?? "untitled"} (${task.status ?? "unknown"})`),
+  ]);
+
+  ctx.ui.notify("Factory plan loaded", "info");
 }
 
 async function handleResume(ctx: FactoryPiCommandContext): Promise<void> {

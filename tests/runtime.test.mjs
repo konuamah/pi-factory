@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { initializeFactoryProject, runRuntimeHarness } from '../packages/core/dist/index.js';
+import { initializeFactoryProject, readLatestFactoryRunPlan, runRuntimeHarness } from '../packages/core/dist/index.js';
 
 const execFile = promisify(execFileCb);
 
@@ -97,6 +97,29 @@ test('plan approval rejection stops the run before implementation', async () => 
     assert.equal(finalApprovalCalled, false);
     assert.equal(calls.filter((call) => call.label === 'planner').length, 1);
     assert.equal(calls.filter((call) => call.label === 'builder').length, 0);
+  });
+});
+
+test('latest run plan summary can be read after a successful run', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => true,
+      requestApproval: async () => true,
+    });
+
+    const plan = await readLatestFactoryRunPlan(path.join(root, '.factory', 'runs'));
+    assert.equal(plan.goal, 'Add a demo feature');
+    assert.ok(plan.planPath?.endsWith('plan.json'));
+    assert.ok((plan.tasks?.length ?? 0) > 0);
+    assert.match(plan.summary ?? '', /Goal: Add a demo feature/);
   });
 });
 

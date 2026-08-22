@@ -8,6 +8,7 @@ export interface FactoryRunShowResult {
   plan?: Record<string, unknown>;
   plannerExecution?: Record<string, unknown>;
   repairExecutions?: Record<string, unknown>[];
+  reviewerExecution?: Record<string, unknown>;
   verification?: Record<string, unknown>;
 }
 
@@ -17,13 +18,14 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     return {};
   }
 
-  const [state, summary, plan, plannerExecution, verification, repairExecutions] = await Promise.all([
+  const [state, summary, plan, plannerExecution, verification, repairExecutions, reviewerExecution] = await Promise.all([
     readJsonFile(path.join(runDir, "state.json")),
     readJsonFile(path.join(runDir, "summary.json")),
     readJsonFile(path.join(runDir, "plan.json")),
     readJsonFile(path.join(runDir, "planner-execution.json")),
     readJsonFile(path.join(runDir, "verification.json")),
     readRepairExecutions(runDir),
+    readJsonFile(path.join(runDir, "reviewer-execution.json")),
   ]);
 
   return {
@@ -33,6 +35,7 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     plan,
     plannerExecution,
     repairExecutions,
+    reviewerExecution,
     verification,
   };
 }

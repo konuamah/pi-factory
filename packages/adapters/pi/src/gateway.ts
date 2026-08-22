@@ -327,6 +327,10 @@ async function handleShow(runId: string | undefined, ctx: FactoryPiCommandContex
       ? result.plannerExecution.status
       : "none";
   const repairAttempts = Array.isArray(result.repairExecutions) ? result.repairExecutions.length : 0;
+  const reviewerStatus =
+    result.reviewerExecution && typeof result.reviewerExecution.status === "string"
+      ? result.reviewerExecution.status
+      : "none";
   const repairStatuses = Array.isArray(result.repairExecutions)
     ? result.repairExecutions
         .map((item) => {
@@ -354,6 +358,7 @@ async function handleShow(runId: string | undefined, ctx: FactoryPiCommandContex
     `planner execution: ${plannerStatus}`,
     `repair attempts: ${repairAttempts}`,
     `repair statuses: ${repairStatuses || "none"}`,
+    `reviewer execution: ${reviewerStatus}`,
     `verification commands: ${verificationCommands}`,
   ]);
 

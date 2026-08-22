@@ -37,6 +37,7 @@ Initial scaffold for a Pi-native Factory with project-authoritative configuratio
 - opt-in real Pi SDK runtime harness mode
 - repair loop using executor abstraction
 - repair-aware logs/show output
+- reviewer executor phase before approval
 
 ## Precedence
 
@@ -107,6 +108,7 @@ A fake session factory and `harness:pi-executor` script now make it easy to vali
 The runtime controller now also supports optional `plannerExecutor` and `repairExecutor` hooks, writing `planner-execution.json` and `repair-execution-<n>.json` artifacts when supplied.
 An end-to-end `harness:pi-runtime` demo now drives the Factory runtime through fake Pi-backed planner/repair executors.
 `/factory logs` and `/factory show <run-id>` now surface repair execution counts/details.
+A reviewer executor phase can now run after verification/repair and before human approval, writing `reviewer-execution.json`.
 Set `FACTORY_PI_USE_REAL_SDK=1` to make that harness try the real Pi SDK session factory instead, with `FACTORY_PI_SDK_PACKAGE` optionally overriding the package name.
 `verification.json` now captures real configured command execution results for lint/typecheck/test/build when present.
 `/factory logs` shows the latest run state, event tail, and artifact paths.

@@ -13,6 +13,7 @@ export async function runRuntimeHarness(input: {
   goal: string;
   plannerExecutor: AgentExecutor;
   repairExecutor?: AgentExecutor;
+  reviewerExecutor?: AgentExecutor;
   requestApproval?: (input: { runId: string; goal: string }) => Promise<boolean>;
 }): Promise<RuntimeHarnessResult> {
   const result = await runFactoryController({
@@ -20,6 +21,7 @@ export async function runRuntimeHarness(input: {
     goal: input.goal,
     plannerExecutor: input.plannerExecutor,
     repairExecutor: input.repairExecutor,
+    reviewerExecutor: input.reviewerExecutor,
     requestApproval: input.requestApproval ?? (async () => true),
   });
 

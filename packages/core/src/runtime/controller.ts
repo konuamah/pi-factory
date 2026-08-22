@@ -5,6 +5,7 @@ import {
   writePrototypePlanArtifact,
   writePrototypePlannerExecutionArtifact,
   writePrototypeRepairExecutionArtifact,
+  writePrototypeReviewerExecutionArtifact,
   writePrototypeSummaryArtifact,
   writePrototypeTaskArtifacts,
   writePrototypeVerificationArtifact,
@@ -26,6 +27,7 @@ export interface RunFactoryControllerInput {
   goal: string;
   plannerExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
+  reviewerExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
   requestApproval?: (input: { runId: string; goal: string }) => Promise<boolean>;
   delayMs?: number;
@@ -42,6 +44,7 @@ export interface RunFactoryControllerResult {
   taskPaths: string[];
   plannerExecutionPath?: string;
   repairExecutionPaths: string[];
+  reviewerExecutionPath?: string;
   verificationPath: string;
   summaryPath: string;
 }
@@ -58,7 +61,7 @@ export async function runFactoryController(
     effectiveConfig: loaded.effectiveConfig,
   });
 
-  const phases = ["planning", "implementation", "verification", "approval-ready", "complete"];
+  const phases = ["planning", "implementation", "verification", "review", "approval-ready", "complete"];
   const delayMs = input.delayMs ?? 150;
   const repairExecutionPaths: string[] = [];
 
@@ -261,6 +264,8 @@ export async function runFactoryController(
     }
   }
 
+  let reviewerExecutionPath: string | undefined;
+
   if (verification.overallStatus === "failed") {
     const failedState = await updateFactoryRunState({
       statePath: run.statePath,
@@ -281,6 +286,7 @@ export async function runFactoryController(
       taskPaths,
       plannerExecutionPath,
       repairExecutionPaths,
+      reviewerExecutionPath,
       verificationPath,
       verificationStatus: verification.overallStatus,
     });
@@ -296,9 +302,84 @@ export async function runFactoryController(
       taskPaths,
       plannerExecutionPath,
       repairExecutionPaths,
+      reviewerExecutionPath,
       verificationPath,
       summaryPath,
     };
+  }
+
+  await wait(delayMs);
+
+  await movePhase(run.statePath, run.eventsPath, run.runId, input, "review", "Reviewing verified candidate");
+  if (input.reviewerExecutor) {
+    const reviewerResult = await input.reviewerExecutor.execute({
+      executionId: `${run.runId}-reviewer`,
+      cwd: input.cwd,
+      prompt: buildReviewerPrompt(input.goal, verification),
+      model: loaded.effectiveConfig.models.reviewer,
+      tools: ["read", "grep", "find", "ls"],
+      metadata: {
+        role: "reviewer",
+        runId: run.runId,
+      },
+    });
+    reviewerExecutionPath = await writePrototypeReviewerExecutionArtifact(run.runDir, reviewerResult);
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "review.completed",
+      data: {
+        reviewerExecutionPath,
+        reviewerStatus: reviewerResult.status,
+      },
+    });
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: "review",
+      status: reviewerResult.status === "failed" ? "FAILED" : "RUNNING",
+      message: `Reviewer ${reviewerResult.status}`,
+    });
+
+    if (reviewerResult.status === "failed") {
+      const failedState = await updateFactoryRunState({
+        statePath: run.statePath,
+        patch: { status: "FAILED", phase: "review-failed" },
+      });
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "run.failed",
+        data: { reason: "review failed" },
+      });
+      const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+        runId: run.runId,
+        goal: input.goal,
+        status: "FAILED",
+        phase: failedState.phase,
+        approved: false,
+        planPath,
+        taskPaths,
+        plannerExecutionPath,
+        repairExecutionPaths,
+        reviewerExecutionPath,
+        verificationPath,
+        verificationStatus: verification.overallStatus,
+      });
+
+      return {
+        runId: run.runId,
+        runDir: run.runDir,
+        statePath: run.statePath,
+        eventsPath: run.eventsPath,
+        phases,
+        approved: false,
+        planPath,
+        taskPaths,
+        plannerExecutionPath,
+        repairExecutionPaths,
+        reviewerExecutionPath,
+        verificationPath,
+        summaryPath,
+      };
+    }
   }
 
   await wait(delayMs);
@@ -347,6 +428,7 @@ export async function runFactoryController(
       taskPaths,
       plannerExecutionPath,
       repairExecutionPaths,
+      reviewerExecutionPath,
       verificationPath,
       verificationStatus: verification.overallStatus,
     });
@@ -362,6 +444,7 @@ export async function runFactoryController(
       taskPaths,
       plannerExecutionPath,
       repairExecutionPaths,
+      reviewerExecutionPath,
       verificationPath,
       summaryPath,
     };
@@ -395,6 +478,7 @@ export async function runFactoryController(
     taskPaths,
     plannerExecutionPath,
     repairExecutionPaths,
+    reviewerExecutionPath,
     verificationPath,
     verificationStatus: verification.overallStatus,
   });
@@ -410,6 +494,7 @@ export async function runFactoryController(
     taskPaths,
     plannerExecutionPath,
     repairExecutionPaths,
+    reviewerExecutionPath,
     verificationPath,
     summaryPath,
   };
@@ -439,6 +524,22 @@ function buildRepairPrompt(
     `Verification status: ${verification.overallStatus}`,
     failures ? `Failures:\n${failures}` : "Failures: none recorded",
     "Repair the code so verification can pass.",
+  ].join("\n");
+}
+
+function buildReviewerPrompt(
+  goal: string,
+  verification: { overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string }> },
+): string {
+  const commandStatuses = verification.commands
+    .map((command) => `${command.name}: ${command.status}`)
+    .join("\n");
+
+  return [
+    `Goal: ${goal}`,
+    `Verification status: ${verification.overallStatus}`,
+    commandStatuses ? `Command results:\n${commandStatuses}` : "Command results: none",
+    "Review the candidate and report whether it looks ready for approval.",
   ].join("\n");
 }
 

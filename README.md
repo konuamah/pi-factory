@@ -9,6 +9,7 @@ Initial scaffold for a Pi-native Factory with project-authoritative configuratio
 - project discovery
 - effective config loading
 - project setup scaffolding
+- Pi `/factory` command skeleton
 
 ## Precedence
 
@@ -25,6 +26,19 @@ Project files are intended to be YAML:
 - `CONSTITUTION.md`
 
 The loader accepts JSON or YAML content.
+
+## Pi adapter
+
+A project-local Pi extension now exists at:
+
+- `.pi/extensions/factory/index.ts`
+
+Current commands:
+
+- `/factory`
+- `/factory setup`
+- `/factory setup --force`
+- `/factory status`
 
 ## Setup scaffolding
 

@@ -1,7 +1,3 @@
-export interface PiAdapterPlaceholder {
-  kind: "pi-adapter";
-}
-
-export const piAdapterPlaceholder: PiAdapterPlaceholder = {
-  kind: "pi-adapter",
-};
+export * from "./extension.js";
+export * from "./gateway.js";
+export * from "./types.js";

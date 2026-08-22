@@ -50,7 +50,7 @@ export async function discoverConstitutionRepository(cwd: string): Promise<Const
   const formatFiles = trackedFiles.filter((file) => /(^|\/)(prettier\.config\.(js|mjs|cjs)|\.prettierrc(\.(js|json|yml|yaml))?|\.editorconfig)$/i.test(file));
   const typecheckFiles = trackedFiles.filter((file) => /(^|\/)(tsconfig(\.[^/]+)?\.json|pyrightconfig\.json|mypy\.ini)$/i.test(file));
   const apiFiles = trackedFiles.filter((file) => /(^|\/)(api|routes?)\//.test(file) || /(openapi|swagger)\.(json|ya?ml)$/i.test(file));
-  const dataFiles = trackedFiles.filter((file) => /(^|\/)(migrations?|prisma|schema|schemas|db|database|sql)\//.test(file) || /\.(sql|prisma)$/.test(file));
+  const dataFiles = trackedFiles.filter((file) => /(^|\/)(migrations?|prisma|db|database|sql)\//.test(file) || /\.(sql|prisma)$/.test(file));
   const languages = detectLanguages(trackedFiles);
   const packageManagers = detectPackageManagers(manifests, lockfiles);
   const commands = await readPackageCommands(root, manifests);

@@ -39,7 +39,13 @@ export function renderConstitutionMarkdown(input: {
       `- Status: ${area.status}${area.confidence ? ` (${area.confidence})` : ""}`,
       `- Finding: ${area.finding}`,
       ...(area.driftWarnings?.map((warning) => `- Drift warning: ${warning}`) ?? []),
+      ...(area.criticWarnings?.map((warning) => `- Critic warning: ${warning}`) ?? []),
       ...area.evidence.map((evidence) => `- Evidence: ${evidence.path ? `${evidence.path} — ` : ""}${evidence.detail}`),
+      ...(area.claims?.flatMap((claim) => [
+        `- Claim: [${claim.kind}${claim.confidence ? `/${claim.confidence}` : ""}] ${claim.statement}`,
+        ...claim.criticWarnings?.map((warning) => `  - Claim critic warning: ${warning}`) ?? [],
+        ...claim.evidence.map((evidence) => `  - Claim evidence: ${evidence.path ? `${evidence.path} — ` : ""}${evidence.detail}`),
+      ]) ?? []),
       "",
     ]),
   ].join("\n");

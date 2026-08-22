@@ -6,6 +6,21 @@ import { discoverConstitutionRepository } from "./discovery.js";
 import { detectConstitutionRefreshState } from "./refresh.js";
 import { renderConstitutionMarkdown } from "./render.js";
 import type { ConstitutionArea, ConstitutionScanResult } from "./types.js";
+import { evaluateFoundationAreas } from "./evaluators/foundation.js";
+import { evaluateToolingAreas } from "./evaluators/tooling.js";
+import { evaluateApiAreas } from "./evaluators/api.js";
+import { evaluateDataAreas } from "./evaluators/data.js";
+import { evaluateCiCdAreas } from "./evaluators/cicd.js";
+import { evaluateGovernanceAreas } from "./evaluators/governance.js";
+import { evaluateSecurityAreas } from "./evaluators/security.js";
+import { evaluateTestingAreas } from "./evaluators/testing.js";
+import { evaluateDependencyAndConfigAreas } from "./evaluators/dependencies.js";
+import { evaluateStyleAreas } from "./evaluators/style.js";
+import { evaluateArchitectureAreas } from "./evaluators/architecture.js";
+import { evaluateReliabilityAreas } from "./evaluators/reliability.js";
+import { evaluateObservabilityAreas } from "./evaluators/observability.js";
+import { evaluateMaintainabilityAreas } from "./evaluators/maintainability.js";
+import { buildRefreshNote, claimKindForStatus, distinctRoots, makeArea } from "./evaluators/shared.js";
 
 export async function runConstitutionScan(input: {
   cwd: string;
@@ -16,7 +31,7 @@ export async function runConstitutionScan(input: {
   const constitutionDir = path.join(discovery.root, ".factory", "constitution");
   const constitutionPath = path.join(discovery.root, "CONSTITUTION.md");
   const previousAreas = await readExistingConstitutionAreas(constitutionPath);
-  const evaluatedAreas = buildDeterministicAreas(discovery, refresh.impactedAreaIds, refresh.noChange);
+  const evaluatedAreas = await buildDeterministicAreas(discovery, refresh.impactedAreaIds, refresh.noChange);
   const areas = mergeAreasWithRefresh(previousAreas, evaluatedAreas, refresh.impactedAreaIds, refresh.noChange);
   const summary = buildSummary(discovery, areas, refresh);
   const metadataPath = path.join(constitutionDir, "metadata.json");
@@ -46,9 +61,11 @@ export async function runConstitutionScan(input: {
     };
   }
 
-  const finalAreas = aiReasoning?.proposedAreas && aiReasoning.proposedAreas.length > 0
+  const aiMergedAreas = aiReasoning?.proposedAreas && aiReasoning.proposedAreas.length > 0
     ? mergeAiAreas(areas, aiReasoning.proposedAreas, refresh.impactedAreaIds)
     : areas;
+  const critiquedAreas = critiqueAreas(aiMergedAreas);
+  const finalAreas = detectAreaContradictions(critiquedAreas);
 
   const markdown = renderConstitutionMarkdown({
     discovery,
@@ -70,6 +87,7 @@ export async function runConstitutionScan(input: {
         impactedAreaIds: refresh.impactedAreaIds,
         trackedFiles: discovery.trackedFiles.length,
         aiReasoning,
+        criticWarnings: finalAreas.reduce((count, area) => count + (area.criticWarnings?.length ?? 0), 0),
       },
       null,
       2,
@@ -95,34 +113,27 @@ export async function runConstitutionScan(input: {
   };
 }
 
-function buildDeterministicAreas(
+async function buildDeterministicAreas(
   discovery: ConstitutionScanResult["discovery"],
   impactedAreaIds: number[],
   noChange: boolean,
-): ConstitutionArea[] {
+): Promise<ConstitutionArea[]> {
+  const context = { discovery, impactedAreaIds, noChange };
   const implementedAreas: ConstitutionArea[] = [
-    makeArea(1, "Repository layout", "DEFINED", `Tracked repository with ${discovery.trackedFiles.length} files and source roots in ${distinctRoots(discovery.sourceFiles).join(", ") || "none"}.${buildRefreshNote(1, impactedAreaIds, noChange)}`, distinctRoots(discovery.sourceFiles).map((root) => ({ kind: "file" as const, path: root, detail: "source root" }))),
-    makeArea(2, "Monorepo / single-project model", discovery.trackedFiles.some((file) => file.startsWith("packages/")) ? "INFERRED" : "DEFINED", `${discovery.trackedFiles.some((file) => file.startsWith("packages/")) ? "Repository appears to use a package-based monorepo layout." : "Repository appears to be a single primary project."}${buildRefreshNote(2, impactedAreaIds, noChange)}`, discovery.manifests.map((file) => ({ kind: "file" as const, path: file, detail: "workspace/manifests" })), discovery.trackedFiles.some((file) => file.startsWith("packages/")) ? "HIGH" : undefined),
-    makeArea(3, "Source directory organization", discovery.sourceFiles.length > 0 ? "DEFINED" : "NOT_DEFINED", `${distinctRoots(discovery.sourceFiles).length > 0 ? `Detected source roots: ${distinctRoots(discovery.sourceFiles).join(", ")}.` : "No source roots detected."}${buildRefreshNote(3, impactedAreaIds, noChange)}`, distinctRoots(discovery.sourceFiles).map((root) => ({ kind: "file" as const, path: root, detail: "source organization" }))),
-    makeArea(4, "Test directory organization", discovery.testFiles.length > 0 ? "INFERRED" : "NOT_DEFINED", `${discovery.testFiles.length > 0 ? `Detected ${discovery.testFiles.length} test files and directories.` : "No test files detected."}${buildRefreshNote(4, impactedAreaIds, noChange)}`, discovery.testFiles.slice(0, 10).map((file) => ({ kind: "file" as const, path: file, detail: "test organization" })), discovery.testFiles.length > 0 ? "HIGH" : undefined),
-    makeArea(5, "Documentation organization", discovery.docsFiles.length > 0 ? "DEFINED" : "NOT_DEFINED", `${discovery.docsFiles.length > 0 ? `Detected documentation files in ${distinctRoots(discovery.docsFiles).join(", ")}.` : "No documentation files detected beyond defaults."}${buildRefreshNote(5, impactedAreaIds, noChange)}`, discovery.docsFiles.slice(0, 10).map((file) => ({ kind: "file" as const, path: file, detail: "documentation file" }))),
-    makeArea(6, "Script/tool directory organization", discovery.scriptFiles.length > 0 ? "DEFINED" : "NOT_DEFINED", `${discovery.scriptFiles.length > 0 ? `Detected script/tool directories in ${distinctRoots(discovery.scriptFiles).join(", ")}.` : "No dedicated scripts/tools directories detected."}${buildRefreshNote(6, impactedAreaIds, noChange)}`, discovery.scriptFiles.slice(0, 10).map((file) => ({ kind: "file" as const, path: file, detail: "script/tool file" }))),
-    makeArea(7, "Generated/build directory handling", discovery.generatedFiles.length > 0 ? "DEFINED" : "INFERRED", `${discovery.generatedFiles.length > 0 ? `Generated/build outputs are present under ${distinctRoots(discovery.generatedFiles).join(", ")}.` : "Generated/build directories are excluded from constitution scanning by policy."}${buildRefreshNote(7, impactedAreaIds, noChange)}`, discovery.generatedFiles.slice(0, 10).map((file) => ({ kind: "file" as const, path: file, detail: "generated/build output" }))),
-    makeArea(8, "Asset/static file organization", discovery.assetFiles.length > 0 ? "INFERRED" : "NOT_APPLICABLE", `${discovery.assetFiles.length > 0 ? `Detected ${discovery.assetFiles.length} asset/static files.` : "No obvious asset/static file organization detected."}${buildRefreshNote(8, impactedAreaIds, noChange)}`, discovery.assetFiles.slice(0, 10).map((file) => ({ kind: "file" as const, path: file, detail: "asset/static file" })), discovery.assetFiles.length > 0 ? "MEDIUM" : undefined),
-    makeArea(9, "Package/dependency manager", discovery.packageManagers.length > 0 ? "DEFINED" : "NOT_DEFINED", `${discovery.packageManagers.length > 0 ? `Detected package managers: ${discovery.packageManagers.join(", ")}.` : "No package manager could be determined."}${buildRefreshNote(9, impactedAreaIds, noChange)}`, [...discovery.manifests, ...discovery.lockfiles].map((file) => ({ kind: "file" as const, path: file, detail: "package manager evidence" }))),
-    makeArea(10, "Manifest files", discovery.manifests.length > 0 ? "DEFINED" : "NOT_DEFINED", `${discovery.manifests.length > 0 ? `Detected manifests: ${discovery.manifests.join(", ")}.` : "No manifests detected."}${buildRefreshNote(10, impactedAreaIds, noChange)}`, discovery.manifests.map((file) => ({ kind: "file" as const, path: file, detail: "manifest file" }))),
-    makeArea(11, "Lockfile strategy", discovery.lockfiles.length > 0 ? "DEFINED" : "NOT_DEFINED", `${discovery.lockfiles.length > 0 ? `Detected lockfiles: ${discovery.lockfiles.join(", ")}.` : "No lockfiles detected."}${buildRefreshNote(11, impactedAreaIds, noChange)}`, discovery.lockfiles.map((file) => ({ kind: "file" as const, path: file, detail: "lockfile" }))),
-    makeArea(15, "Environment separation", discovery.envFiles.length > 0 ? "INFERRED" : "NOT_DEFINED", `${discovery.envFiles.length > 0 ? `Detected environment files: ${discovery.envFiles.join(", ")}.` : "No environment separation files detected."}${buildRefreshNote(15, impactedAreaIds, noChange)}`, discovery.envFiles.map((file) => ({ kind: "file" as const, path: file, detail: "environment file" })), discovery.envFiles.length > 0 ? "MEDIUM" : undefined),
-    makeArea(16, "Environment variable conventions", discovery.envFiles.length > 0 ? "INFERRED" : "NOT_DEFINED", `${discovery.envFiles.length > 0 ? "Environment variables appear to be file-driven via .env-style files." : "No environment variable convention evidence detected."}${buildRefreshNote(16, impactedAreaIds, noChange)}`, discovery.envFiles.map((file) => ({ kind: "file" as const, path: file, detail: "environment convention" })), discovery.envFiles.length > 0 ? "MEDIUM" : undefined),
-    makeArea(19, "Runtime/language version pinning", discovery.versionFiles.length > 0 ? "DEFINED" : "NOT_DEFINED", `${discovery.versionFiles.length > 0 ? `Detected runtime/version pinning evidence in ${discovery.versionFiles.join(", ")}.` : "No explicit runtime/version pinning detected."}${buildRefreshNote(19, impactedAreaIds, noChange)}`, discovery.versionFiles.map((file) => ({ kind: "file" as const, path: file, detail: "runtime/version file" }))),
-    makeArea(20, "Local development bootstrap", Object.keys(discovery.commands).length > 0 ? "DEFINED" : "NOT_DEFINED", `${Object.keys(discovery.commands).length > 0 ? `Repository bootstrap/developer commands are script-driven: ${Object.keys(discovery.commands).join(", ")}.` : "No local bootstrap commands detected."}${buildRefreshNote(20, impactedAreaIds, noChange)}`, Object.entries(discovery.commands).map(([name, value]) => ({ kind: "pattern" as const, detail: `${name}: ${value}` }))),
-    makeArea(21, "Containerized development/runtime configuration", discovery.dockerFiles.length > 0 ? "DEFINED" : "NOT_APPLICABLE", `${discovery.dockerFiles.length > 0 ? `Detected container files: ${discovery.dockerFiles.join(", ")}.` : "No containerized runtime configuration detected."}${buildRefreshNote(21, impactedAreaIds, noChange)}`, discovery.dockerFiles.map((file) => ({ kind: "file" as const, path: file, detail: "container file" }))),
-    makeArea(73, "Test framework/tooling", discovery.testFiles.length > 0 ? "INFERRED" : "NOT_DEFINED", `${discovery.testFiles.length > 0 ? "Test tooling is implied by test file presence and package scripts." : "No test framework/tooling evidence detected."}${buildRefreshNote(73, impactedAreaIds, noChange)}`, discovery.testFiles.slice(0, 10).map((file) => ({ kind: "file" as const, path: file, detail: "test framework evidence" })), discovery.testFiles.length > 0 ? "MEDIUM" : undefined),
-    makeArea(81, "Build commands/tooling", discovery.commands.build ? "DEFINED" : "NOT_DEFINED", `${discovery.commands.build ? `Build command detected: ${discovery.commands.build}.` : "No build command detected."}${buildRefreshNote(81, impactedAreaIds, noChange)}`, discovery.commands.build ? [{ kind: "pattern" as const, detail: `build: ${discovery.commands.build}` }] : []),
-    makeArea(83, "Linting rules/tooling", discovery.lintFiles.length > 0 || Boolean(discovery.commands.lint) ? "DEFINED" : "NOT_DEFINED", `${discovery.lintFiles.length > 0 || discovery.commands.lint ? `Linting evidence detected${discovery.commands.lint ? ` with command ${discovery.commands.lint}` : ""}.` : "No linting rules/tooling detected."}${buildRefreshNote(83, impactedAreaIds, noChange)}`, [...discovery.lintFiles.map((file) => ({ kind: "file" as const, path: file, detail: "lint config" })), ...(discovery.commands.lint ? [{ kind: "pattern" as const, detail: `lint: ${discovery.commands.lint}` }] : [])]),
-    makeArea(84, "Formatting rules/tooling", discovery.formatFiles.length > 0 ? "DEFINED" : "NOT_DEFINED", `${discovery.formatFiles.length > 0 ? `Formatting configuration detected in ${discovery.formatFiles.join(", ")}.` : "No formatting rules/tooling detected."}${buildRefreshNote(84, impactedAreaIds, noChange)}`, discovery.formatFiles.map((file) => ({ kind: "file" as const, path: file, detail: "format config" }))),
-    makeArea(85, "Type checking/static analysis", discovery.typecheckFiles.length > 0 || Boolean(discovery.commands.typecheck) ? "DEFINED" : "NOT_DEFINED", `${discovery.typecheckFiles.length > 0 || discovery.commands.typecheck ? `Type checking/static analysis evidence detected${discovery.commands.typecheck ? ` with command ${discovery.commands.typecheck}` : ""}.` : "No type checking/static analysis detected."}${buildRefreshNote(85, impactedAreaIds, noChange)}`, [...discovery.typecheckFiles.map((file) => ({ kind: "file" as const, path: file, detail: "typecheck config" })), ...(discovery.commands.typecheck ? [{ kind: "pattern" as const, detail: `typecheck: ${discovery.commands.typecheck}` }] : [])]),
-    makeArea(87, "CI/CD platform", discovery.ciFiles.length > 0 ? "DEFINED" : "NOT_DEFINED", `${discovery.ciFiles.some((file) => file.startsWith(".github/workflows/")) ? "GitHub Actions appears to be the CI/CD platform." : discovery.ciFiles.length > 0 ? `CI/CD platform files detected: ${discovery.ciFiles.join(", ")}.` : "No CI/CD platform detected."}${buildRefreshNote(87, impactedAreaIds, noChange)}`, discovery.ciFiles.map((file) => ({ kind: "file" as const, path: file, detail: "CI/CD platform file" }))),
+    ...evaluateFoundationAreas(context),
+    ...await evaluateDependencyAndConfigAreas(context),
+    ...await evaluateStyleAreas(context),
+    ...await evaluateArchitectureAreas(context),
+    ...await evaluateApiAreas(context),
+    ...await evaluateDataAreas(context),
+    ...await evaluateReliabilityAreas(context),
+    ...await evaluateSecurityAreas(context),
+    ...await evaluateTestingAreas(context),
+    ...evaluateToolingAreas(context),
+    ...await evaluateCiCdAreas(context),
+    ...await evaluateObservabilityAreas(context),
+    ...await evaluateGovernanceAreas(context),
+    ...await evaluateMaintainabilityAreas(context),
   ];
 
   const implementedById = new Map(implementedAreas.map((area) => [area.id, area]));
@@ -171,25 +182,8 @@ function buildSummary(
     `Changed files: ${refresh.changedFiles.length}`,
     `Impacted areas: ${refresh.impactedAreaIds.join(", ") || "none"}`,
     `Reused areas: ${refresh.reusedAreaIds?.join(", ") || "none"}`,
+    `Critic warnings: ${areas.reduce((count, area) => count + (area.criticWarnings?.length ?? 0), 0)}`,
   ];
-}
-
-function makeArea(
-  id: number,
-  title: string,
-  status: ConstitutionArea["status"],
-  finding: string,
-  evidence: ConstitutionArea["evidence"],
-  confidence?: ConstitutionArea["confidence"],
-): ConstitutionArea {
-  return {
-    id,
-    title,
-    status,
-    confidence,
-    finding,
-    evidence,
-  };
 }
 
 function mergeAreasWithRefresh(
@@ -202,7 +196,7 @@ function mergeAreasWithRefresh(
   return evaluatedAreas.map((area) => {
     if (!noChange && !impactedAreaIds.includes(area.id)) {
       const previous = previousById.get(area.id);
-      if (previous) {
+      if (previous && shouldReusePreviousArea(previous, area)) {
         return {
           ...previous,
           title: area.title,
@@ -273,11 +267,42 @@ async function readExistingConstitutionAreas(filePath: string): Promise<Constitu
           path: evidence[1] || undefined,
           detail: evidence[2] ?? "",
         });
+        continue;
+      }
+      const claim = /^- Claim:\s+\[([a-z]+)(?:\/(HIGH|MEDIUM|LOW))?\]\s+(.+)$/.exec(line);
+      if (claim) {
+        current.claims ??= [];
+        current.claims.push({
+          kind: claim[1] as NonNullable<ConstitutionArea["claims"]>[number]["kind"],
+          confidence: claim[2] as ConstitutionArea["confidence"] | undefined,
+          statement: claim[3] ?? "",
+          evidence: [],
+        });
+        continue;
+      }
+      const claimEvidence = /^\s+- Claim evidence:\s+(?:(.+?)\s+—\s+)?(.+)$/.exec(line);
+      if (claimEvidence && current.claims && current.claims.length > 0) {
+        current.claims[current.claims.length - 1]!.evidence.push({
+          kind: "file",
+          path: claimEvidence[1] || undefined,
+          detail: claimEvidence[2] ?? "",
+        });
       }
     }
 
     if (current) {
       areas.push(current);
+    }
+
+    for (const area of areas) {
+      if ((!area.claims || area.claims.length === 0) && area.finding) {
+        area.claims = [{
+          statement: area.finding,
+          kind: claimKindForStatus(area.status),
+          confidence: area.confidence,
+          evidence: area.evidence,
+        }];
+      }
     }
 
     return areas;
@@ -289,18 +314,160 @@ async function readExistingConstitutionAreas(filePath: string): Promise<Constitu
   }
 }
 
-function buildRefreshNote(areaId: number, impactedAreaIds: number[], noChange: boolean): string {
-  if (noChange) {
-    return " Refresh detected no file changes since the last scan.";
+function shouldReusePreviousArea(previous: ConstitutionArea, current: ConstitutionArea): boolean {
+  const previousPlaceholder = looksPlaceholder(previous.finding);
+  const currentPlaceholder = looksPlaceholder(current.finding);
+  if (previousPlaceholder && !currentPlaceholder) {
+    return false;
   }
-  if (impactedAreaIds.includes(areaId)) {
-    return " Refresh impact routing marked this area as affected by recent file changes.";
+  if (!currentPlaceholder && previous.status !== current.status) {
+    return false;
   }
-  return "";
+  if ((previous.evidence.length === 0 && current.evidence.length > 0) || (previous.status === "NOT_DEFINED" && current.status !== "NOT_DEFINED")) {
+    return false;
+  }
+  const previousEvidenceKey = previous.evidence.map((item) => `${item.path ?? ""}:${item.detail}`).join("|");
+  const currentEvidenceKey = current.evidence.map((item) => `${item.path ?? ""}:${item.detail}`).join("|");
+  if (!currentPlaceholder && currentEvidenceKey && previousEvidenceKey !== currentEvidenceKey) {
+    return false;
+  }
+  return true;
 }
 
-function distinctRoots(files: string[]): string[] {
-  return Array.from(new Set(files.map((file) => file.split("/")[0]!).filter(Boolean))).sort();
+function critiqueAreas(areas: ConstitutionArea[]): ConstitutionArea[] {
+  return areas.map((area) => {
+    const criticWarnings = critiqueArea(area);
+    const claims = (area.claims ?? []).map((claim) => ({
+      ...claim,
+      criticWarnings: critiqueClaim(claim.statement, claim.evidence, claim.kind),
+    }));
+    return {
+      ...area,
+      claims,
+      criticWarnings: criticWarnings.length > 0 ? criticWarnings : undefined,
+    };
+  });
+}
+
+function detectAreaContradictions(areas: ConstitutionArea[]): ConstitutionArea[] {
+  const byId = new Map(areas.map((area) => [area.id, area]));
+  const updates = new Map<number, { warnings: string[]; claims: NonNullable<ConstitutionArea["claims"]> }>();
+
+  const addConflict = (ids: number[], message: string) => {
+    for (const id of ids) {
+      const area = byId.get(id);
+      if (!area) {
+        continue;
+      }
+      const existing = updates.get(id) ?? { warnings: [], claims: [] };
+      existing.warnings.push(message);
+      existing.claims.push({
+        statement: message,
+        kind: "conflict",
+        confidence: "MEDIUM",
+        evidence: area.evidence,
+      });
+      updates.set(id, existing);
+    }
+  };
+
+  const envArea = byId.get(15);
+  const envConventionArea = byId.get(16);
+  const secretsArea = byId.get(17);
+  const secretScanningArea = byId.get(68);
+  if ((envArea?.status === "INFERRED" || envArea?.status === "DEFINED" || envConventionArea?.status === "INFERRED")
+    && (secretsArea?.status === "NOT_DEFINED" || secretsArea?.status === "UNCERTAIN" || secretScanningArea?.status === "NOT_DEFINED" || secretScanningArea?.status === "UNCERTAIN")) {
+    addConflict([15, 16, 17, 68], "Environment-file usage is evident, but explicit secrets handling/scanning controls are weak or absent.");
+  }
+
+  const ciPlatform = byId.get(87);
+  const qualityChecks = byId.get(90);
+  const artifactArea = byId.get(91);
+  const cacheArea = byId.get(92);
+  const deployAutomation = byId.get(93);
+  if (ciPlatform?.status === "NOT_DEFINED" && [qualityChecks, artifactArea, cacheArea, deployAutomation].some((area) => area?.status === "INFERRED" || area?.status === "DEFINED")) {
+    addConflict([87, 90, 91, 92, 93], "CI/CD sub-findings imply workflow behavior, but no CI/CD platform was confidently identified.");
+  }
+
+  const apiStyle = byId.get(40);
+  const validation = byId.get(43);
+  const responseContracts = byId.get(44);
+  const errorFormat = byId.get(45);
+  if ((apiStyle?.status === "DEFINED" || apiStyle?.status === "INFERRED")
+    && validation?.status === "NOT_DEFINED"
+    && responseContracts?.status === "NOT_DEFINED"
+    && errorFormat?.status === "NOT_DEFINED") {
+    addConflict([40, 43, 44, 45], "API surface is present, but validation and contract-format evidence remain absent.");
+  }
+
+  const reviewArea = byId.get(109);
+  const protectedBranchArea = byId.get(110);
+  const codeownersArea = byId.get(111);
+  if ((reviewArea?.status === "DEFINED" || reviewArea?.status === "INFERRED")
+    && protectedBranchArea?.status === "NOT_DEFINED"
+    && codeownersArea?.status === "NOT_DEFINED") {
+    addConflict([109, 110, 111], "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.");
+  }
+
+  const deploymentModel = byId.get(112);
+  if ((deployAutomation?.status === "DEFINED" || deployAutomation?.status === "INFERRED") && deploymentModel?.status === "NOT_DEFINED") {
+    addConflict([93, 112], "Deployment automation is implied, but the deployment model itself is not yet clearly described by repository evidence.");
+  }
+
+  return areas.map((area) => {
+    const update = updates.get(area.id);
+    if (!update) {
+      return area;
+    }
+    return {
+      ...area,
+      criticWarnings: [...new Set([...(area.criticWarnings ?? []), ...update.warnings])],
+      claims: [...(area.claims ?? []), ...update.claims],
+    };
+  });
+}
+
+function critiqueArea(area: ConstitutionArea): string[] {
+  const warnings: string[] = [];
+  if ((area.status === "DEFINED" || area.status === "INFERRED") && area.evidence.length === 0) {
+    warnings.push("Area makes a concrete claim without supporting evidence.");
+  }
+  if (looksGeneric(area.finding) && area.status !== "NOT_DEFINED" && area.status !== "NOT_APPLICABLE") {
+    warnings.push("Finding is generic or placeholder-like; deepen evidence before trusting this area.");
+  }
+  return warnings;
+}
+
+function critiqueClaim(statement: string, evidence: ConstitutionArea["evidence"], kind: NonNullable<ConstitutionArea["claims"]>[number]["kind"]): string[] {
+  const warnings: string[] = [];
+  if ((kind === "observed" || kind === "inferred") && evidence.length === 0) {
+    warnings.push("Claim lacks direct evidence references.");
+  }
+  if (looksGeneric(statement)) {
+    warnings.push("Claim appears generic enough to fit unrelated repositories.");
+  }
+  return warnings;
+}
+
+function looksPlaceholder(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  return normalized.includes("not implemented yet") || normalized.includes("repository evidence exists for this area");
+}
+
+function looksGeneric(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  return [
+    "not implemented yet",
+    "repository evidence exists for this area",
+    "appears to use",
+    "appears to be",
+    "is implied by",
+    "could be determined",
+    "no evidence detected",
+  ].some((phrase) => normalized.includes(phrase));
 }
 
 function buildReasonerPrompt(
@@ -343,11 +510,22 @@ function mergeAiAreas(
     if (!proposed) {
       return area;
     }
+    const finding = proposed.finding || area.finding;
+    const confidence = proposed.confidence;
+    const status = proposed.status;
     return {
       ...area,
-      status: proposed.status,
-      confidence: proposed.confidence,
-      finding: proposed.finding || area.finding,
+      status,
+      confidence,
+      finding,
+      claims: [
+        {
+          statement: finding,
+          kind: claimKindForStatus(status),
+          confidence,
+          evidence: area.evidence,
+        },
+      ],
       driftWarnings: proposed.driftWarnings,
     };
   });

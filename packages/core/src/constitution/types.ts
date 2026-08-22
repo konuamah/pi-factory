@@ -13,6 +13,21 @@ export interface ConstitutionEvidence {
   detail: string;
 }
 
+export type ConstitutionClaimKind =
+  | "observed"
+  | "inferred"
+  | "unknown"
+  | "normative"
+  | "conflict";
+
+export interface ConstitutionClaim {
+  statement: string;
+  kind: ConstitutionClaimKind;
+  confidence?: ConstitutionConfidence;
+  evidence: ConstitutionEvidence[];
+  criticWarnings?: string[];
+}
+
 export interface ConstitutionArea {
   id: number;
   title: string;
@@ -20,7 +35,9 @@ export interface ConstitutionArea {
   confidence?: ConstitutionConfidence;
   finding: string;
   evidence: ConstitutionEvidence[];
+  claims?: ConstitutionClaim[];
   driftWarnings?: string[];
+  criticWarnings?: string[];
 }
 
 export interface ConstitutionDiscovery {

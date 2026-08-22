@@ -21,6 +21,7 @@ import {
   type AgentExecutor,
   type FactoryRunProgressEvent,
 } from "@factory/core";
+import { buildPlanApprovalPreviewLines, requestPlanApprovalDecision } from "./approval.js";
 import type { FactoryPiAutocompleteItem, FactoryPiCommandContext } from "./types.js";
 
 const FACTORY_WIDGET_ID = "factory-status";
@@ -645,41 +646,18 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
       updateProgressWidget(ctx, progressLines, event);
     },
     requestPlanApproval: async ({ runId, goal, planPath, taskCount, workflowStages, summary, tasks }) => {
-      renderLines(ctx, buildPlanApprovalPreviewLines({ runId, goal, planPath, taskCount, workflowStages, summary, tasks }));
-
-      if (ctx.ui.select) {
-        const selected = await ctx.ui.select('Factory plan decision', [
-          { label: 'Approve', value: 'approve', description: 'Continue to implementation' },
-          { label: 'Request revisions', value: 'revise', description: 'Pause before implementation and record feedback' },
-          { label: 'Reject', value: 'reject', description: 'Cancel the run before implementation' },
-        ]);
-        if (selected === 'revise' || selected === 'reject') {
-          const feedback = await ctx.ui.input?.(
-            selected === 'revise' ? 'Revision feedback' : 'Rejection feedback',
-            'Optional short feedback',
-          );
-          return { decision: selected, feedback: feedback?.trim() || undefined };
-        }
-        return { decision: selected === 'reject' || selected === 'revise' ? selected : 'approve' };
-      }
-
-      if (!ctx.ui.confirm) {
-        return { decision: 'approve' };
-      }
-      const ok = await ctx.ui.confirm(
-        'Approve Factory plan?',
-        [
-          `Run: ${runId}`,
-          `Goal: ${goal}`,
-          `Tasks: ${taskCount}`,
-          `Stages: ${workflowStages.join(' -> ')}`,
-          `Plan: ${planPath}`,
-          '',
-          'Approve to continue to implementation.',
-          'Reject to cancel this run.',
-        ].join('\n'),
+      const preview = { runId, goal, planPath, taskCount, workflowStages, summary, tasks };
+      renderLines(ctx, buildPlanApprovalPreviewLines(preview));
+      const decision = await requestPlanApprovalDecision(ctx.ui, preview);
+      ctx.ui.notify(
+        decision.decision === "approve"
+          ? "Factory plan approved"
+          : decision.decision === "revise"
+            ? "Factory plan revisions requested"
+            : "Factory plan rejected",
+        decision.decision === "approve" ? "info" : "warning",
       );
-      return { decision: ok ? 'approve' : 'reject' };
+      return decision;
     },
     requestApproval: async ({ runId, goal }) => {
       if (!ctx.ui.confirm) {
@@ -722,31 +700,6 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
 
 function renderLines(ctx: FactoryPiCommandContext, lines: string[]): void {
   ctx.ui.setWidget(FACTORY_WIDGET_ID, lines);
-}
-
-function buildPlanApprovalPreviewLines(input: {
-  runId: string;
-  goal: string;
-  planPath: string;
-  taskCount: number;
-  workflowStages: string[];
-  summary: string;
-  tasks: Array<{ title: string; stage: string }>;
-}): string[] {
-  return [
-    'Factory plan approval',
-    `Run: ${input.runId}`,
-    `Goal: ${input.goal}`,
-    `Tasks: ${input.taskCount}`,
-    `Stages: ${input.workflowStages.join(' -> ')}`,
-    `Plan: ${input.planPath}`,
-    '',
-    'Summary',
-    ...input.summary.split(/\r?\n/).slice(0, 8),
-    '',
-    'Tasks',
-    ...input.tasks.slice(0, 6).map((task) => `- [${task.stage}] ${task.title}`),
-  ];
 }
 
 function updateProgressWidget(

@@ -160,6 +160,54 @@ test('structural changes use full interpretation', async () => {
   );
 });
 
+test('failed targeted refresh preserves the last finalized constitution', async () => {
+  await withTempProject(
+    {
+      'package.json': JSON.stringify({ name: 'tmp', type: 'module', scripts: { test: 'node --test tests/**/*.test.mjs' } }, null, 2),
+      'README.md': '# temp\n',
+      'tests/example.test.mjs': 'test("x", () => {});\n',
+    },
+    async (root) => {
+      await initGitRepo(root);
+      const okExecutor = {
+        async execute() {
+          return {
+            executionId: 'ok',
+            status: 'completed',
+            outputText: 'initial interpretation\nAI_AREA_PROPOSALS_START\n[]\nAI_AREA_PROPOSALS_END\n',
+            events: [],
+          };
+        },
+        async cancel() {},
+      };
+
+      const first = await runConstitutionScan({ cwd: root, constitutionExecutor: okExecutor });
+      const priorFinding = getArea(first, 4).finding;
+      await fs.writeFile(path.join(root, 'tests/example.test.mjs'), 'test("changed", () => {});\n', 'utf8');
+
+      const failingExecutor = {
+        async execute() {
+          return {
+            executionId: 'fail',
+            status: 'failed',
+            outputText: 'failed interpretation',
+            errorMessage: 'boom',
+            events: [],
+          };
+        },
+        async cancel() {},
+      };
+
+      const second = await runConstitutionScan({ cwd: root, constitutionExecutor: failingExecutor });
+      assert.equal(second.refreshStrategy, 'targeted-interpretation');
+      assert.equal(second.finalized, true);
+      assert.equal(second.interpreter.status, 'failed');
+      assert.equal(second.interpreter.errorMessage, 'boom');
+      assert.equal(getArea(second, 4).finding, priorFinding);
+    },
+  );
+});
+
 test('architecture evaluator detects package/module boundaries', async () => {
   await withTempProject(
     {

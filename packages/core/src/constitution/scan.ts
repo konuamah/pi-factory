@@ -115,7 +115,19 @@ export async function runConstitutionScan(input: {
     : areas;
   const critiquedAreas = critiqueAreas(interpretedAreas);
   const finalAreas = detectAreaContradictions(critiquedAreas);
-  const finalized = interpreter.status === "completed";
+  const preservedAreas = Array.isArray(previousFacts?.areas) && previousFacts.areas.length > 0
+    ? previousFacts.areas
+    : undefined;
+  const preservedFinalizedConstitution =
+    interpreter.status !== "completed" &&
+    previousMetadata?.finalized === true &&
+    Array.isArray(preservedAreas) &&
+    preservedAreas.length > 0;
+  const activeAreas = preservedFinalizedConstitution && preservedAreas ? preservedAreas : finalAreas;
+  const activeSummary = preservedFinalizedConstitution && preservedAreas
+    ? (previousFacts?.summary ?? buildSummary(discovery, preservedAreas, refresh))
+    : summary;
+  const finalized = interpreter.status === "completed" || preservedFinalizedConstitution;
 
   await fs.writeFile(
     factsPath,
@@ -136,7 +148,7 @@ export async function runConstitutionScan(input: {
     "utf8",
   );
 
-  if (finalized) {
+  if (interpreter.status === "completed") {
     const markdown = renderConstitutionMarkdown({
       discovery,
       areas: finalAreas,
@@ -161,6 +173,7 @@ export async function runConstitutionScan(input: {
         trackedFiles: discovery.trackedFiles.length,
         interpreter,
         finalized,
+        preservedFinalizedConstitution,
         factsPath,
         constitutionPath,
         criticWarnings: finalAreas.reduce((count, area) => count + (area.criticWarnings?.length ?? 0), 0),
@@ -178,12 +191,14 @@ export async function runConstitutionScan(input: {
     discovery,
     refresh: {
       ...refresh,
-      reusedAreaIds: previousAreas
-        .filter((area) => !refresh.noChange && !refresh.impactedAreaIds.includes(area.id))
-        .map((area) => area.id),
+      reusedAreaIds: preservedFinalizedConstitution && preservedAreas
+        ? preservedAreas.map((area) => area.id)
+        : previousAreas
+            .filter((area) => !refresh.noChange && !refresh.impactedAreaIds.includes(area.id))
+            .map((area) => area.id),
     },
-    areas: finalAreas,
-    summary,
+    areas: activeAreas,
+    summary: activeSummary,
     interpreter,
     constitutionPath,
     metadataPath,

@@ -636,14 +636,46 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     onProgress: async (event) => {
       updateProgressWidget(ctx, progressLines, event);
     },
-    requestPlanApproval: async ({ runId, goal, planPath, taskCount, workflowStages }) => {
-      if (!ctx.ui.confirm) {
-        return true;
+    requestPlanApproval: async ({ runId, goal, planPath, taskCount, workflowStages, summary, tasks }) => {
+      const lines = [
+        `Run: ${runId}`,
+        `Goal: ${goal}`,
+        `Tasks: ${taskCount}`,
+        `Stages: ${workflowStages.join(' -> ')}`,
+        `Plan: ${planPath}`,
+        '',
+        'Summary',
+        ...summary.split(/\r?\n/).slice(0, 8),
+        '',
+        'Tasks',
+        ...tasks.slice(0, 6).map((task) => `- [${task.stage}] ${task.title}`),
+      ];
+      renderLines(ctx, ["Factory plan approval", ...lines]);
+
+      if (ctx.ui.select) {
+        const selected = await ctx.ui.select('Factory plan decision', [
+          { label: 'Approve', value: 'approve', description: 'Continue to implementation' },
+          { label: 'Request revisions', value: 'revise', description: 'Pause before implementation and record feedback' },
+          { label: 'Reject', value: 'reject', description: 'Cancel the run before implementation' },
+        ]);
+        if (selected === 'revise' || selected === 'reject') {
+          const feedback = await ctx.ui.input?.(
+            selected === 'revise' ? 'Revision feedback' : 'Rejection feedback',
+            'Optional short feedback',
+          );
+          return { decision: selected, feedback: feedback?.trim() || undefined };
+        }
+        return { decision: selected === 'reject' || selected === 'revise' ? selected : 'approve' };
       }
-      return ctx.ui.confirm(
-        "Approve Factory plan?",
+
+      if (!ctx.ui.confirm) {
+        return { decision: 'approve' };
+      }
+      const ok = await ctx.ui.confirm(
+        'Approve Factory plan?',
         `Approve plan for run ${runId}?\nGoal: ${goal}\nTasks: ${taskCount}\nStages: ${workflowStages.join(' -> ')}\nPlan: ${planPath}`,
       );
+      return { decision: ok ? 'approve' : 'reject' };
     },
     requestApproval: async ({ runId, goal }) => {
       if (!ctx.ui.confirm) {

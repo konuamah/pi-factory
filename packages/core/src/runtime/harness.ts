@@ -1,4 +1,4 @@
-import { runFactoryController } from "./controller.js";
+import { runFactoryController, type PlanApprovalResult } from "./controller.js";
 import type { AgentExecutor } from "./interfaces.js";
 
 export interface RuntimeHarnessResult {
@@ -19,7 +19,7 @@ export async function runRuntimeHarness(input: {
   builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
-  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[] }) => Promise<boolean>;
+  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; tasks: Array<{ id: string; title: string; stage: string; status: "pending" | "done"; dependsOn: string[] }> }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string }) => Promise<boolean>;
 }): Promise<RuntimeHarnessResult> {
   const result = await runFactoryController({
@@ -29,7 +29,7 @@ export async function runRuntimeHarness(input: {
     builderExecutor: input.builderExecutor,
     repairExecutor: input.repairExecutor,
     reviewerExecutor: input.reviewerExecutor,
-    requestPlanApproval: input.requestPlanApproval ?? (async () => true),
+    requestPlanApproval: input.requestPlanApproval ?? (async () => ({ decision: "approve" })),
     requestApproval: input.requestApproval ?? (async () => true),
   });
 

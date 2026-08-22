@@ -111,7 +111,7 @@ export interface PrototypeFinalMergeArtifact {
 export interface PrototypeSummaryArtifact {
   runId: string;
   goal: string;
-  status: "COMPLETED" | "FAILED" | "CANCELLED";
+  status: "PENDING" | "COMPLETED" | "FAILED" | "CANCELLED";
   phase: string;
   approved: boolean;
   candidateSha?: string;

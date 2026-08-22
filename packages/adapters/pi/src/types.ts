@@ -9,6 +9,11 @@ export interface FactoryPiUi {
     options?: { placement?: "aboveEditor" | "belowEditor" },
   ): void;
   confirm?(title: string, message: string): Promise<boolean>;
+  select?(
+    title: string,
+    options: Array<{ label: string; value: string; description?: string }>,
+  ): Promise<string | undefined>;
+  input?(title: string, placeholder?: string): Promise<string | undefined>;
 }
 
 export interface FactoryPiCommandContext {

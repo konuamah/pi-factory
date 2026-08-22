@@ -59,7 +59,7 @@ export async function runPiRuntimeHarness(): Promise<void> {
     reviewerExecutor,
     requestPlanApproval: async ({ runId, goal: approvalGoal, planPath, taskCount, workflowStages }) => {
       process.stdout.write(`\nplan auto-approved for ${runId}: ${approvalGoal} | tasks=${taskCount} | stages=${workflowStages.join('->')} | plan=${planPath}\n`);
-      return true;
+      return { decision: 'approve' };
     },
     requestApproval: async ({ runId, goal: approvalGoal }) => {
       process.stdout.write(`\nfinal approval auto-approved for ${runId}: ${approvalGoal}\n`);

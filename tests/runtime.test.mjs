@@ -83,7 +83,7 @@ test('plan approval rejection stops the run before implementation', async () => 
       goal: 'Add a demo feature',
       plannerExecutor,
       builderExecutor,
-      requestPlanApproval: async () => false,
+      requestPlanApproval: async () => ({ decision: 'reject', feedback: 'not aligned' }),
       requestApproval: async () => {
         finalApprovalCalled = true;
         return true;
@@ -111,7 +111,7 @@ test('latest run plan summary can be read after a successful run', async () => {
       goal: 'Add a demo feature',
       plannerExecutor,
       builderExecutor,
-      requestPlanApproval: async () => true,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
       requestApproval: async () => true,
     });
 
@@ -120,6 +120,29 @@ test('latest run plan summary can be read after a successful run', async () => {
     assert.ok(plan.planPath?.endsWith('plan.json'));
     assert.ok((plan.tasks?.length ?? 0) > 0);
     assert.match(plan.summary ?? '', /Goal: Add a demo feature/);
+  });
+});
+
+test('requesting plan revisions pauses before implementation', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'revise', feedback: 'narrow the scope' }),
+      requestApproval: async () => true,
+    });
+
+    const summary = await readJson(result.summaryPath);
+    assert.equal(summary.status, 'PENDING');
+    assert.equal(summary.phase, 'plan-revision-requested');
+    assert.equal(result.builderExecutionPaths?.length ?? 0, 0);
+    assert.equal(calls.filter((call) => call.label === 'builder').length, 0);
   });
 });
 
@@ -140,7 +163,7 @@ test('final approval still happens after plan approval and implementation', asyn
       reviewerExecutor,
       requestPlanApproval: async () => {
         planApprovalCalled += 1;
-        return true;
+        return { decision: 'approve' };
       },
       requestApproval: async () => {
         finalApprovalCalled += 1;

@@ -29,6 +29,13 @@ export interface FactoryRunProgressEvent {
   message: string;
 }
 
+export type PlanApprovalDecision = "approve" | "reject" | "revise";
+
+export interface PlanApprovalResult {
+  decision: PlanApprovalDecision;
+  feedback?: string;
+}
+
 export interface RunFactoryControllerInput {
   cwd: string;
   goal: string;
@@ -38,7 +45,7 @@ export interface RunFactoryControllerInput {
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
-  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[] }) => Promise<boolean>;
+  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string; candidateSha?: string }) => Promise<boolean>;
   delayMs?: number;
 }
@@ -212,35 +219,46 @@ export async function runFactoryController(
     message: "Waiting for human plan approval",
   });
 
-  const planApproved = (await input.requestPlanApproval?.({
+  const planApproval = (await input.requestPlanApproval?.({
     runId: run.runId,
     goal: input.goal,
     planPath,
     taskCount: plan.tasks.length,
     workflowStages: plan.workflowStages.map((stage) => stage.name),
-  })) ?? true;
+    summary: plan.summary,
+    tasks: plan.tasks,
+  })) ?? { decision: "approve" as const };
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
-    type: planApproved ? "plan.approved" : "plan.rejected",
-    data: { goal: input.goal, planPath },
+    type:
+      planApproval.decision === "approve"
+        ? "plan.approved"
+        : planApproval.decision === "revise"
+          ? "plan.revision_requested"
+          : "plan.rejected",
+    data: { goal: input.goal, planPath, feedback: planApproval.feedback },
   });
 
-  if (!planApproved) {
-    const cancelledState = await updateFactoryRunState({
+  if (planApproval.decision !== "approve") {
+    const rejected = planApproval.decision === "reject";
+    const nextPhase = rejected ? "plan-approval-rejected" : "plan-revision-requested";
+    const nextStatus = rejected ? "CANCELLED" : "PENDING";
+    const nextMessage = rejected ? "Run stopped: plan approval rejected" : "Run paused: plan revisions requested";
+    const stoppedState = await updateFactoryRunState({
       statePath: run.statePath,
-      patch: { status: "CANCELLED", phase: "plan-approval-rejected" },
+      patch: { status: nextStatus, phase: nextPhase },
     });
     await emitProgress(input, {
       runId: run.runId,
-      phase: "plan-approval-rejected",
-      status: "CANCELLED",
-      message: "Run stopped: plan approval rejected",
+      phase: nextPhase,
+      status: rejected ? "CANCELLED" : "PENDING",
+      message: nextMessage,
     });
     const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
       runId: run.runId,
       goal: input.goal,
-      status: "CANCELLED",
-      phase: cancelledState.phase,
+      status: nextStatus,
+      phase: stoppedState.phase,
       approved: false,
       planPath,
       taskPaths,

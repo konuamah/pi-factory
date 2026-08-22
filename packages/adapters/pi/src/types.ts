@@ -16,11 +16,18 @@ export interface FactoryPiCommandContext {
   ui: FactoryPiUi;
 }
 
+export interface FactoryPiAutocompleteItem {
+  value: string;
+  label?: string;
+  description?: string;
+}
+
 export interface FactoryPiExtensionApiLike {
   registerCommand(
     name: string,
     command: {
       description?: string;
+      getArgumentCompletions?: (prefix: string) => Promise<FactoryPiAutocompleteItem[] | null> | FactoryPiAutocompleteItem[] | null;
       handler: (args: string, ctx: FactoryPiCommandContext & Record<string, unknown>) => Promise<void>;
     },
   ): void;

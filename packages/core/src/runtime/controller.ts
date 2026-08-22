@@ -3,8 +3,13 @@ import { loadEffectiveConfig } from "../config/loader.js";
 import { appendFactoryRunEvent, createFactoryRun, updateFactoryRunState } from "../runs/store.js";
 import {
   writePrototypePlanArtifact,
+  writePrototypeSummaryArtifact,
+  writePrototypeTaskArtifacts,
   writePrototypeVerificationArtifact,
 } from "./artifacts.js";
+import { buildPlanArtifact } from "./planner.js";
+import { updatePrototypeTaskArtifact } from "./tasks.js";
+import { runVerificationCommands } from "./verification.js";
 
 export interface FactoryRunProgressEvent {
   runId: string;
@@ -29,7 +34,9 @@ export interface RunFactoryControllerResult {
   phases: string[];
   approved: boolean;
   planPath: string;
+  taskPaths: string[];
   verificationPath: string;
+  summaryPath: string;
 }
 
 export async function runFactoryController(
@@ -61,42 +68,87 @@ export async function runFactoryController(
   });
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "planning", "Building plan");
-  const planPath = await writePrototypePlanArtifact(run.runDir, {
+  const plan = buildPlanArtifact({
     goal: input.goal,
-    tasks: [
-      { id: "task-1", title: "Analyze goal", status: "done" },
-      { id: "task-2", title: "Prepare implementation slice", status: "pending" },
-      { id: "task-3", title: "Verify candidate", status: "pending" },
-    ],
+    config: loaded.effectiveConfig,
   });
+  const planPath = await writePrototypePlanArtifact(run.runDir, plan);
+  const taskPaths = await writePrototypeTaskArtifacts(
+    run.runDir,
+    plan.tasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      stage: task.stage,
+      status: task.status,
+      dependsOn: task.dependsOn,
+    })),
+  );
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "planning.artifact_written",
-    data: { planPath },
-  });
-  await wait(delayMs);
-
-  await movePhase(run.statePath, run.eventsPath, run.runId, input, "implementation", "Executing fake builder tasks");
-  await appendFactoryRunEvent(run.eventsPath, {
-    timestamp: new Date().toISOString(),
-    type: "implementation.fake_task",
     data: {
-      task: "prototype-builder",
-      workflowStages: loaded.effectiveConfig.workflow?.stages.map((stage) => stage.name) ?? [],
+      planPath,
+      taskCount: plan.tasks.length,
+      workflowStages: plan.workflowStages.map((stage) => stage.name),
+      tasksDir: taskPaths.length > 0 ? path.dirname(taskPaths[0]!) : undefined,
     },
   });
   await wait(delayMs);
 
-  await movePhase(run.statePath, run.eventsPath, run.runId, input, "verification", "Checking configured commands");
-  const verificationCommands = Object.entries(loaded.effectiveConfig.commands).map(([name, command]) => ({
-    name,
-    command: command ?? "",
-    status: command ? "configured" as const : "missing" as const,
-  }));
-  const verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
-    commands: verificationCommands,
-    overallStatus: verificationCommands.every((entry) => entry.status === "configured") ? "passed" : "incomplete",
+  await movePhase(run.statePath, run.eventsPath, run.runId, input, "implementation", "Executing task artifacts");
+
+  const implementationTasks = plan.tasks.filter((task) => {
+    const stage = task.stage.toLowerCase();
+    return stage === "build" || stage === "implementation" || stage === "verify" || stage === "verification";
   });
+
+  for (const task of implementationTasks) {
+    await updatePrototypeTaskArtifact({
+      runDir: run.runDir,
+      taskId: task.id,
+      patch: { status: "running" },
+    });
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "task.started",
+      data: {
+        taskId: task.id,
+        stage: task.stage,
+        title: task.title,
+      },
+    });
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: "implementation",
+      status: "RUNNING",
+      message: `Running task ${task.id}: ${task.title}`,
+    });
+    await wait(delayMs);
+
+    await updatePrototypeTaskArtifact({
+      runDir: run.runDir,
+      taskId: task.id,
+      patch: { status: "done" },
+    });
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "task.completed",
+      data: {
+        taskId: task.id,
+        stage: task.stage,
+        title: task.title,
+      },
+    });
+  }
+
+  await wait(delayMs);
+
+  await movePhase(run.statePath, run.eventsPath, run.runId, input, "verification", "Running configured verification commands");
+  const verification = await runVerificationCommands({
+    cwd: input.cwd,
+    commands: loaded.effectiveConfig.commands,
+  });
+  const verificationPath = await writePrototypeVerificationArtifact(run.runDir, verification);
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "verification.commands_detected",
@@ -104,9 +156,57 @@ export async function runFactoryController(
   });
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
+    type: "verification.completed",
+    data: { overallStatus: verification.overallStatus },
+  });
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
     type: "verification.artifact_written",
     data: { verificationPath },
   });
+  await emitProgress(input, {
+    runId: run.runId,
+    phase: "verification",
+    status: verification.overallStatus === "failed" ? "FAILED" : "RUNNING",
+    message: `Verification ${verification.overallStatus}`,
+  });
+
+  if (verification.overallStatus === "failed") {
+    const failedState = await updateFactoryRunState({
+      statePath: run.statePath,
+      patch: { status: "FAILED", phase: "verification-failed" },
+    });
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "run.failed",
+      data: { reason: "verification failed" },
+    });
+    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+      runId: run.runId,
+      goal: input.goal,
+      status: "FAILED",
+      phase: failedState.phase,
+      approved: false,
+      planPath,
+      taskPaths,
+      verificationPath,
+      verificationStatus: verification.overallStatus,
+    });
+
+    return {
+      runId: run.runId,
+      runDir: run.runDir,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      phases,
+      approved: false,
+      planPath,
+      taskPaths,
+      verificationPath,
+      summaryPath,
+    };
+  }
+
   await wait(delayMs);
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "approval-ready", "Candidate ready for approval");
@@ -133,7 +233,7 @@ export async function runFactoryController(
   });
 
   if (!approved) {
-    await updateFactoryRunState({
+    const cancelledState = await updateFactoryRunState({
       statePath: run.statePath,
       patch: { status: "CANCELLED", phase: "approval-rejected" },
     });
@@ -142,6 +242,17 @@ export async function runFactoryController(
       phase: "approval-rejected",
       status: "CANCELLED",
       message: "Run stopped: approval rejected",
+    });
+    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+      runId: run.runId,
+      goal: input.goal,
+      status: "CANCELLED",
+      phase: cancelledState.phase,
+      approved: false,
+      planPath,
+      taskPaths,
+      verificationPath,
+      verificationStatus: verification.overallStatus,
     });
 
     return {
@@ -152,13 +263,15 @@ export async function runFactoryController(
       phases,
       approved: false,
       planPath,
+      taskPaths,
       verificationPath,
+      summaryPath,
     };
   }
 
   await wait(delayMs);
 
-  await updateFactoryRunState({
+  const completedState = await updateFactoryRunState({
     statePath: run.statePath,
     patch: { status: "COMPLETED", phase: "complete" },
   });
@@ -174,6 +287,18 @@ export async function runFactoryController(
     message: "Prototype controller run completed",
   });
 
+  const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+    runId: run.runId,
+    goal: input.goal,
+    status: "COMPLETED",
+    phase: completedState.phase,
+    approved: true,
+    planPath,
+    taskPaths,
+    verificationPath,
+    verificationStatus: verification.overallStatus,
+  });
+
   return {
     runId: run.runId,
     runDir: run.runDir,
@@ -182,7 +307,9 @@ export async function runFactoryController(
     phases,
     approved: true,
     planPath,
+    taskPaths,
     verificationPath,
+    summaryPath,
   };
 }
 

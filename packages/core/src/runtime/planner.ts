@@ -1,0 +1,96 @@
+import type { EffectiveFactoryConfig, WorkflowStage } from "@factory/schemas";
+
+export interface PlannerTask {
+  id: string;
+  title: string;
+  stage: string;
+  status: "pending" | "done";
+  dependsOn: string[];
+}
+
+export interface PlannerArtifact {
+  goal: string;
+  summary: string;
+  workflowStages: Array<{
+    name: string;
+    dependsOn: string[];
+  }>;
+  tasks: PlannerTask[];
+}
+
+export function buildPlanArtifact(input: {
+  goal: string;
+  config: EffectiveFactoryConfig;
+}): PlannerArtifact {
+  const workflowStages = normalizeWorkflowStages(input.config.workflow?.stages ?? []);
+
+  const tasks = workflowStages.map((stage, index) => ({
+    id: `task-${index + 1}`,
+    title: buildTaskTitle(stage.name, input.goal),
+    stage: stage.name,
+    status: stage.name === "planning" || stage.name === "plan" ? "done" as const : "pending" as const,
+    dependsOn: stage.dependsOn,
+  }));
+
+  return {
+    goal: input.goal,
+    summary: buildSummary(input.goal, input.config, workflowStages),
+    workflowStages,
+    tasks,
+  };
+}
+
+function normalizeWorkflowStages(stages: WorkflowStage[]): Array<{ name: string; dependsOn: string[] }> {
+  if (stages.length === 0) {
+    return [
+      { name: "planning", dependsOn: [] },
+      { name: "implementation", dependsOn: ["planning"] },
+      { name: "verification", dependsOn: ["implementation"] },
+      { name: "approval", dependsOn: ["verification"] },
+    ];
+  }
+
+  return stages.map((stage) => ({
+    name: stage.name,
+    dependsOn: stage.dependsOn ?? [],
+  }));
+}
+
+function buildTaskTitle(stageName: string, goal: string): string {
+  switch (stageName) {
+    case "plan":
+    case "planning":
+      return `Plan work for: ${goal}`;
+    case "build":
+    case "implementation":
+      return `Implement changes for: ${goal}`;
+    case "verify":
+    case "verification":
+      return `Verify changes for: ${goal}`;
+    case "approval":
+    case "approval-ready":
+      return `Prepare approval package for: ${goal}`;
+    case "merge":
+      return `Merge approved changes for: ${goal}`;
+    default:
+      return `${capitalize(stageName)} for: ${goal}`;
+  }
+}
+
+function buildSummary(
+  goal: string,
+  config: EffectiveFactoryConfig,
+  workflowStages: Array<{ name: string; dependsOn: string[] }>,
+): string {
+  return [
+    `Goal: ${goal}`,
+    `Base branch: ${config.git.baseBranch}`,
+    `Workflow: ${workflowStages.map((stage) => stage.name).join(" -> ")}`,
+    `Approval policy: ${config.approval.finalMerge}`,
+    `Repair attempts: ${config.repair.maxAttempts}`,
+  ].join("\n");
+}
+
+function capitalize(value: string): string {
+  return value.length === 0 ? value : value[0]!.toUpperCase() + value.slice(1);
+}

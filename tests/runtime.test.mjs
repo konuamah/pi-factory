@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { initializeFactoryProject, readLatestFactoryRunPlan, runRuntimeHarness } from '../packages/core/dist/index.js';
+import { initializeFactoryProject, readLatestFactoryRunLogs, readLatestFactoryRunPlan, resumeLatestFactoryRun, runRuntimeHarness, showFactoryRun } from '../packages/core/dist/index.js';
 
 const execFile = promisify(execFileCb);
 
@@ -143,6 +143,79 @@ test('requesting plan revisions pauses before implementation', async () => {
     assert.equal(summary.phase, 'plan-revision-requested');
     assert.equal(result.builderExecutionPaths?.length ?? 0, 0);
     assert.equal(calls.filter((call) => call.label === 'builder').length, 0);
+  });
+});
+
+test('resume keeps plan revision runs paused before implementation', async () => {
+  await withTempProject(async (root) => {
+    const plannerExecutor = makeExecutor('planner', []);
+    const builderExecutor = makeExecutor('builder', []);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'revise', feedback: 'narrow the scope' }),
+      requestApproval: async () => true,
+    });
+
+    const resumed = await resumeLatestFactoryRun(path.join(root, '.factory', 'runs'));
+    assert.equal(resumed.resumed, true);
+    assert.equal(resumed.state?.status, 'PENDING');
+    assert.equal(resumed.state?.phase, 'plan-revision-requested');
+    assert.equal(resumed.recovery?.suggestedPhase, 'plan-revision-requested');
+    assert.equal(resumed.recovery?.nextStatus, 'PENDING');
+  });
+});
+
+test('resume does not reopen plan approval rejection runs', async () => {
+  await withTempProject(async (root) => {
+    const plannerExecutor = makeExecutor('planner', []);
+    const builderExecutor = makeExecutor('builder', []);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'reject', feedback: 'not aligned' }),
+      requestApproval: async () => true,
+    });
+
+    const resumed = await resumeLatestFactoryRun(path.join(root, '.factory', 'runs'));
+    assert.equal(resumed.resumed, false);
+    assert.equal(resumed.recovery?.resumable, false);
+    assert.match(resumed.reason, /rejected during plan approval/i);
+  });
+});
+
+test('logs and show surface plan feedback clearly', async () => {
+  await withTempProject(async (root) => {
+    const plannerExecutor = makeExecutor('planner', []);
+    const builderExecutor = makeExecutor('builder', []);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'revise', feedback: 'narrow the scope' }),
+      requestApproval: async () => true,
+    });
+
+    const logs = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'));
+    assert.equal(logs.planDecision, 'revise');
+    assert.equal(logs.planFeedback, 'narrow the scope');
+    assert.equal(logs.implementationStarted, false);
+    assert.ok(logs.events.some((line) => /plan revision requested/i.test(line)));
+    assert.ok(logs.events.some((line) => /narrow the scope/i.test(line)));
+
+    const runId = String(logs.state?.runId);
+    const shown = await showFactoryRun(path.join(root, '.factory', 'runs'), runId);
+    assert.equal(shown.planDecision, 'revise');
+    assert.equal(shown.planFeedback, 'narrow the scope');
+    assert.equal(shown.implementationStarted, false);
   });
 });
 

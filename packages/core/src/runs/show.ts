@@ -10,6 +10,9 @@ export interface FactoryRunShowResult {
   repairExecutions?: Record<string, unknown>[];
   reviewerExecution?: Record<string, unknown>;
   verification?: Record<string, unknown>;
+  planDecision?: "approve" | "reject" | "revise";
+  planFeedback?: string;
+  implementationStarted?: boolean;
 }
 
 export async function showFactoryRun(runsDir: string, runId: string): Promise<FactoryRunShowResult> {
@@ -18,7 +21,7 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     return {};
   }
 
-  const [state, summary, plan, plannerExecution, verification, repairExecutions, reviewerExecution] = await Promise.all([
+  const [state, summary, plan, plannerExecution, verification, repairExecutions, reviewerExecution, events] = await Promise.all([
     readJsonFile(path.join(runDir, "state.json")),
     readJsonFile(path.join(runDir, "summary.json")),
     readJsonFile(path.join(runDir, "plan.json")),
@@ -26,7 +29,9 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     readJsonFile(path.join(runDir, "verification.json")),
     readRepairExecutions(runDir),
     readJsonFile(path.join(runDir, "reviewer-execution.json")),
+    readJsonlFile(path.join(runDir, "events.jsonl")),
   ]);
+  const planSummary = summarizePlanEvents(events);
 
   return {
     runDir,
@@ -37,6 +42,9 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     repairExecutions,
     reviewerExecution,
     verification,
+    planDecision: planSummary.decision,
+    planFeedback: planSummary.feedback,
+    implementationStarted: planSummary.implementationStarted,
   };
 }
 
@@ -50,6 +58,48 @@ async function readJsonFile(filePath: string): Promise<Record<string, unknown> |
     }
     throw error;
   }
+}
+
+async function readJsonlFile(filePath: string): Promise<Array<{ type?: string; data?: Record<string, unknown> }>> {
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    return raw
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { type?: string; data?: Record<string, unknown> });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+function summarizePlanEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): {
+  decision?: "approve" | "reject" | "revise";
+  feedback?: string;
+  implementationStarted: boolean;
+} {
+  let decision: "approve" | "reject" | "revise" | undefined;
+  let feedback: string | undefined;
+  let implementationStarted = false;
+
+  for (const event of events) {
+    if (event.type === "plan.approved") {
+      decision = "approve";
+      feedback = undefined;
+    } else if (event.type === "plan.rejected") {
+      decision = "reject";
+      feedback = typeof event.data?.feedback === "string" ? event.data.feedback : undefined;
+    } else if (event.type === "plan.revision_requested") {
+      decision = "revise";
+      feedback = typeof event.data?.feedback === "string" ? event.data.feedback : undefined;
+    } else if (event.type === "implementation.batch_started" || event.type === "task.started") {
+      implementationStarted = true;
+    }
+  }
+
+  return { decision, feedback, implementationStarted };
 }
 
 async function readRepairExecutions(runDir: string): Promise<Record<string, unknown>[]> {

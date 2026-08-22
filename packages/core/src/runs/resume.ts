@@ -14,7 +14,9 @@ export interface ResumeFactoryRunResult {
   statePath?: string;
   eventsPath?: string;
   recovery?: {
+    resumable: boolean;
     suggestedPhase: string;
+    nextStatus: "PENDING" | "RUNNING";
     executionCwd?: string;
     candidateSha?: string;
     finalMergePath?: string;
@@ -59,11 +61,26 @@ export async function resumeLatestFactoryRun(runsDir: string): Promise<ResumeFac
     };
   }
 
+  if (!recovery.resumable) {
+    return {
+      resumed: false,
+      reason:
+        currentPhase === "plan-approval-rejected"
+          ? "Latest run was rejected during plan approval; start a new run to continue"
+          : "Latest run is not resumable from its current phase",
+      runDir: latest.runDir,
+      statePath: latest.statePath,
+      eventsPath,
+      state: latest.state,
+      recovery,
+    };
+  }
+
   if (currentStatus === "RUNNING" || currentStatus === "PENDING") {
     const next = await updateFactoryRunState({
       statePath: latest.statePath,
       patch: {
-        status: "RUNNING",
+        status: recovery.nextStatus,
         phase: recovery.suggestedPhase,
       },
     });
@@ -75,13 +92,17 @@ export async function resumeLatestFactoryRun(runsDir: string): Promise<ResumeFac
         previousStatus: currentStatus,
         previousPhase: currentPhase,
         suggestedPhase: recovery.suggestedPhase,
+        nextStatus: recovery.nextStatus,
         checks: recovery.checks,
       },
     });
 
     return {
       resumed: true,
-      reason: "Latest in-progress run marked resumed",
+      reason:
+        recovery.nextStatus === "PENDING"
+          ? "Latest run remains paused pending plan action"
+          : "Latest in-progress run marked resumed",
       runDir: latest.runDir,
       statePath: latest.statePath,
       eventsPath,
@@ -94,7 +115,7 @@ export async function resumeLatestFactoryRun(runsDir: string): Promise<ResumeFac
     const next = await updateFactoryRunState({
       statePath: latest.statePath,
       patch: {
-        status: "RUNNING",
+        status: recovery.nextStatus,
         phase: recovery.suggestedPhase,
       },
     });
@@ -106,13 +127,17 @@ export async function resumeLatestFactoryRun(runsDir: string): Promise<ResumeFac
         previousStatus: currentStatus,
         previousPhase: currentPhase,
         suggestedPhase: recovery.suggestedPhase,
+        nextStatus: recovery.nextStatus,
         checks: recovery.checks,
       },
     });
 
     return {
       resumed: true,
-      reason: "Latest interrupted run re-opened",
+      reason:
+        recovery.nextStatus === "PENDING"
+          ? "Latest run re-opened but remains paused pending plan action"
+          : "Latest interrupted run re-opened",
       runDir: latest.runDir,
       statePath: latest.statePath,
       eventsPath,
@@ -187,8 +212,12 @@ async function inspectRecoveryState(
     }
   }
 
+  const resumePolicy = suggestResumePolicy(currentPhase, finalMerge);
+
   return {
-    suggestedPhase: suggestResumePhase(currentPhase, finalMerge),
+    resumable: resumePolicy.resumable,
+    suggestedPhase: resumePolicy.suggestedPhase,
+    nextStatus: resumePolicy.nextStatus,
     executionCwd,
     candidateSha,
     finalMergePath: await exists(finalMergePath) ? finalMergePath : undefined,
@@ -196,23 +225,35 @@ async function inspectRecoveryState(
   };
 }
 
-function suggestResumePhase(currentPhase: string, finalMerge: Record<string, unknown> | undefined): string {
+function suggestResumePolicy(
+  currentPhase: string,
+  finalMerge: Record<string, unknown> | undefined,
+): { resumable: boolean; suggestedPhase: string; nextStatus: "PENDING" | "RUNNING" } {
+  if (currentPhase === "plan-approval") {
+    return { resumable: true, suggestedPhase: "plan-approval", nextStatus: "PENDING" };
+  }
+  if (currentPhase === "plan-revision-requested") {
+    return { resumable: true, suggestedPhase: "plan-revision-requested", nextStatus: "PENDING" };
+  }
+  if (currentPhase === "plan-approval-rejected") {
+    return { resumable: false, suggestedPhase: "plan-approval-rejected", nextStatus: "PENDING" };
+  }
   if (currentPhase.includes("approval")) {
-    return "approval-ready";
+    return { resumable: true, suggestedPhase: "approval-ready", nextStatus: "RUNNING" };
   }
   if (currentPhase.includes("merge")) {
-    return finalMerge ? "merge" : "approval-ready";
+    return { resumable: true, suggestedPhase: finalMerge ? "merge" : "approval-ready", nextStatus: "RUNNING" };
   }
   if (currentPhase.includes("review")) {
-    return "review";
+    return { resumable: true, suggestedPhase: "review", nextStatus: "RUNNING" };
   }
   if (currentPhase.includes("verification") || currentPhase.includes("repair")) {
-    return "verification";
+    return { resumable: true, suggestedPhase: "verification", nextStatus: "RUNNING" };
   }
   if (currentPhase.includes("integration")) {
-    return "integration";
+    return { resumable: true, suggestedPhase: "integration", nextStatus: "RUNNING" };
   }
-  return "implementation";
+  return { resumable: true, suggestedPhase: "implementation", nextStatus: "RUNNING" };
 }
 
 async function readTaskArtifacts(tasksDir: string): Promise<Record<string, unknown>[]> {

@@ -273,6 +273,9 @@ async function handleLogs(ctx: FactoryPiCommandContext, runId?: string): Promise
     `repair executions: ${logs.repairExecutionPaths.length}`,
     `status: ${String(logs.state?.status ?? "none")}`,
     `phase: ${String(logs.state?.phase ?? "none")}`,
+    `plan decision: ${logs.planDecision ?? "none"}`,
+    `plan feedback: ${logs.planFeedback ?? "none"}`,
+    `implementation started: ${typeof logs.implementationStarted === "boolean" ? (logs.implementationStarted ? "yes" : "no") : "unknown"}`,
     "",
     "Recent events",
     ...logs.events,
@@ -374,6 +377,9 @@ async function handleShow(runId: string | undefined, ctx: FactoryPiCommandContex
     `status: ${String(result.state?.status ?? result.summary?.status ?? "none")}`,
     `phase: ${String(result.state?.phase ?? result.summary?.phase ?? "none")}`,
     `approved: ${typeof result.summary?.approved === "boolean" ? (result.summary.approved ? "yes" : "no") : "none"}`,
+    `plan decision: ${result.planDecision ?? "none"}`,
+    `plan feedback: ${result.planFeedback ?? "none"}`,
+    `implementation started: ${typeof result.implementationStarted === "boolean" ? (result.implementationStarted ? "yes" : "no") : "unknown"}`,
     `verification: ${String(result.summary?.verificationStatus ?? result.verification?.overallStatus ?? "none")}`,
     `task count: ${taskCount}`,
     `workflow stages: ${workflowStages}`,
@@ -446,7 +452,9 @@ async function handleResume(ctx: FactoryPiCommandContext): Promise<void> {
     `events path: ${result.eventsPath ?? "none"}`,
     `status: ${result.state?.status ?? "none"}`,
     `phase: ${result.state?.phase ?? "none"}`,
+    `resumable: ${typeof result.recovery?.resumable === "boolean" ? (result.recovery.resumable ? "yes" : "no") : "none"}`,
     `suggested phase: ${result.recovery?.suggestedPhase ?? "none"}`,
+    `next status: ${result.recovery?.nextStatus ?? "none"}`,
     `execution cwd: ${result.recovery?.executionCwd ?? "none"}`,
     `candidate sha: ${result.recovery?.candidateSha ?? "none"}`,
     `final merge artifact: ${result.recovery?.finalMergePath ?? "none"}`,
@@ -637,20 +645,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
       updateProgressWidget(ctx, progressLines, event);
     },
     requestPlanApproval: async ({ runId, goal, planPath, taskCount, workflowStages, summary, tasks }) => {
-      const lines = [
-        `Run: ${runId}`,
-        `Goal: ${goal}`,
-        `Tasks: ${taskCount}`,
-        `Stages: ${workflowStages.join(' -> ')}`,
-        `Plan: ${planPath}`,
-        '',
-        'Summary',
-        ...summary.split(/\r?\n/).slice(0, 8),
-        '',
-        'Tasks',
-        ...tasks.slice(0, 6).map((task) => `- [${task.stage}] ${task.title}`),
-      ];
-      renderLines(ctx, ["Factory plan approval", ...lines]);
+      renderLines(ctx, buildPlanApprovalPreviewLines({ runId, goal, planPath, taskCount, workflowStages, summary, tasks }));
 
       if (ctx.ui.select) {
         const selected = await ctx.ui.select('Factory plan decision', [
@@ -673,7 +668,16 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
       }
       const ok = await ctx.ui.confirm(
         'Approve Factory plan?',
-        `Approve plan for run ${runId}?\nGoal: ${goal}\nTasks: ${taskCount}\nStages: ${workflowStages.join(' -> ')}\nPlan: ${planPath}`,
+        [
+          `Run: ${runId}`,
+          `Goal: ${goal}`,
+          `Tasks: ${taskCount}`,
+          `Stages: ${workflowStages.join(' -> ')}`,
+          `Plan: ${planPath}`,
+          '',
+          'Approve to continue to implementation.',
+          'Reject to cancel this run.',
+        ].join('\n'),
       );
       return { decision: ok ? 'approve' : 'reject' };
     },
@@ -718,6 +722,31 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
 
 function renderLines(ctx: FactoryPiCommandContext, lines: string[]): void {
   ctx.ui.setWidget(FACTORY_WIDGET_ID, lines);
+}
+
+function buildPlanApprovalPreviewLines(input: {
+  runId: string;
+  goal: string;
+  planPath: string;
+  taskCount: number;
+  workflowStages: string[];
+  summary: string;
+  tasks: Array<{ title: string; stage: string }>;
+}): string[] {
+  return [
+    'Factory plan approval',
+    `Run: ${input.runId}`,
+    `Goal: ${input.goal}`,
+    `Tasks: ${input.taskCount}`,
+    `Stages: ${input.workflowStages.join(' -> ')}`,
+    `Plan: ${input.planPath}`,
+    '',
+    'Summary',
+    ...input.summary.split(/\r?\n/).slice(0, 8),
+    '',
+    'Tasks',
+    ...input.tasks.slice(0, 6).map((task) => `- [${task.stage}] ${task.title}`),
+  ];
 }
 
 function updateProgressWidget(

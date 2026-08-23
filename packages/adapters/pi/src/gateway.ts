@@ -35,6 +35,9 @@ import {
   registerCapability,
   validateCapabilityDefinition,
   parseCapabilityFile,
+  planFactorySetup,
+  applyFactorySetup,
+  validateFactorySetup,
   appendFactoryRunEvent,
   updateFactoryRunState,
   type AgentExecutor,
@@ -178,8 +181,8 @@ export async function handleFactoryCommand(
 
 async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promise<void> {
   renderIntro(ctx, [
-    "Factory setup will prepare project-local configuration for this repository.",
-    "I’ll check whether Factory is already initialized, ask about workflow and model preferences, and then write or update the setup files.",
+    "Factory setup will inspect this repository, propose a setup, and validate the result.",
+    "Factory will use repository evidence first and ask only where authority or preference is needed.",
   ]);
 
   const force = rest.includes("--force");
@@ -188,107 +191,91 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
 
   if (!force && ctx.ui.confirm) {
     const ok = await ctx.ui.confirm(
-      hasExistingSetup ? "Edit existing Factory setup?" : "Initialize Factory?",
+      hasExistingSetup ? "Reconcile Factory setup?" : "Initialize Factory?",
       hasExistingSetup
-        ? "Factory files already exist. Re-run setup prompts and update workflow/config files?"
-        : "Create project-local CONSTITUTION.md, factory.yaml, and .factory/config.yaml?",
+        ? "Compare current repository state with existing Factory config and propose changes?"
+        : "Inspect this repository and propose a Factory setup?",
     );
-    if (!ok) {
-      ctx.ui.notify("Factory setup cancelled", "info");
-      return;
-    }
+    if (!ok) { ctx.ui.notify("Factory setup cancelled", "info"); return; }
   }
 
-  const setupChoices = await promptFactorySetupChoices(
-    ctx.ui,
-    await detectPiModelConfiguration(ctx.cwd),
-  );
-  const result = await initializeFactoryProject({
-    cwd: ctx.cwd,
-    force,
-    setup: {
-      ...setupChoices,
-      reconfigure: hasExistingSetup && !force,
-    },
-  });
-  const loaded = await loadEffectiveConfig({ cwd: result.root });
+  const plan = await planFactorySetup({ cwd: ctx.cwd, force });
 
-  let constitutionSummaryLines: string[] = [];
-  if (result.piModelConfiguration.hasAuth && result.piModelConfiguration.hasModelSelection && ctx.ui.confirm) {
-    const generateNow = await ctx.ui.confirm(
+  renderLines(ctx, [
+    "Factory setup",
+    `mode: ${plan.mode}`,
+    `repository maturity: ${plan.profile.maturity}`,
+    `languages: ${plan.profile.languages.join(", ") || "none"}`,
+    `package managers: ${plan.profile.packageManagers.join(", ") || "none"}`,
+    `frameworks: ${plan.profile.frameworks.join(", ") || "none"}`,
+    `monorepo: ${plan.profile.structure.monorepo ? "yes" : "no"}`,
+    `CI: ${plan.profile.ci.providers.join(", ") || "none"}`,
+    `previous runs: ${plan.profile.factory.runsCount}`,
+  ]);
+
+  const answers: Record<string, string> = {};
+
+  if (ctx.ui.select) {
+    const choice = await ctx.ui.select("Workflow preset", ["Balanced", "Fast", "Safe"]);
+    answers["workflow-preset"] = (choice ?? "Balanced").toLowerCase();
+  } else {
+    answers["workflow-preset"] = "balanced";
+  }
+
+  if (ctx.ui.confirm) {
+    const generate = await ctx.ui.confirm(
       "Generate constitution now?",
-      "Factory setup is complete. Generate a repository-specific CONSTITUTION.md now using the Pi constitution pipeline?",
+      "Create a repository-specific CONSTITUTION.md, or write a minimal stub?",
     );
-    if (generateNow) {
-      try {
-        renderLines(ctx, [
-          "Factory setup",
-          `root: ${result.root}`,
-          "phase: constitution-refresh",
-          "message: Generating repository constitution",
-        ]);
-        const executor = await createRequiredConstitutionExecutor();
-        const constitutionResult = await runConstitutionScan({
-          cwd: result.root,
-          constitutionExecutor: executor,
-        });
-        constitutionSummaryLines = [
-          "",
-          `constitution finalized: ${constitutionResult.finalized ? "yes" : "no"}`,
-          `constitution strategy: ${constitutionResult.refreshStrategy}`,
-          `constitution interpreter: ${constitutionResult.interpreter.status}`,
-          `constitution path: ${constitutionResult.constitutionPath}`,
-          `constitution facts: ${constitutionResult.factsPath}`,
-        ];
-      } catch (error) {
-        constitutionSummaryLines = [
-          "",
-          `constitution generation error: ${error instanceof Error ? error.message : String(error)}`,
-        ];
-      }
+    answers["constitution"] = generate ? "generate" : "stub";
+  } else {
+    answers["constitution"] = "stub";
+  }
+
+  const finalPlan = await planFactorySetup({ cwd: ctx.cwd, answers, force });
+
+  renderLines(ctx, [
+    "Factory setup plan",
+    ...finalPlan.diffs.map((diff) => `  ${diff.file.replace(project.paths.gitRoot ?? ctx.cwd, ".")}${diff.changes.includes("create file") ? " (+create)" : diff.changes.includes("content changes") ? " (~update)" : " (unchanged)"}`),
+  ]);
+
+  if (ctx.ui.confirm) {
+    const apply = await ctx.ui.confirm("Apply Factory setup?", "Preview shown above. Write these files?");
+    if (!apply) { ctx.ui.notify("Factory setup not applied", "info"); return; }
+  }
+
+  const written = await applyFactorySetup(finalPlan);
+
+  if (answers["constitution"] === "generate") {
+    try {
+      renderLines(ctx, ["Factory setup", "phase: constitution-refresh"]);
+      const executor = await createRequiredConstitutionExecutor();
+      await runConstitutionScan({ cwd: ctx.cwd, constitutionExecutor: executor });
+    } catch {
+      ctx.ui.notify("Constitution generation failed; stub remains", "warning");
     }
   }
+
+  const loaded = await loadEffectiveConfig({ cwd: ctx.cwd });
+  const validation = await validateFactorySetup(ctx.cwd);
+  const pi = await detectPiModelConfiguration(ctx.cwd);
 
   renderLines(ctx, [
     "Factory setup complete",
-    `root: ${result.root}`,
+    `mode: ${finalPlan.mode}`,
+    `files written: ${written.length}`,
+    `readiness: ${validation.readiness}`,
     "",
-    `created: ${result.created.length}`,
-    ...result.created.map((filePath) => `  + ${filePath}`),
-    `skipped: ${result.skipped.length}`,
-    ...result.skipped.map((filePath) => `  - ${filePath}`),
-    "",
+    `workflow preset: ${answers["workflow-preset"]}`,
     `base branch: ${loaded.effectiveConfig.git.baseBranch}`,
-    `parallel agents: ${loaded.effectiveConfig.runtime.maxParallelAgents}`,
-    `approval: ${loaded.effectiveConfig.approval.finalMerge}`,
-    `workflow preset: ${setupChoices.workflowPreset}`,
-    `factory role models: ${Object.keys(setupChoices.modelAssignments).length}`,
     "",
-    `pi agent dir: ${result.piModelConfiguration.agentDir}`,
-    `pi model selection configured: ${result.piModelConfiguration.hasModelSelection ? "yes" : "no"}`,
-    `pi auth configured: ${result.piModelConfiguration.hasAuth ? "yes" : "no"}`,
-    `pi default model: ${result.piModelConfiguration.defaultProvider && result.piModelConfiguration.defaultModel ? `${result.piModelConfiguration.defaultProvider}/${result.piModelConfiguration.defaultModel}` : "none"}`,
-    `pi enabled model patterns: ${result.piModelConfiguration.enabledModels.length}`,
-    `pi auth providers: ${result.piModelConfiguration.authProviders.length}`,
-    `pi custom models: ${result.piModelConfiguration.customModelCount}`,
-    ...(!result.piModelConfiguration.hasModelSelection
-      ? [
-          "  hint: configure a Pi default model in ~/.pi/agent/settings.json or .pi/settings.json",
-          "  hint: use /login and /model in Pi if you have not selected a provider/model yet",
-        ]
-      : []),
-    ...(!result.piModelConfiguration.hasAuth
-      ? [
-          "  hint: use /login before generating a constitution or running model-backed Factory flows",
-        ]
-      : []),
-    ...constitutionSummaryLines,
-    "",
-    `setup run id: ${result.runId}`,
-    `setup run dir: ${result.runDir}`,
+    `pi auth configured: ${pi.hasAuth ? "yes" : "no"}`,
+    `pi default model: ${pi.defaultProvider && pi.defaultModel ? `${pi.defaultProvider}/${pi.defaultModel}` : "none"}`,
+    ...(!pi.hasModelSelection ? ["  hint: configure a Pi default model in ~/.pi/agent/settings.json"] : []),
+    ...(!pi.hasAuth ? ["  hint: use /login before generating a constitution or running model-backed flows"] : []),
   ]);
 
-  ctx.ui.notify("Factory setup complete", "info");
+  ctx.ui.notify(`Factory setup complete — ${validation.readiness}`, validation.readiness === "NOT_READY" ? "warning" : "info");
 }
 
 async function handleStatus(ctx: FactoryPiCommandContext, runId?: string): Promise<void> {

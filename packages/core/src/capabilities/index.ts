@@ -1,5 +1,10 @@
 export * from "./gate.js";
 export * from "./tool-map.js";
+export * from "./registry.js";
+export * from "./discovery.js";
+export * from "./validation.js";
+export * from "./providers.js";
+export * from "./executability.js";
 import type { Capability, CapabilityPolicy } from "@factory/schemas";
 
 export type AutonomyLevel = "low" | "medium" | "high";
@@ -60,13 +65,11 @@ export function resolveEffectiveCapabilities(input: CapabilityResolutionInput): 
   const needsApproval: Capability[] = [];
 
   for (const capability of requested) {
-    // Hard denies win at every layer.
     if (nodeDeny.has(capability) || workflowDeny.has(capability) || projectDeny.has(capability)) {
       denied.push(capability);
       continue;
     }
 
-    // Autonomy grants the base set; policy allow lists can broaden.
     const allowedByAutonomy = autonomyGranted.has(capability);
     const allowedByPolicy = nodeAllow.has(capability) || workflowAllow.has(capability) || projectAllow.has(capability);
 
@@ -82,6 +85,17 @@ export function resolveEffectiveCapabilities(input: CapabilityResolutionInput): 
   }
 
   return { requested, granted, denied, needsApproval };
+}
+
+function normalizeAutonomy(value: AutonomyLevel | string | undefined): AutonomyLevel {
+  if (value === "low" || value === "medium" || value === "high") {
+    return value;
+  }
+  return "medium";
+}
+
+function dedupe(values: Capability[]): Capability[] {
+  return [...new Set(values)];
 }
 
 export function capabilitiesToToolNames(capabilities: Capability[]): string[] {
@@ -127,16 +141,4 @@ export function defaultCapabilitiesForRole(role: string): Capability[] {
     default:
       return ["repo.read", "repo.write", "shell.execute", "ci.read"];
   }
-}
-
-function normalizeAutonomy(value: AutonomyLevel | string | undefined): AutonomyLevel {
-  if (value === "low" || value === "medium" || value === "high") {
-    return value;
-  }
-  // Legacy/unknown values (e.g. "safe", "balanced", "fast") default to medium.
-  return "medium";
-}
-
-function dedupe(values: Capability[]): Capability[] {
-  return [...new Set(values)];
 }

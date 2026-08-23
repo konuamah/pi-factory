@@ -38,13 +38,13 @@ export function App() {
         </nav>
       </aside>
       <main className="content">
-        <pageSwitch route={route} goToRun={(runId) => setRoute({ name: 'run', runId })} goBack={() => setRoute({ name: 'runs' })} />
+        {renderPage(route, (runId) => setRoute({ name: 'run', runId }), () => setRoute({ name: 'runs' }))}
       </main>
     </div>
   );
 }
 
-function pageSwitch({ route, goToRun, goBack }: { route: Route; goToRun: (runId: string) => void; goBack: () => void }) {
+function renderPage(route: Route, goToRun: (runId: string) => void, goBack: () => void) {
   switch (route.name) {
     case 'overview':
       return <Overview goToRun={goToRun} />;

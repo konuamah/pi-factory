@@ -49,6 +49,13 @@ export interface FactoryRunShowResult {
     failureReason?: string;
     evidence?: Record<string, unknown>;
   };
+  decisions?: Array<{
+    type: "request" | "resolution";
+    requestId?: string;
+    question?: string;
+    optionId?: string;
+    feedback?: string;
+  }>;
 }
 
 export async function showFactoryRun(runsDir: string, runId: string): Promise<FactoryRunShowResult> {
@@ -87,7 +94,31 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     guidance,
     integrationFailure,
     verificationContext,
+    decisions: await readRunDecisions(runDir),
   };
+}
+
+async function readRunDecisions(runDir: string): Promise<NonNullable<FactoryRunShowResult["decisions"]>> {
+  try {
+    const raw = await fs.readFile(path.join(runDir, "decisions.jsonl"), "utf8");
+    return raw.split(/\r?\n/).filter(Boolean).map((line) => {
+      const entry = JSON.parse(line) as { type: "request" | "resolution"; request?: { id?: string; question?: string }; result?: { requestId?: string; optionId?: string; feedback?: string } };
+      if (entry.type === "request") {
+        return { type: "request" as const, requestId: entry.request?.id, question: entry.request?.question };
+      }
+      return {
+        type: "resolution" as const,
+        requestId: entry.result?.requestId,
+        optionId: entry.result?.optionId,
+        feedback: entry.result?.feedback,
+      };
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    return [];
+  }
 }
 
 async function readJsonFile(filePath: string): Promise<Record<string, unknown> | undefined> {

@@ -28,6 +28,7 @@ test('gatherVerificationRequirements merges sources and dedupes', () => {
     config: { commands: { lint: 'npm run lint', typecheck: 'npm run typecheck' } },
     skills: [{ id: 'db', version: '1', description: '', validation: { commands: ['npm run typecheck'] } }],
     constitutionAreas: [51],
+    explicitConstitutionAreas: true,
     workflowId: 'release',
     userCriteria: ['keep backwards compatibility'],
   });

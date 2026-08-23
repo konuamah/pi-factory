@@ -409,6 +409,7 @@ async function handleLogs(ctx: FactoryPiCommandContext, runId?: string): Promise
     `plan decision: ${logs.planDecision ?? "none"}`,
     `plan feedback: ${logs.planFeedback ?? "none"}`,
     `implementation started: ${typeof logs.implementationStarted === "boolean" ? (logs.implementationStarted ? "yes" : "no") : "unknown"}`,
+    ...buildDecisionLines(logs.decisions),
     ...buildGuidanceDiagnosticLines(logs.guidance),
     ...buildVerificationDiagnosticLines(logs.verificationContext, undefined),
     ...buildIntegrationFailureLines(logs.integrationFailure),
@@ -527,6 +528,7 @@ async function handleShow(runId: string | undefined, ctx: FactoryPiCommandContex
     `plan feedback: ${result.planFeedback ?? "none"}`,
     `implementation started: ${typeof result.implementationStarted === "boolean" ? (result.implementationStarted ? "yes" : "no") : "unknown"}`,
     `verification: ${String(result.summary?.verificationStatus ?? result.verification?.overallStatus ?? "none")}`,
+    ...buildDecisionLines(result.decisions),
     `task count: ${taskCount}`,
     `workflow stages: ${workflowStages}`,
     `planner execution: ${plannerStatus}`,
@@ -1532,6 +1534,23 @@ async function readMergeConflictStatus(cwd: string): Promise<{ hasConflicts: boo
 
 function isGitMergeConflictError(message: string): boolean {
   return /git merge/i.test(message) && /(unmerged files|resolve.*conflict|unresolved conflict|Automatic merge failed)/i.test(message);
+}
+
+function buildDecisionLines(
+  decisions: Array<{ type: "request" | "resolution"; requestId?: string; question?: string; optionId?: string; feedback?: string }> | undefined,
+): string[] {
+  if (!decisions?.length) {
+    return [];
+  }
+  const lines = ["", "Decisions:"];
+  for (const decision of decisions) {
+    if (decision.type === "request") {
+      lines.push(`  ? ${decision.requestId ?? "?"}: ${decision.question ?? ""}`);
+    } else {
+      lines.push(`  ✓ ${decision.requestId ?? "?"} → ${decision.optionId ?? "?"}${decision.feedback ? ` (${decision.feedback})` : ""}`);
+    }
+  }
+  return lines;
 }
 
 function buildGuidanceDiagnosticLines(guidance:

@@ -70,6 +70,7 @@ export interface ReviewRequirement extends VerificationRequirementBase {
   type: "REVIEW";
   focus: string[];
   blockingSeverities: Array<"CRITICAL" | "HIGH" | "MEDIUM">;
+  decision?: DecisionRequest;
 }
 
 export interface ArtifactRequirement extends VerificationRequirementBase {

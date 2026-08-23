@@ -20,6 +20,16 @@ export function createReviewProvider(options: ReviewProviderOptions): Verificati
     type: "REVIEW",
     async verify(requirement, context): Promise<ProviderVerificationResult> {
       const review = requirement as ReviewRequirement;
+      // A requirement with an explicit decision raises the gate without a reviewer.
+      if (review.decision) {
+        return {
+          requirementId: requirement.id,
+          status: "INCONCLUSIVE",
+          evidence: [],
+          reason: `Review requires a human decision: ${review.decision.question}`,
+          decision: review.decision,
+        };
+      }
       if (!options.executor) {
         return {
           requirementId: requirement.id,

@@ -475,6 +475,7 @@ export async function runFactoryController(
     workflowCapabilityPolicy: loaded.effectiveConfig.resolvedWorkflow?.capabilityPolicy,
     runTaskType: runTaskType.id,
     runModelOverrides: input.modelOverrides,
+    runDecisions: await loadRunDecisions(run.runDir),
     config: loaded.effectiveConfig,
     onProgress: async (event) => emitProgress(input, event),
     delayMs,
@@ -715,8 +716,10 @@ export async function runFactoryController(
     config: loaded.effectiveConfig,
     skills: undefined,
     constitutionAreas: undefined,
+    conflictAreas: repoSkillSignals.constitutionAreas,
     workflowId: loaded.effectiveConfig.resolvedWorkflowId,
     commands: loaded.effectiveConfig.commands,
+    constitutionConflicts: await loadConstitutionConflicts(projectRoot),
   });
   initializeVerificationProviders({
     executor: input.reviewerExecutor,
@@ -1230,6 +1233,7 @@ async function runImplementationTasks(input: {
   workflowCapabilityPolicy?: CapabilityPolicy;
   runTaskType?: string;
   runModelOverrides?: Partial<Record<ModelRole, ModelSelection>>;
+  runDecisions?: Array<{ requestId: string; question: string; optionId: string; feedback?: string }>;
   config: EffectiveFactoryConfig;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
@@ -1307,6 +1311,7 @@ async function runImplementationTasks(input: {
           workflowCapabilityPolicy: input.workflowCapabilityPolicy,
           runTaskType: input.runTaskType,
           runModelOverrides: input.runModelOverrides,
+          runDecisions: input.runDecisions,
           config: input.config,
           onProgress: input.onProgress,
           delayMs: input.delayMs,
@@ -1349,6 +1354,7 @@ async function runImplementationTask(input: {
   workflowCapabilityPolicy?: CapabilityPolicy;
   runTaskType?: string;
   runModelOverrides?: Partial<Record<ModelRole, ModelSelection>>;
+  runDecisions?: Array<{ requestId: string; question: string; optionId: string; feedback?: string }>;
   config: EffectiveFactoryConfig;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
@@ -1474,6 +1480,7 @@ async function runImplementationTask(input: {
         maxChars: 6000,
         grantedCapabilities: capabilities.granted,
         deniedCapabilities: capabilities.denied,
+        runDecisions: input.runDecisions,
       });
       await appendFactoryRunEvent(input.eventsPath, {
         timestamp: new Date().toISOString(),
@@ -2414,6 +2421,48 @@ async function emitProgress(
   event: FactoryRunProgressEvent,
 ): Promise<void> {
   await input.onProgress?.(event);
+}
+
+async function loadConstitutionConflicts(projectRoot: string): Promise<Array<{ areas: number[]; message: string }>> {
+  try {
+    const raw = await fs.readFile(path.join(projectRoot, ".factory", "constitution", "facts.json"), "utf8");
+    const facts = JSON.parse(raw) as { areas?: Array<{ id?: number; claims?: Array<{ kind?: string; statement?: string }> }> };
+    const conflicts = new Map<string, number[]>();
+    for (const area of facts.areas ?? []) {
+      for (const claim of area.claims ?? []) {
+        if (claim.kind === "conflict" && claim.statement) {
+          const areas = conflicts.get(claim.statement) ?? [];
+          if (typeof area.id === "number" && !areas.includes(area.id)) {
+            areas.push(area.id);
+          }
+          conflicts.set(claim.statement, areas);
+        }
+      }
+    }
+    return [...conflicts.entries()].map(([message, areas]) => ({ message, areas }));
+  } catch {
+    return [];
+  }
+}
+
+async function loadRunDecisions(runDir: string): Promise<Array<{ requestId: string; question: string; optionId: string; feedback?: string }>> {
+  const { readDecisionLedger } = await import("../decisions/index.js");
+  const entries = await readDecisionLedger(runDir).catch(() => []);
+  const resolutions: Array<{ type: "resolution"; result: { requestId: string; optionId: string; feedback?: string } }> = [];
+  const requests = new Map<string, string>();
+  for (const entry of entries) {
+    if (entry.type === "request") {
+      requests.set(entry.request.id, entry.request.question);
+    } else if (entry.type === "resolution") {
+      resolutions.push(entry as { type: "resolution"; result: { requestId: string; optionId: string; feedback?: string } });
+    }
+  }
+  return resolutions.map((entry) => ({
+    requestId: entry.result.requestId,
+    question: requests.get(entry.result.requestId) ?? entry.result.requestId,
+    optionId: entry.result.optionId,
+    ...(entry.result.feedback ? { feedback: entry.result.feedback } : {}),
+  }));
 }
 
 async function requestHumanDecision(input: {

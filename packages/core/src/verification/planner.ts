@@ -13,6 +13,9 @@ export interface VerificationContractPlannerInput {
   constitutionAreas?: number[];
   workflowId?: string;
   userCriteria?: string[];
+  constitutionConflicts?: Array<{ areas: number[]; message: string }>;
+  explicitConstitutionAreas?: boolean;
+  conflictAreas?: number[];
   commands?: {
     lint?: string;
     typecheck?: string;
@@ -95,8 +98,9 @@ export function gatherVerificationRequirements(input: VerificationContractPlanne
   }
 
   // 3. CONSTITUTION: relevant areas become constitution requirements.
+  // Only when explicitly declared (skills/task), not generic repo signals.
   const constitutionAreas = input.constitutionAreas ?? [];
-  if (constitutionAreas.length > 0) {
+  if (constitutionAreas.length > 0 && input.explicitConstitutionAreas) {
     requirements.push({
       id: nextId(),
       type: "CONSTITUTION",
@@ -109,6 +113,9 @@ export function gatherVerificationRequirements(input: VerificationContractPlanne
       requiredStatus: ["DEFINED", "INFERRED"],
     });
   }
+
+  // 3b. CONSTITUTION conflict matching uses areas too, but does not force a status requirement.
+  const conflictAreas = input.conflictAreas ?? constitutionAreas;
 
   // 4. TASK_TYPE: high-risk types add a review requirement.
   if (input.taskType && isHighRiskTaskType(input.taskType)) {
@@ -137,6 +144,40 @@ export function gatherVerificationRequirements(input: VerificationContractPlanne
       taskId: input.taskId,
       focus: [criterion],
       blockingSeverities: ["CRITICAL", "HIGH", "MEDIUM"],
+    });
+  }
+
+  // 6. CONSTITUTION: consequential contradictions raise a decision gate,
+  // only when the run's relevant constitution areas intersect the conflict areas.
+  const relevantConflicts = (conflictAreas.length
+    ? (input.constitutionConflicts ?? []).filter((conflict) =>
+        conflict.areas.some((area) => conflictAreas.includes(area)),
+      )
+    : []);
+  for (const conflict of relevantConflicts.slice(0, 2)) {
+    requirements.push({
+      id: nextId(),
+      type: "REVIEW",
+      blocking: true,
+      description: `Constitution contradiction needs a decision: ${conflict.message}`,
+      source: "CONSTITUTION",
+      scope: "RUN",
+      taskId: input.taskId,
+      focus: conflict.areas.map((area) => `area-${area}`),
+      blockingSeverities: ["CRITICAL", "HIGH"],
+      decision: {
+        id: `decision-${nextId()}`,
+        title: "Constitution contradiction",
+        question: conflict.message,
+        options: [
+          { id: "follow-constitution", label: "Follow constitution", description: "Apply documented convention." },
+          { id: "preserve-current", label: "Preserve current implementation", description: "Keep the existing architecture." },
+          { id: "amend-constitution", label: "Amend constitution", description: "Update the constitution to match reality." },
+        ],
+        evidenceRefs: [],
+        source: "CONSTITUTION",
+        reason: "CONFLICT",
+      },
     });
   }
 

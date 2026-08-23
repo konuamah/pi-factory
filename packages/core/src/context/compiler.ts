@@ -49,6 +49,7 @@ export interface CompiledContext {
   capabilities: string[];
   grantedCapabilities: string[];
   deniedCapabilities: string[];
+  runDecisions: Array<{ requestId: string; question: string; optionId: string; feedback?: string }>;
   tokenEstimate: number;
 }
 
@@ -65,6 +66,7 @@ export interface ContextCompileRequest {
   maxChars?: number;
   grantedCapabilities?: string[];
   deniedCapabilities?: string[];
+  runDecisions?: Array<{ requestId: string; question: string; optionId: string; feedback?: string }>;
 }
 
 export async function compileAgentContext(input: ContextCompileRequest): Promise<CompiledContext> {
@@ -115,6 +117,7 @@ export async function compileAgentContext(input: ContextCompileRequest): Promise
     capabilities,
     grantedCapabilities: input.grantedCapabilities ?? [],
     deniedCapabilities: input.deniedCapabilities ?? [],
+    runDecisions: input.runDecisions ?? [],
     tokenEstimate,
   };
 }
@@ -181,6 +184,10 @@ function renderInstructions(
   }
   if (input.deniedCapabilities?.length) {
     instructions.push(`Unavailable capabilities (do not attempt):\n${input.deniedCapabilities.map((capability) => `- ${capability}`).join("\n")}`);
+  }
+
+  if (input.runDecisions?.length) {
+    instructions.push(`Human decisions (authoritative run facts):\n${input.runDecisions.map((decision) => `- D: ${decision.question} → ${decision.optionId}${decision.feedback ? ` (${decision.feedback})` : ""}`).join("\n")}`);
   }
 
   return instructions;

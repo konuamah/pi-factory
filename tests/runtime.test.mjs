@@ -697,6 +697,57 @@ test('custom workflow with nested stages and command nodes runs in dependency or
   });
 });
 
+test('workflow node roles select the correct executor and context role', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: custom',
+        'workflows:',
+        '  - id: custom',
+        '    name: Custom Workflow',
+        '    stages:',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '      - name: implementation',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '      - name: security review',
+        '        type: agent',
+        '        role: reviewer',
+        '        dependsOn: [implementation]',
+        '      - name: final review',
+        '        type: approval',
+        '        dependsOn: [security review]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+    const reviewerExecutor = makeExecutor('reviewer', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add team invitations',
+      plannerExecutor,
+      builderExecutor,
+      reviewerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const securityReviewCalls = calls.filter((call) => call.label === 'reviewer' && /security review/.test(call.prompt));
+    assert.equal(securityReviewCalls.length, 1);
+    assert.match(securityReviewCalls[0].prompt, /Role rules:/);
+    assert.match(securityReviewCalls[0].prompt, /acceptance, consistency, risk, and scope control/);
+    assert.match(securityReviewCalls[0].prompt, /Task id: task-3/);
+  });
+});
+
 test('final approval still happens after plan approval and implementation', async () => {
   await withTempProject(async (root) => {
     const calls = [];

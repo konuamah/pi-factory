@@ -24,6 +24,7 @@ import {
 } from "./artifacts.js";
 import type { AgentExecutor } from "./interfaces.js";
 import { buildPlanArtifact, type PlannerTask } from "./planner.js";
+import type { ModelRole } from "@factory/schemas";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { classifyVerificationFailure } from "./failure-classification.js";
 import { planVerificationExecution, runVerificationCommands } from "./verification.js";
@@ -403,13 +404,21 @@ export async function runFactoryController(
     allowTaskWorktrees: loaded.effectiveConfig.git.allowWorktrees,
     tasks: implementationTasks,
     maxParallelAgents: loaded.effectiveConfig.runtime.maxParallelAgents,
-    builderExecutor: input.builderExecutor,
-    builderModel: loaded.effectiveConfig.models.builder,
-    builderConstitutionContext: builderGuidance.text,
-    skillBundleText: renderSkillBundleForPrompt(builderSkills),
     projectRoot,
     dependencyTasks: plan.tasks,
-    builderSkills,
+    roleExecutors: {
+      planner: input.plannerExecutor,
+      builder: input.builderExecutor,
+      reviewer: input.reviewerExecutor,
+      repair: input.repairExecutor,
+    },
+    roleModels: loaded.effectiveConfig.models,
+    roleSkills: {
+      planner: plannerSkills,
+      builder: builderSkills,
+      reviewer: reviewerSkills,
+      repair: repairSkills,
+    },
     onProgress: async (event) => emitProgress(input, event),
     delayMs,
     builderExecutionPaths,
@@ -1013,13 +1022,11 @@ async function runImplementationTasks(input: {
   allowTaskWorktrees: boolean;
   tasks: PlannerTask[];
   maxParallelAgents: number;
-  builderExecutor?: AgentExecutor;
-  builderModel?: { provider?: string; model: string };
-  builderConstitutionContext?: string;
-  skillBundleText?: string;
   projectRoot: string;
   dependencyTasks?: PlannerTask[];
-  builderSkills?: SkillBundleSelection;
+  roleExecutors: Partial<Record<ModelRole, AgentExecutor>>;
+  roleModels: Partial<Record<ModelRole, { provider?: string; model: string }>>;
+  roleSkills: Partial<Record<ModelRole, SkillBundleSelection>>;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1086,13 +1093,11 @@ async function runImplementationTasks(input: {
           worktreeLocation: input.worktreeLocation,
           allowTaskWorktrees: input.allowTaskWorktrees,
           task,
-          builderExecutor: input.builderExecutor,
-          builderModel: input.builderModel,
-          builderConstitutionContext: input.builderConstitutionContext,
-          skillBundleText: input.skillBundleText,
           projectRoot: input.projectRoot,
           dependencyTasks: input.dependencyTasks,
-          builderSkills: input.builderSkills,
+          roleExecutors: input.roleExecutors,
+          roleModels: input.roleModels,
+          roleSkills: input.roleSkills,
           onProgress: input.onProgress,
           delayMs: input.delayMs,
           builderExecutionPaths: input.builderExecutionPaths,
@@ -1124,13 +1129,11 @@ async function runImplementationTask(input: {
   worktreeLocation?: string;
   allowTaskWorktrees: boolean;
   task: PlannerTask;
-  builderExecutor?: AgentExecutor;
-  builderModel?: { provider?: string; model: string };
-  builderConstitutionContext?: string;
-  skillBundleText?: string;
   projectRoot: string;
   dependencyTasks?: PlannerTask[];
-  builderSkills?: SkillBundleSelection;
+  roleExecutors: Partial<Record<ModelRole, AgentExecutor>>;
+  roleModels: Partial<Record<ModelRole, { provider?: string; model: string }>>;
+  roleSkills: Partial<Record<ModelRole, SkillBundleSelection>>;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1233,92 +1236,96 @@ async function runImplementationTask(input: {
         return { ok: false, task: input.task, workspace };
       }
     }
-  } else if (input.builderExecutor) {
-    const compiled = await compileAgentContext({
-      cwd: input.projectRoot,
-      role: "builder",
-      goal: input.goal,
-      task: input.task,
-      dependencyTasks: input.dependencyTasks?.filter((dep) => input.task.dependsOn.includes(dep.id)),
-      skills: input.builderSkills?.selected,
-      fileHints: input.task.context?.fileHints,
-      maxChars: 6000,
-    });
-    await appendFactoryRunEvent(input.eventsPath, {
-      timestamp: new Date().toISOString(),
-      type: "task.context_compiled",
-      data: {
-        taskId: input.task.id,
-        role: "builder",
-        files: compiled.files.map((file) => file.path),
-        dependencies: compiled.dependencies.map((dep) => dep.taskId),
-        skills: compiled.skills.map((skill) => skill.id),
-        tokenEstimate: compiled.tokenEstimate,
-      },
-    });
-    const builderResult = await input.builderExecutor.execute({
-      executionId: `${input.runId}-builder-${input.task.id}`,
-      cwd: workspace.path,
-      prompt: buildCompiledPrompt(input.goal, compiled),
-      model: input.builderModel,
-      tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
-      metadata: {
-        role: "builder",
-        runId: input.runId,
-        taskId: input.task.id,
-        taskStage: input.task.stage,
-        workspacePath: workspace.path,
-        workspaceBranch: workspace.branch,
-      },
-    });
-
-    if (builderResult.status === "completed") {
-      await commitWorkspaceChanges(workspace.path, input.task);
-    }
-
-    const builderExecutionPath = await writePrototypeBuilderExecutionArtifact(input.runDir, {
-      taskId: input.task.id,
-      workspacePath: workspace.path,
-      workspaceBranch: workspace.branch,
-      ...builderResult,
-    });
-    input.builderExecutionPaths.push(builderExecutionPath);
-    await appendFactoryRunEvent(input.eventsPath, {
-      timestamp: new Date().toISOString(),
-      type: "task.executor_completed",
-      data: {
-        taskId: input.task.id,
-        taskStage: input.task.stage,
-        builderExecutionPath,
-        builderStatus: builderResult.status,
-        workspacePath: workspace.path,
-        workspaceBranch: workspace.branch,
-      },
-    });
-
-    if (builderResult.status !== "completed") {
-      await updatePrototypeTaskArtifact({
-        runDir: input.runDir,
-        taskId: input.task.id,
-        patch: { status: "failed" },
+  } else {
+    const nodeRole = resolveNodeRole(input.task);
+    const executor = input.roleExecutors[nodeRole];
+    if (executor) {
+      const compiled = await compileAgentContext({
+        cwd: input.projectRoot,
+        role: nodeRole,
+        goal: input.goal,
+        task: input.task,
+        dependencyTasks: input.dependencyTasks?.filter((dep) => input.task.dependsOn.includes(dep.id)),
+        skills: input.roleSkills[nodeRole]?.selected,
+        fileHints: input.task.context?.fileHints,
+        maxChars: 6000,
       });
       await appendFactoryRunEvent(input.eventsPath, {
         timestamp: new Date().toISOString(),
-        type: "task.failed",
+        type: "task.context_compiled",
         data: {
           taskId: input.task.id,
-          stage: input.task.stage,
-          title: input.task.title,
+          role: nodeRole,
+          files: compiled.files.map((file) => file.path),
+          dependencies: compiled.dependencies.map((dep) => dep.taskId),
+          skills: compiled.skills.map((skill) => skill.id),
+          tokenEstimate: compiled.tokenEstimate,
+        },
+      });
+      const builderResult = await executor.execute({
+        executionId: `${input.runId}-${nodeRole}-${input.task.id}`,
+        cwd: workspace.path,
+        prompt: buildCompiledPrompt(input.goal, compiled),
+        model: input.roleModels[nodeRole],
+        tools: roleTools(nodeRole),
+        metadata: {
+          role: nodeRole,
+          runId: input.runId,
+          taskId: input.task.id,
+          taskStage: input.task.stage,
+          workspacePath: workspace.path,
+          workspaceBranch: workspace.branch,
+        },
+      });
+
+      if (builderResult.status === "completed") {
+        await commitWorkspaceChanges(workspace.path, input.task);
+      }
+
+      const builderExecutionPath = await writePrototypeBuilderExecutionArtifact(input.runDir, {
+        taskId: input.task.id,
+        workspacePath: workspace.path,
+        workspaceBranch: workspace.branch,
+        ...builderResult,
+      });
+      input.builderExecutionPaths.push(builderExecutionPath);
+      await appendFactoryRunEvent(input.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "task.executor_completed",
+        data: {
+          taskId: input.task.id,
+          taskStage: input.task.stage,
           builderExecutionPath,
           builderStatus: builderResult.status,
           workspacePath: workspace.path,
           workspaceBranch: workspace.branch,
         },
       });
-      return { ok: false, task: input.task, workspace };
+
+      if (builderResult.status !== "completed") {
+        await updatePrototypeTaskArtifact({
+          runDir: input.runDir,
+          taskId: input.task.id,
+          patch: { status: "failed" },
+        });
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.failed",
+          data: {
+            taskId: input.task.id,
+            stage: input.task.stage,
+            title: input.task.title,
+            builderExecutionPath,
+            builderStatus: builderResult.status,
+            workspacePath: workspace.path,
+            workspaceBranch: workspace.branch,
+          },
+        });
+        return { ok: false, task: input.task, workspace };
+      }
+    } else {
+      await wait(input.delayMs);
     }
-  } else {
-    await wait(input.delayMs);
   }
 
   await updatePrototypeTaskArtifact({
@@ -1738,6 +1745,21 @@ function resolveTaskDependencies(tasks: PlannerTask[]): Map<string, string[]> {
     dependencies.set(task.id, resolved);
   }
   return dependencies;
+}
+
+function resolveNodeRole(task: PlannerTask): ModelRole {
+  const role = task.role as ModelRole | undefined;
+  if (role === "planner" || role === "reviewer" || role === "repair" || role === "builder") {
+    return role;
+  }
+  return "builder";
+}
+
+function roleTools(role: ModelRole): string[] {
+  if (role === "builder" || role === "repair") {
+    return ["read", "write", "edit", "bash", "grep", "find", "ls"];
+  }
+  return ["read", "grep", "find", "ls"];
 }
 
 function isExecutableWorkflowNode(task: PlannerTask): boolean {

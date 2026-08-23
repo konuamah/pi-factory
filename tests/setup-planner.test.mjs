@@ -89,6 +89,10 @@ test('applyFactorySetup writes files and validateFactorySetup returns READY', as
     const plan = await planFactorySetup({ cwd: root, answers: { 'workflow-preset': 'balanced' } });
     const written = await applyFactorySetup(plan);
     assert.ok(written.some((f) => f.endsWith('factory.yaml')));
+    // Gitignore wiring: .factory/ and .worktrees/ are now ignored.
+    const gitignore = await fs.readFile(path.join(root, '.gitignore'), 'utf8');
+    assert.match(gitignore, /\.factory\//);
+    assert.match(gitignore, /\.worktrees\//);
     const validation = await validateFactorySetup(root);
     assert.ok(['READY', 'READY_WITH_WARNINGS'].includes(validation.readiness));
   });

@@ -105,6 +105,8 @@ function flattenWorkflows(workflows: WorkflowDefinition[]): string[] {
       if (stage.dependsOn?.length) lines.push(`        dependsOn: [${stage.dependsOn.join(", ")}]`);
       if (stage.commands?.length) lines.push(`        commands: [${stage.commands.map((c) => `"${c.replace(/"/g, '\\"')}"`).join(", ")}]`);
       if (stage.requiresApproval !== undefined) lines.push(`        requiresApproval: ${stage.requiresApproval}`);
+      if (stage.taskType) lines.push(`        taskType: ${stage.taskType}`);
+      if (stage.model) lines.push(`        model: ${stage.model.model}`);
     }
   }
   return lines;
@@ -218,6 +220,16 @@ function parseSimpleWorkflowYaml(raw: string): WorkflowConfig {
     if (currentStage && indent === 8 && /^requiredCapabilities:/.test(trimmed)) {
       const value = parseValue(trimmed.slice("requiredCapabilities:".length));
       currentStage.requiredCapabilities = Array.isArray(value) ? value as WorkflowStage["requiredCapabilities"] : [];
+      continue;
+    }
+
+    if (currentStage && indent === 8 && /^taskType:/.test(trimmed)) {
+      currentStage.taskType = String(parseValue(trimmed.slice("taskType:".length)));
+      continue;
+    }
+
+    if (currentStage && indent === 8 && /^model:/.test(trimmed)) {
+      currentStage.model = { model: String(parseValue(trimmed.slice("model:".length))) };
       continue;
     }
   }

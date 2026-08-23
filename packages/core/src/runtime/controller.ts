@@ -24,13 +24,20 @@ import {
 } from "./artifacts.js";
 import type { AgentExecutor } from "./interfaces.js";
 import { buildPlanArtifact, type PlannerTask } from "./planner.js";
-import type { CapabilityPolicy, ModelRole } from "@factory/schemas";
+import type { CapabilityPolicy, EffectiveFactoryConfig, ModelRole, ModelSelection } from "@factory/schemas";
 import {
   capabilitiesToToolNames,
   defaultCapabilitiesForRole,
   resolveEffectiveCapabilities,
   type AutonomyLevel,
 } from "../capabilities/index.js";
+import {
+  classifyTaskType,
+  resolveModelForRole,
+  taskTypeMatchPaths,
+  type TaskTypeSelection,
+} from "../models/index.js";
+import { appendModelLedgerEntry } from "../runs/model-ledger.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { classifyVerificationFailure } from "./failure-classification.js";
 import { planVerificationExecution, runVerificationCommands } from "./verification.js";
@@ -54,6 +61,8 @@ export interface RunFactoryControllerInput {
   goal: string;
   branchName?: string;
   workflowId?: string;
+  taskType?: string;
+  modelOverrides?: Partial<Record<ModelRole, ModelSelection>>;
   plannerExecutor?: AgentExecutor;
   builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
@@ -244,18 +253,48 @@ export async function runFactoryController(
     message: `Guidance selected: planner files=${plannerGuidance.instructionFiles.length}, constitution=${plannerGuidance.usedConstitution ? "used" : "skipped"}, approx chars=${plannerGuidance.approxChars}`,
   });
 
+  const runTaskType = resolveRunTaskType(input, loaded.effectiveConfig);
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "task.type_resolved",
+    data: {
+      taskType: runTaskType.id,
+      source: runTaskType.source,
+      confidence: runTaskType.confidence,
+      reasons: runTaskType.reasons,
+    },
+  });
+
   let plannerExecutionPath: string | undefined;
   let plannerOutputText: string | undefined;
   if (input.plannerExecutor) {
+    const plannerModel = resolveModelForRole({
+      role: "planner",
+      taskType: runTaskType.id,
+      config: loaded.effectiveConfig,
+      runModelOverride: input.modelOverrides?.planner,
+    });
+    await appendModelLedgerEntry(run.runDir, {
+      operationId: `${run.runId}-planner`,
+      role: "planner",
+      taskType: runTaskType.id,
+      taskTypeSource: runTaskType.source,
+      taskTypeConfidence: runTaskType.confidence,
+      requestedModel: plannerModel.model.model,
+      resolvedModel: plannerModel.model.model,
+      provider: plannerModel.model.provider,
+      modelSource: plannerModel.source,
+    });
     const plannerResult = await input.plannerExecutor.execute({
       executionId: `${run.runId}-planner`,
       cwd: executionCwd,
       prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text, renderSkillBundleForPrompt(plannerSkills)),
-      model: loaded.effectiveConfig.models.planner,
+      model: plannerModel.model,
       tools: ["read", "grep", "find", "ls"],
       metadata: {
         role: "planner",
         runId: run.runId,
+        taskType: runTaskType.id,
       },
     });
     plannerOutputText = sanitizePlannerOutput(plannerResult.outputText);
@@ -428,6 +467,9 @@ export async function runFactoryController(
     autonomy: loaded.effectiveConfig.defaults.autonomy as AutonomyLevel,
     projectCapabilityPolicy: loaded.effectiveConfig.capabilities,
     workflowCapabilityPolicy: loaded.effectiveConfig.resolvedWorkflow?.capabilityPolicy,
+    runTaskType: runTaskType.id,
+    runModelOverrides: input.modelOverrides,
+    config: loaded.effectiveConfig,
     onProgress: async (event) => emitProgress(input, event),
     delayMs,
     builderExecutionPaths,
@@ -1039,6 +1081,9 @@ async function runImplementationTasks(input: {
   autonomy?: AutonomyLevel;
   projectCapabilityPolicy?: CapabilityPolicy;
   workflowCapabilityPolicy?: CapabilityPolicy;
+  runTaskType?: string;
+  runModelOverrides?: Partial<Record<ModelRole, ModelSelection>>;
+  config: EffectiveFactoryConfig;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1113,6 +1158,9 @@ async function runImplementationTasks(input: {
           autonomy: input.autonomy,
           projectCapabilityPolicy: input.projectCapabilityPolicy,
           workflowCapabilityPolicy: input.workflowCapabilityPolicy,
+          runTaskType: input.runTaskType,
+          runModelOverrides: input.runModelOverrides,
+          config: input.config,
           onProgress: input.onProgress,
           delayMs: input.delayMs,
           builderExecutionPaths: input.builderExecutionPaths,
@@ -1152,6 +1200,9 @@ async function runImplementationTask(input: {
   autonomy?: AutonomyLevel;
   projectCapabilityPolicy?: CapabilityPolicy;
   workflowCapabilityPolicy?: CapabilityPolicy;
+  runTaskType?: string;
+  runModelOverrides?: Partial<Record<ModelRole, ModelSelection>>;
+  config: EffectiveFactoryConfig;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1291,11 +1342,31 @@ async function runImplementationTask(input: {
           tokenEstimate: compiled.tokenEstimate,
         },
       });
+      const nodeTaskType = input.task.taskType ?? input.runTaskType ?? "general";
+      const nodeModel = resolveModelForRole({
+        role: nodeRole,
+        taskType: nodeTaskType,
+        config: input.config,
+        nodeModel: input.task.model,
+        runModelOverride: input.runModelOverrides?.[nodeRole],
+      });
+      await appendModelLedgerEntry(input.runDir, {
+        operationId: `${input.runId}-${nodeRole}-${input.task.id}`,
+        taskId: input.task.id,
+        nodeId: input.task.id,
+        role: nodeRole,
+        taskType: nodeTaskType,
+        taskTypeSource: input.task.taskType ? "node-override" : "run",
+        requestedModel: nodeModel.model.model,
+        resolvedModel: nodeModel.model.model,
+        provider: nodeModel.model.provider,
+        modelSource: nodeModel.source,
+      });
       const builderResult = await executor.execute({
         executionId: `${input.runId}-${nodeRole}-${input.task.id}`,
         cwd: workspace.path,
         prompt: buildCompiledPrompt(input.goal, compiled),
-        model: input.roleModels[nodeRole],
+        model: nodeModel.model,
         tools: [...roleTools(nodeRole), ...capabilitiesToToolNames(capabilities.granted)].filter((tool, index, arr) => arr.indexOf(tool) === index),
         metadata: {
           role: nodeRole,
@@ -1777,6 +1848,17 @@ function resolveTaskDependencies(tasks: PlannerTask[]): Map<string, string[]> {
     dependencies.set(task.id, resolved);
   }
   return dependencies;
+}
+
+function resolveRunTaskType(input: RunFactoryControllerInput, config: EffectiveFactoryConfig): TaskTypeSelection {
+  if (input.taskType) {
+    return { id: input.taskType, source: "run-override", confidence: 1, reasons: ["Explicit run task-type override."] };
+  }
+  const classifier = classifyTaskType(input.goal, config);
+  if (classifier.source === "classifier" || classifier.source === "default") {
+    return classifier;
+  }
+  return { id: "general", source: "default", confidence: 0.2, reasons: ["No task type matched."] };
 }
 
 function resolveNodeRole(task: PlannerTask): ModelRole {

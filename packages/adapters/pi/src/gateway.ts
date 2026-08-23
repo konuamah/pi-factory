@@ -25,6 +25,9 @@ import {
   readWorkflowRegistry,
   writeWorkflowRegistry,
   detectPiModelConfiguration,
+  resolveModelForRole,
+  classifyTaskType,
+  preflightModelRouting,
   initializeCapabilitySystem,
   listRegisteredCapabilities,
   getRegisteredCapability,
@@ -45,7 +48,7 @@ import type { FactoryPiAutocompleteItem, FactoryPiCommandContext } from "./types
 
 const execFileAsync = promisify(execFile);
 const FACTORY_WIDGET_ID = "factory-status";
-const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "plan", "resume", "cancel", "worktree", "workflow", "capabilities", "cleanup", "constitution"];
+const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "plan", "resume", "cancel", "worktree", "workflow", "capabilities", "models", "cleanup", "constitution"];
 
 export async function getFactoryCommandCompletions(
   prefix: string,
@@ -107,6 +110,7 @@ export async function handleFactoryCommand(
         "/factory worktree <branch> create or detect isolated workspace",
         "/factory workflow list|create|show|edit|clone|delete|set-default manage reusable workflows",
         "/factory capabilities list|show|validate inspect and validate custom capabilities",
+        "/factory models show effective model routing by task type",
         "/factory cleanup [retain-count] prune old runs/worktrees/branches",
         "/factory constitution scan repository constitution via facts + AI interpretation",
         "/factory <goal>  run a minimal end-to-end prototype flow",
@@ -153,6 +157,9 @@ export async function handleFactoryCommand(
         return;
       case "capabilities":
         await handleCapabilities(rest, ctx);
+        return;
+      case "models":
+        await handleModels(rest, ctx);
         return;
       case "cleanup":
         await handleCleanup(rest[0], ctx);
@@ -849,6 +856,49 @@ async function handleCapabilities(rest: string[], ctx: FactoryPiCommandContext):
   ctx.ui.notify("Unknown capabilities action. Use list|show|validate", "warning");
 }
 
+async function handleModels(rest: string[], ctx: FactoryPiCommandContext): Promise<void> {
+  renderIntro(ctx, [
+    "Factory model routing.",
+    "I’ll show the effective model per role and per user-defined task type, and flag any routing holes.",
+  ]);
+
+  const loaded = await loadEffectiveConfig({ cwd: ctx.cwd });
+  const taskTypes = loaded.effectiveConfig.taskTypes ?? {};
+  const roles = ["planner", "builder", "reviewer", "repair"] as const;
+
+  const lines: string[] = ["Factory model routing", ""];
+  lines.push("Role defaults");
+  for (const role of roles) {
+    const model = loaded.effectiveConfig.models[role];
+    lines.push(`  ${role}: ${model?.model ?? "MISSING ⚠"}${model?.provider ? ` (${model.provider})` : ""}`);
+  }
+
+  lines.push("");
+  lines.push("Task types");
+  const typeIds = Object.keys(taskTypes);
+  if (typeIds.length === 0) {
+    lines.push("  (none configured — goals classify to 'general')");
+  }
+  for (const typeId of typeIds) {
+    lines.push(`  ${typeId}`);
+    for (const role of roles) {
+      try {
+        const resolved = resolveModelForRole({ role, taskType: typeId, config: loaded.effectiveConfig });
+        lines.push(`    ${role}: ${resolved.model.model} (${resolved.source})`);
+      } catch {
+        lines.push(`    ${role}: MISSING ⚠`);
+      }
+    }
+  }
+
+  const classifier = classifyTaskType("docs", loaded.effectiveConfig);
+  lines.push("");
+  lines.push(`Example classifier (goal 'docs'): ${classifier.id} (${classifier.source})`);
+
+  renderLines(ctx, lines);
+  ctx.ui.notify("Factory model routing shown", "info");
+}
+
 async function handleWorkflow(rest: string[], ctx: FactoryPiCommandContext): Promise<void> {
   const action = rest[0] ?? "list";
   const arg = rest[1];
@@ -1124,6 +1174,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     cwd: ctx.cwd,
     goal: trimmedGoal,
     workflowId: parsed.workflowId,
+    taskType: parsed.taskType,
     branchName: `factory-${trimmedGoal.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "run"}`,
     plannerExecutor: executorBundle?.plannerExecutor,
     builderExecutor: executorBundle?.builderExecutor,
@@ -1601,11 +1652,13 @@ function parseGoalRequest(raw: string): {
   goal: string;
   executorMode?: "fake" | "sdk" | "off";
   workflowId?: string;
+  taskType?: string;
 } {
   const parts = raw.trim().split(/\s+/).filter(Boolean);
   const remaining: string[] = [];
   let executorMode: "fake" | "sdk" | "off" | undefined;
   let workflowId: string | undefined;
+  let taskType: string | undefined;
 
   for (const part of parts) {
     if (part === "--executor=fake") {
@@ -1624,6 +1677,10 @@ function parseGoalRequest(raw: string): {
       workflowId = part.slice("--workflow=".length);
       continue;
     }
+    if (part.startsWith("--task-type=")) {
+      taskType = part.slice("--task-type=".length);
+      continue;
+    }
     remaining.push(part);
   }
 
@@ -1638,6 +1695,7 @@ function parseGoalRequest(raw: string): {
     goal: remaining.join(" "),
     executorMode,
     workflowId,
+    taskType,
   };
 }
 

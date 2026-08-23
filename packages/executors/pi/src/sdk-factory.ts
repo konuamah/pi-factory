@@ -5,6 +5,7 @@ import type {
   PiSessionLike,
 } from "./types.js";
 import type { ToolCallContext } from "@factory/core";
+import { ModelProviderResolutionError } from "@factory/core";
 import { wrapToolsWithGate, type ToolGateOptions } from "./tool-gate.js";
 
 export interface PiSdkSessionFactoryOptions {
@@ -143,17 +144,16 @@ async function resolveRequestedModel(
   warning?: string;
 }> {
   if (!sdk.ModelRuntime?.create) {
-    return {
-      warning: `Configured model \"${model.model}\" could not be resolved because this Pi SDK does not expose ModelRuntime; falling back to the SDK default model.`,
-    };
+    throw new ModelProviderResolutionError(
+      `Configured model \"${model.model}\" could not be resolved because this Pi SDK does not expose ModelRuntime. No fallback is used.`,
+    );
   }
 
   const modelRuntime = await sdk.ModelRuntime.create();
   if (!model.provider) {
-    return {
-      modelRuntime,
-      warning: `Configured model \"${model.model}\" has no provider, so Factory could not resolve it explicitly; falling back to the SDK default model.`,
-    };
+    throw new ModelProviderResolutionError(
+      `Configured model \"${model.model}\" has no provider, so Factory cannot resolve it. Provide a provider or remove the model from config.`,
+    );
   }
 
   const resolvedModel =
@@ -162,10 +162,9 @@ async function resolveRequestedModel(
       : undefined;
 
   if (!resolvedModel) {
-    return {
-      modelRuntime,
-      warning: `Configured model \"${model.provider}:${model.model}\" could not be resolved by the Pi SDK; falling back to the SDK default model.`,
-    };
+    throw new ModelProviderResolutionError(
+      `Configured model \"${model.provider}:${model.model}\" could not be resolved by the Pi SDK. No fallback is used.`,
+    );
   }
 
   return {

@@ -32,6 +32,8 @@ export interface WorkflowStage {
   commands?: string[];
   requiresApproval?: boolean;
   requiredCapabilities?: Capability[];
+  taskType?: string;
+  model?: ModelSelection;
 }
 
 export interface WorkflowDefinition {
@@ -101,11 +103,28 @@ export interface GlobalFactoryConfig {
   };
 }
 
+export interface TaskTypeMatch {
+  keywords?: string[];
+  paths?: string[];
+}
+
+export interface TaskTypeRouting {
+  model: string;
+  provider?: string;
+}
+
+export interface TaskTypeDefinition {
+  description?: string;
+  match?: TaskTypeMatch;
+  routing?: Partial<Record<ModelRole, TaskTypeRouting>>;
+}
+
 export interface ProjectFactoryConfig {
   project?: {
     baseBranch?: string;
   };
   capabilities?: CapabilityPolicy;
+  taskTypes?: Record<string, TaskTypeDefinition>;
   commands?: {
     cwd?: string;
     setup?: string;
@@ -139,6 +158,7 @@ export interface ProjectFactoryConfig {
 
 export interface RunOverrides {
   workflowId?: string;
+  taskType?: string;
   models?: Partial<Record<ModelRole, ModelSelection>>;
   runtime?: {
     maxParallelAgents?: number;
@@ -189,6 +209,7 @@ export interface EffectiveFactoryConfig {
     finalMerge: "required" | "not-required";
   };
   capabilities?: CapabilityPolicy;
+  taskTypes?: Record<string, TaskTypeDefinition>;
   workflow?: WorkflowConfig;
   resolvedWorkflow?: WorkflowDefinition;
   resolvedWorkflowId?: string;

@@ -54,7 +54,7 @@ test('resolved provider/model is passed through to the Pi SDK session', async ()
   assert.equal(result.events.some((event) => event.type === 'model.selection_warning'), false);
 });
 
-test('configured model without provider emits a warning instead of silently pretending it was applied', async () => {
+test('configured model without provider throws a loud provider resolution error', async () => {
   const sdkFactory = createPiSdkSessionFactory({
     sdkLoader: async () => ({
       SessionManager: {
@@ -69,21 +69,18 @@ test('configured model without provider emits a warning instead of silently pret
   });
 
   const executor = new PiAgentExecutor({ sessionFactory: sdkFactory });
-  const result = await executor.execute({
-    executionId: 'exec-2',
-    cwd: process.cwd(),
-    prompt: 'build',
-    model: { model: 'opus' },
-  });
-
-  assert.equal(result.status, 'completed');
-  const warning = result.events.find((event) => event.type === 'model.selection_warning');
-  assert.ok(warning);
-  assert.equal(warning.data?.requestedModel, 'opus');
-  assert.match(String(warning.data?.reason ?? ''), /provider|resolve|default/i);
+  await assert.rejects(
+    executor.execute({
+      executionId: 'exec-2',
+      cwd: process.cwd(),
+      prompt: 'build',
+      model: { model: 'opus' },
+    }),
+    /provider|resolve/i,
+  );
 });
 
-test('configured provider/model that cannot be resolved emits a warning', async () => {
+test('configured provider/model that cannot be resolved throws loudly', async () => {
   const sdkFactory = createPiSdkSessionFactory({
     sdkLoader: async () => ({
       SessionManager: {
@@ -107,15 +104,13 @@ test('configured provider/model that cannot be resolved emits a warning', async 
   });
 
   const executor = new PiAgentExecutor({ sessionFactory: sdkFactory });
-  const result = await executor.execute({
-    executionId: 'exec-3',
-    cwd: process.cwd(),
-    prompt: 'review',
-    model: { provider: 'demo', model: 'missing-model' },
-  });
-
-  const warning = result.events.find((event) => event.type === 'model.selection_warning');
-  assert.ok(warning);
-  assert.equal(warning.data?.requestedProvider, 'demo');
-  assert.equal(warning.data?.requestedModel, 'missing-model');
+  await assert.rejects(
+    executor.execute({
+      executionId: 'exec-3',
+      cwd: process.cwd(),
+      prompt: 'review',
+      model: { provider: 'demo', model: 'missing-model' },
+    }),
+    /could not be resolved/i,
+  );
 });

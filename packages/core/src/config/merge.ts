@@ -56,6 +56,7 @@ export function mergeConfigLayers(input: {
       ...project?.commands,
     },
     capabilities: project?.capabilities,
+    taskTypes: project?.taskTypes,
     git: {
       baseBranch:
         project?.git?.baseBranch ?? project?.project?.baseBranch ?? "main",

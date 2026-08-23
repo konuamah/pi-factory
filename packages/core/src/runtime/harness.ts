@@ -1,5 +1,6 @@
 import { runFactoryController, type PlanApprovalResult } from "./controller.js";
 import type { AgentExecutor } from "./interfaces.js";
+import type { ModelRole } from "@factory/schemas";
 
 export interface RuntimeHarnessResult {
   runId: string;
@@ -16,6 +17,8 @@ export async function runRuntimeHarness(input: {
   cwd: string;
   goal: string;
   workflowId?: string;
+  taskType?: string;
+  modelOverrides?: Partial<Record<ModelRole, { provider?: string; model: string }>>;
   plannerExecutor: AgentExecutor;
   builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
@@ -28,6 +31,8 @@ export async function runRuntimeHarness(input: {
     cwd: input.cwd,
     goal: input.goal,
     workflowId: input.workflowId,
+    taskType: input.taskType,
+    modelOverrides: input.modelOverrides,
     plannerExecutor: input.plannerExecutor,
     builderExecutor: input.builderExecutor,
     repairExecutor: input.repairExecutor,

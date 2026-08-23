@@ -9,4 +9,5 @@ export * from "./logs.js";
 export * from "./logs-by-id.js";
 export * from "./resume.js";
 export * from "./cleanup.js";
+export * from "./model-ledger.js";
 export * from "./store.js";

@@ -14,6 +14,7 @@ export * from "./doctor/index.js";
 export * from "./decisions/index.js";
 export * from "./learnings/store.js";
 export * from "./models/index.js";
+export * from "./queries/index.js";
 export * from "./skills/index.js";
 export * from "./setup/index.js";
 export * from "./verification/index.js";

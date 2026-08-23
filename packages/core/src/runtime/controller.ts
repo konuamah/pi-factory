@@ -1,9 +1,12 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { loadEffectiveConfig } from "../config/loader.js";
 import { selectConstitutionContext } from "../constitution/context.js";
+import { discoverConstitutionRepository } from "../constitution/discovery.js";
 import { createGitWorktree, createSiblingGitWorktree, inspectGitIsolation } from "../git/worktree.js";
+import { initializeFactorySkills, resolveFactorySkills, type SkillBundleSelection } from "../skills/index.js";
 import { appendFactoryRunEvent, createFactoryRun, updateFactoryRunState } from "../runs/store.js";
 import { appendRepoLearning } from "../learnings/store.js";
 import {
@@ -150,6 +153,41 @@ export async function runFactoryController(
   const repairGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "repair", goal: input.goal });
   const reviewerGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "reviewer", goal: input.goal });
 
+  initializeFactorySkills();
+  const repoSkillSignals = await collectRuntimeSkillSignals(projectRoot);
+  const plannerSkills = resolveFactorySkills({
+    goal: input.goal,
+    stage: "plan",
+    taskKinds: ["planning", "repo-interpretation"],
+    requiredCapabilities: ["repo-interpretation", "architecture-planning"],
+    availableTools: ["read", "grep", "find", "ls"],
+    ...repoSkillSignals,
+  });
+  const builderSkills = resolveFactorySkills({
+    goal: input.goal,
+    stage: "build",
+    taskKinds: ["implementation"],
+    requiredCapabilities: ["repo-interpretation", "implementation-task"],
+    availableTools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+    ...repoSkillSignals,
+  });
+  const repairSkills = resolveFactorySkills({
+    goal: input.goal,
+    stage: "repair",
+    taskKinds: ["repair", "verification"],
+    requiredCapabilities: ["failure-triage", "verification-repair"],
+    availableTools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+    ...repoSkillSignals,
+  });
+  const reviewerSkills = resolveFactorySkills({
+    goal: input.goal,
+    stage: "review",
+    taskKinds: ["review"],
+    requiredCapabilities: ["acceptance-review"],
+    availableTools: ["read", "grep", "find", "ls"],
+    ...repoSkillSignals,
+  });
+
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "guidance.context_selected",
@@ -176,6 +214,16 @@ export async function runFactoryController(
       reviewerGuidanceChars: reviewerGuidance.approxChars,
     },
   });
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "skills.selected",
+    data: {
+      planner: summarizeSkillBundle(plannerSkills),
+      builder: summarizeSkillBundle(builderSkills),
+      repair: summarizeSkillBundle(repairSkills),
+      reviewer: summarizeSkillBundle(reviewerSkills),
+    },
+  });
   await emitProgress(input, {
     runId: run.runId,
     phase: "planning",
@@ -189,7 +237,7 @@ export async function runFactoryController(
     const plannerResult = await input.plannerExecutor.execute({
       executionId: `${run.runId}-planner`,
       cwd: executionCwd,
-      prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text),
+      prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text, renderSkillBundleForPrompt(plannerSkills)),
       model: loaded.effectiveConfig.models.planner,
       tools: ["read", "grep", "find", "ls"],
       metadata: {
@@ -348,6 +396,7 @@ export async function runFactoryController(
     builderExecutor: input.builderExecutor,
     builderModel: loaded.effectiveConfig.models.builder,
     builderConstitutionContext: builderGuidance.text,
+    skillBundleText: renderSkillBundleForPrompt(builderSkills),
     onProgress: async (event) => emitProgress(input, event),
     delayMs,
     builderExecutionPaths,
@@ -413,6 +462,7 @@ export async function runFactoryController(
       repairExecutor: input.repairExecutor,
       repairModel: loaded.effectiveConfig.models.repair,
       repairGuidanceContext: repairGuidance.text,
+      repairSkillBundleText: renderSkillBundleForPrompt(repairSkills),
     });
   } catch (error) {
     const integrationFailure = await classifyIntegrationFailure(executionCwd, error);
@@ -496,6 +546,10 @@ export async function runFactoryController(
       selectionSource: verificationPlan.selectionSource,
       rationale: verificationPlan.rationale,
       evidence: verificationPlan.evidence,
+      skillId: verificationPlan.skill.id,
+      skillVersion: verificationPlan.skill.version,
+      skillMode: verificationPlan.skill.mode,
+      skillSelectionReasons: verificationPlan.skill.selectionReasons,
     },
   });
   await appendRepoLearning({
@@ -525,6 +579,7 @@ export async function runFactoryController(
     ...verification,
     selectionSource: verificationPlan.selectionSource,
     rationale: verificationPlan.rationale,
+    skill: verificationPlan.skill,
     evidence: verificationPlan.evidence,
     failureClassification: verificationFailureClassification,
   });
@@ -538,6 +593,10 @@ export async function runFactoryController(
       verificationSelectionSource: verificationPlan.selectionSource,
       verificationRationale: verificationPlan.rationale,
       verificationEvidence: verificationPlan.evidence,
+      verificationSkillId: verificationPlan.skill.id,
+      verificationSkillVersion: verificationPlan.skill.version,
+      verificationSkillMode: verificationPlan.skill.mode,
+      verificationSkillSelectionReasons: verificationPlan.skill.selectionReasons,
       verificationFailureKind: verificationFailureClassification?.kind,
       verificationFailureReason: verificationFailureClassification?.reason,
     },
@@ -581,7 +640,7 @@ export async function runFactoryController(
       const repairResult = await input.repairExecutor.execute({
         executionId: `${run.runId}-repair-${attempt}`,
         cwd: verification.cwd,
-        prompt: buildRepairPrompt(input.goal, verification, repairGuidance.text),
+        prompt: buildRepairPrompt(input.goal, verification, repairGuidance.text, renderSkillBundleForPrompt(repairSkills)),
         model: loaded.effectiveConfig.models.repair,
         tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
         metadata: {
@@ -615,6 +674,7 @@ export async function runFactoryController(
         ...verification,
         selectionSource: verificationPlan.selectionSource,
         rationale: verificationPlan.rationale,
+        skill: verificationPlan.skill,
         evidence: verificationPlan.evidence,
         failureClassification: recheckFailureClassification,
       });
@@ -691,7 +751,7 @@ export async function runFactoryController(
     const reviewerResult = await input.reviewerExecutor.execute({
       executionId: `${run.runId}-reviewer`,
       cwd: executionCwd,
-      prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text),
+      prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills)),
       model: loaded.effectiveConfig.models.reviewer,
       tools: ["read", "grep", "find", "ls"],
       metadata: {
@@ -943,6 +1003,7 @@ async function runImplementationTasks(input: {
   builderExecutor?: AgentExecutor;
   builderModel?: { provider?: string; model: string };
   builderConstitutionContext?: string;
+  skillBundleText?: string;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1012,6 +1073,7 @@ async function runImplementationTasks(input: {
           builderExecutor: input.builderExecutor,
           builderModel: input.builderModel,
           builderConstitutionContext: input.builderConstitutionContext,
+          skillBundleText: input.skillBundleText,
           onProgress: input.onProgress,
           delayMs: input.delayMs,
           builderExecutionPaths: input.builderExecutionPaths,
@@ -1046,6 +1108,7 @@ async function runImplementationTask(input: {
   builderExecutor?: AgentExecutor;
   builderModel?: { provider?: string; model: string };
   builderConstitutionContext?: string;
+  skillBundleText?: string;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1094,7 +1157,7 @@ async function runImplementationTask(input: {
     const builderResult = await input.builderExecutor.execute({
       executionId: `${input.runId}-builder-${input.task.id}`,
       cwd: workspace.path,
-      prompt: buildBuilderPrompt(input.goal, input.task, input.builderConstitutionContext),
+      prompt: buildBuilderPrompt(input.goal, input.task, input.builderConstitutionContext, input.skillBundleText),
       model: input.builderModel,
       tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
       metadata: {
@@ -1185,6 +1248,7 @@ async function runIntegrationPhase(input: {
   repairExecutor?: AgentExecutor;
   repairModel?: { provider?: string; model: string };
   repairGuidanceContext?: string;
+  repairSkillBundleText?: string;
 }): Promise<string | undefined> {
   const mergedBranches: Array<{
     taskId: string;
@@ -1252,6 +1316,7 @@ async function runIntegrationPhase(input: {
         repairExecutor: input.repairExecutor,
         repairModel: input.repairModel,
         repairGuidanceContext: input.repairGuidanceContext,
+        repairSkillBundleText: input.repairSkillBundleText,
       });
 
       if (!repaired) {
@@ -1292,6 +1357,7 @@ async function attemptIntegrationAutoRepair(input: {
   repairExecutor?: AgentExecutor;
   repairModel?: { provider?: string; model: string };
   repairGuidanceContext?: string;
+  repairSkillBundleText?: string;
 }): Promise<boolean> {
   if (!input.repairExecutor || input.conflictingFiles.length === 0) {
     return false;
@@ -1310,7 +1376,7 @@ async function attemptIntegrationAutoRepair(input: {
   await input.repairExecutor.execute({
     executionId: `${input.runId}-integration-repair-${input.taskId}`,
     cwd: input.executionCwd,
-    prompt: buildIntegrationRepairPrompt(input.goal, input.branch, input.conflictingFiles, input.repairGuidanceContext),
+    prompt: buildIntegrationRepairPrompt(input.goal, input.branch, input.conflictingFiles, input.repairGuidanceContext, input.repairSkillBundleText),
     model: input.repairModel,
     tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
     metadata: {
@@ -1590,6 +1656,7 @@ function buildPlannerPrompt(
   goal: string,
   config: { git: { baseBranch: string }; approval: { finalMerge: string }; repair: { maxAttempts: number } },
   constitutionContext?: string,
+  skillBundleText?: string,
 ): string {
   return [
     "Act as a Principal Software Architect.",
@@ -1601,6 +1668,7 @@ function buildPlannerPrompt(
     `Base branch: ${config.git.baseBranch}`,
     `Approval policy: ${config.approval.finalMerge}`,
     `Repair attempts: ${config.repair.maxAttempts}`,
+    skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "",
     "Return exactly these sections and keep each section concise:",
@@ -1625,6 +1693,7 @@ function buildBuilderPrompt(
   goal: string,
   task: { id: string; title: string; stage: string; dependsOn: string[] },
   constitutionContext?: string,
+  skillBundleText?: string,
 ): string {
   return [
     `Goal: ${goal}`,
@@ -1632,6 +1701,7 @@ function buildBuilderPrompt(
     `Task stage: ${task.stage}`,
     `Task title: ${task.title}`,
     task.dependsOn.length > 0 ? `Depends on: ${task.dependsOn.join(", ")}` : "Depends on: none",
+    skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Implement only the requested task in this repository and leave the workspace ready for verification.",
     "Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.",
@@ -1643,11 +1713,13 @@ function buildIntegrationRepairPrompt(
   branch: string,
   conflictingFiles: string[],
   constitutionContext?: string,
+  skillBundleText?: string,
 ): string {
   return [
     `Goal: ${goal}`,
     `Integration conflict while merging branch: ${branch}`,
     `Conflicting files: ${conflictingFiles.join(", ")}`,
+    skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Resolve the active git merge conflict in the current workspace.",
     "Keep the original task scope, preserve intended changes from both sides when possible, and avoid unrelated edits.",
@@ -1659,6 +1731,7 @@ function buildRepairPrompt(
   goal: string,
   verification: { cwd: string; overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string; stdout?: string; stderr?: string }> },
   constitutionContext?: string,
+  skillBundleText?: string,
 ): string {
   const failures = verification.commands
     .filter((command) => command.status === "failed")
@@ -1670,6 +1743,7 @@ function buildRepairPrompt(
     `Verification status: ${verification.overallStatus}`,
     `Verification cwd: ${verification.cwd}`,
     failures ? `Failures:\n${failures}` : "Failures: none recorded",
+    skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Repair the code so verification can pass.",
     "Focus only on the observed failures and avoid unrelated edits.",
@@ -1680,6 +1754,7 @@ function buildReviewerPrompt(
   goal: string,
   verification: { overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string }> },
   constitutionContext?: string,
+  skillBundleText?: string,
 ): string {
   const commandStatuses = verification.commands
     .map((command) => `${command.name}: ${command.status}`)
@@ -1689,10 +1764,117 @@ function buildReviewerPrompt(
     `Goal: ${goal}`,
     `Verification status: ${verification.overallStatus}`,
     commandStatuses ? `Command results:\n${commandStatuses}` : "Command results: none",
+    skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Review the candidate and report whether it looks ready for approval.",
     "Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly.",
   ].filter(Boolean).join("\n");
+}
+
+function renderSkillBundleForPrompt(bundle: SkillBundleSelection): string | undefined {
+  if (bundle.selected.length === 0) {
+    return undefined;
+  }
+  return bundle.selected
+    .map((item) => `- ${item.skill.id}@${item.skill.version}: ${item.reasons.slice(0, 2).join("; ")}`)
+    .join("\n");
+}
+
+function summarizeSkillBundle(bundle: SkillBundleSelection): Record<string, unknown> {
+  return {
+    selected: bundle.selected.map((item) => ({
+      id: item.skill.id,
+      version: item.skill.version,
+      provides: item.provides,
+      reasons: item.reasons,
+      score: item.score,
+    })),
+    rejected: bundle.rejected.map((item) => ({
+      id: item.skill.id,
+      version: item.skill.version,
+      rejectedReason: item.rejectedReason,
+      score: item.score,
+    })),
+    capabilityCoverage: bundle.capabilityCoverage,
+    confidence: bundle.confidence,
+  };
+}
+
+async function collectRuntimeSkillSignals(projectRoot: string): Promise<{
+  languages: string[];
+  dependencies: string[];
+  frameworks: string[];
+  constitutionAreas: number[];
+}> {
+  try {
+    const discovery = await discoverConstitutionRepository(projectRoot);
+    const dependencies = await readRepositoryDependencies(projectRoot, discovery.manifests);
+    const frameworks = inferFrameworksFromDependencies(dependencies);
+    return {
+      languages: discovery.languages,
+      dependencies,
+      frameworks,
+      constitutionAreas: inferRelevantConstitutionAreas(discovery),
+    };
+  } catch {
+    return {
+      languages: [],
+      dependencies: [],
+      frameworks: [],
+      constitutionAreas: [],
+    };
+  }
+}
+
+async function readRepositoryDependencies(projectRoot: string, manifests: string[]): Promise<string[]> {
+  const deps = new Set<string>();
+  for (const manifest of manifests.filter((file) => /(^|\/)package\.json$/i.test(file)).slice(0, 8)) {
+    try {
+      const raw = await fs.readFile(path.join(projectRoot, manifest), "utf8");
+      const parsed = JSON.parse(raw) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+      for (const name of Object.keys(parsed.dependencies ?? {})) {
+        deps.add(name);
+      }
+      for (const name of Object.keys(parsed.devDependencies ?? {})) {
+        deps.add(name);
+      }
+    } catch {
+      // ignore malformed manifests while collecting broad skill signals
+    }
+  }
+  return [...deps].sort();
+}
+
+function inferFrameworksFromDependencies(dependencies: string[]): string[] {
+  const lower = new Set(dependencies.map((value) => value.toLowerCase()));
+  const frameworks: string[] = [];
+  if (lower.has("next")) frameworks.push("next");
+  if (lower.has("react")) frameworks.push("react");
+  if (lower.has("fastify")) frameworks.push("fastify");
+  if (lower.has("express")) frameworks.push("express");
+  if (lower.has("vitest")) frameworks.push("vitest");
+  if (lower.has("jest")) frameworks.push("jest");
+  if (lower.has("prisma") || lower.has("@prisma/client")) frameworks.push("prisma");
+  if (lower.has("zod")) frameworks.push("zod");
+  return frameworks;
+}
+
+function inferRelevantConstitutionAreas(discovery: { languages: string[]; commands: Record<string, string>; testFiles: string[]; sourceFiles: string[] }): number[] {
+  const areas = new Set<number>([1, 2, 3, 18]);
+  if (discovery.sourceFiles.length > 0) {
+    areas.add(40);
+  }
+  if (Object.keys(discovery.commands).length > 0) {
+    areas.add(73);
+  }
+  if (discovery.testFiles.length > 0) {
+    areas.add(76);
+  }
+  if (discovery.languages.some((language) => /typescript|javascript/i.test(language))) {
+    areas.add(43);
+    areas.add(45);
+  }
+  return [...areas].sort((a, b) => a - b);
 }
 
 function firstNonEmpty(...values: Array<string | undefined>): string {

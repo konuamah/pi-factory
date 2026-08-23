@@ -123,8 +123,15 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     const builderPrompt = calls.find((call) => call.label === 'builder')?.prompt ?? '';
     const reviewerPrompt = calls.find((call) => call.label === 'reviewer')?.prompt ?? '';
 
+    assert.match(plannerPrompt, /Selected skills:/);
+    assert.match(plannerPrompt, /repo-interpretation@1\.0\.0/);
+    assert.match(plannerPrompt, /architecture-planning@1\.0\.0/);
     assert.match(plannerPrompt, /Do not broaden scope beyond the requested outcome\./);
+    assert.match(builderPrompt, /Selected skills:/);
+    assert.match(builderPrompt, /implementation-task@1\.0\.0/);
     assert.match(builderPrompt, /Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits/);
+    assert.match(reviewerPrompt, /Selected skills:/);
+    assert.match(reviewerPrompt, /acceptance-review@1\.0\.0/);
     assert.match(reviewerPrompt, /Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly\./);
   });
 });
@@ -170,6 +177,8 @@ test('repair prompt focuses on observed failures only', async () => {
     });
 
     const repairPrompt = calls.find((call) => call.label === 'repair')?.prompt ?? '';
+    assert.match(repairPrompt, /Selected skills:/);
+    assert.match(repairPrompt, /repair-triage@1\.0\.0/);
     assert.match(repairPrompt, /Focus only on the observed failures and avoid unrelated edits\./);
     assert.match(repairPrompt, /Verification cwd:/);
   });
@@ -216,6 +225,8 @@ test('verification planner can choose only repo-authoritative commands from pack
 
     const verification = await readJson(result.verificationPath);
     assert.deepEqual(verification.commands.map((item) => item.name), ['lint', 'build']);
+    assert.equal(verification.skill?.id, 'verification-planning');
+    assert.match(String(verification.skill?.version ?? ''), /^1\./);
     const logs = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'));
     assert.equal(logs.verificationContext?.cwd, root);
   });

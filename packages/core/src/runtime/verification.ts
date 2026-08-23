@@ -4,6 +4,7 @@ import path from "node:path";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentExecutor } from "./interfaces.js";
+import { initializeFactorySkills, resolveFactorySkills } from "../skills/index.js";
 
 const execAsync = promisify(exec);
 
@@ -40,6 +41,12 @@ export interface VerificationPlan {
   commands: VerificationCommandConfig;
   selectionSource: "configured" | "ai" | "deterministic";
   rationale?: string;
+  skill: {
+    id: string;
+    version: string;
+    mode: "verification" | "repair";
+    selectionReasons: string[];
+  };
   evidence: VerificationEvidence & {
     selectedCandidate?: VerificationEvidence["candidateCwds"][number];
     commandDecisions: VerificationCommandDecision[];
@@ -80,8 +87,10 @@ export async function planVerificationExecution(input: {
   };
   runId?: string;
 }): Promise<VerificationPlan> {
+  initializeFactorySkills();
   const evidence = await discoverVerificationEvidence(input.cwd, input.commands);
-  const deterministicPlan = await buildDeterministicVerificationPlan(evidence);
+  const selectedSkill = resolveVerificationPlanningSkill(input.goal, evidence);
+  const deterministicPlan = await buildDeterministicVerificationPlan(evidence, selectedSkill);
 
   if (!input.executor) {
     return deterministicPlan;
@@ -104,7 +113,7 @@ export async function planVerificationExecution(input: {
     if (!parsed) {
       return deterministicPlan;
     }
-    return sanitizeVerificationPlan(parsed, evidence, deterministicPlan);
+    return sanitizeVerificationPlan(parsed, evidence, deterministicPlan, selectedSkill);
   } catch {
     return deterministicPlan;
   }
@@ -230,7 +239,10 @@ async function discoverVerificationEvidence(
   };
 }
 
-async function buildDeterministicVerificationPlan(evidence: VerificationEvidence): Promise<VerificationPlan> {
+async function buildDeterministicVerificationPlan(
+  evidence: VerificationEvidence,
+  selectedSkill: { id: string; version: string; mode: "verification" | "repair"; selectionReasons: string[] },
+): Promise<VerificationPlan> {
   const resolved = await resolveVerificationCwd(evidence.rootCwd, evidence.configuredCwd);
   const chosenCandidate = evidence.candidateCwds.find((candidate) => path.normalize(candidate.path) === path.normalize(resolved.cwd));
   const selectedCommands = filterCommandsForCandidate(evidence.configuredCommands, chosenCandidate?.scripts ?? evidence.rootScripts);
@@ -245,6 +257,7 @@ async function buildDeterministicVerificationPlan(evidence: VerificationEvidence
       : chosenCandidate?.scripts.length
         ? `Using ${chosenCandidate.relativePath} because it looks like the most likely runnable package root.`
         : "Using deterministic verification root fallback.",
+    skill: selectedSkill,
     evidence: {
       ...evidence,
       selectedCandidate: chosenCandidate,
@@ -336,6 +349,8 @@ function buildVerificationPlannerPrompt(
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     `Configured commands: ${JSON.stringify(evidence.configuredCommands, null, 2)}`,
     `Verification candidates: ${JSON.stringify(evidence.candidateCwds, null, 2)}`,
+    `Selected skill: ${deterministicPlan.skill.id}@${deterministicPlan.skill.version} (${deterministicPlan.skill.mode})`,
+    `Skill selection reasons: ${deterministicPlan.skill.selectionReasons.join("; ")}`,
     `Deterministic fallback: ${JSON.stringify(deterministicPlan, null, 2)}`,
     "Return JSON only with shape:",
     '{"cwd":"<candidate path>","commands":{"setup":"...","lint":"...","build":"..."},"rationale":"short reason"}',
@@ -370,6 +385,7 @@ function sanitizeVerificationPlan(
   parsed: { cwd?: string; commands?: VerificationCommandConfig; rationale?: string },
   evidence: VerificationEvidence,
   deterministicPlan: VerificationPlan,
+  selectedSkill: { id: string; version: string; mode: "verification" | "repair"; selectionReasons: string[] },
 ): VerificationPlan {
   const allowedCwds = new Set(evidence.candidateCwds.map((candidate) => path.normalize(candidate.path)));
   const chosenCwd = typeof parsed.cwd === "string" && allowedCwds.has(path.normalize(parsed.cwd))
@@ -384,6 +400,7 @@ function sanitizeVerificationPlan(
     commands,
     selectionSource: "ai",
     rationale: typeof parsed.rationale === "string" && parsed.rationale.trim() ? parsed.rationale.trim() : deterministicPlan.rationale,
+    skill: selectedSkill,
     evidence: {
       ...evidence,
       selectedCandidate: chosenCandidate,
@@ -518,6 +535,32 @@ function dedupePaths(paths: string[]): string[] {
 function normalizeRelative(from: string, to: string): string {
   const relative = path.relative(from, to).replace(/\\/g, "/");
   return relative || ".";
+}
+
+function resolveVerificationPlanningSkill(goal: string, evidence: VerificationEvidence): {
+  id: string;
+  version: string;
+  mode: "verification" | "repair";
+  selectionReasons: string[];
+} {
+  const selection = resolveFactorySkills({
+    goal,
+    stage: "verification",
+    taskKinds: ["verification", "repo-interpretation"],
+    languages: ["TypeScript", "JavaScript"],
+    affectedFiles: evidence.candidateCwds.map((candidate) => candidate.relativePath === "." ? "package.json" : `${candidate.relativePath}/package.json`),
+    requiredCapabilities: ["verification-root-selection", "verification-command-selection"],
+    availableTools: ["read", "grep", "find", "ls"],
+    constitutionAreas: [1, 2, 3, 18, 73, 76],
+  });
+  const match = selection.selected[0];
+
+  return {
+    id: match?.skill.id ?? "verification-planning",
+    version: match?.skill.version ?? "1.0.0",
+    mode: "verification",
+    selectionReasons: match?.reasons ?? ["Default verification planning skill selected."],
+  };
 }
 
 function shouldSkipDirectory(name: string): boolean {

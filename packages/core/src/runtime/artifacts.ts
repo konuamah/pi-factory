@@ -43,6 +43,12 @@ export interface PrototypeVerificationArtifact {
   overallStatus: "passed" | "failed" | "incomplete";
   selectionSource?: "configured" | "ai" | "deterministic";
   rationale?: string;
+  skill?: {
+    id: string;
+    version: string;
+    mode: "verification" | "repair";
+    selectionReasons: string[];
+  };
   evidence?: {
     rootCwd: string;
     configuredCwd?: string;

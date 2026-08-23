@@ -9,4 +9,6 @@ export * from "./project/discovery.js";
 export * from "./runtime/index.js";
 export * from "./runs/index.js";
 export * from "./doctor/index.js";
+export * from "./learnings/store.js";
+export * from "./skills/index.js";
 export * from "./setup/index.js";

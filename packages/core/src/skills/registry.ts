@@ -13,6 +13,10 @@ export function registerFactorySkill(skill: SkillContract): void {
   skillRegistry.set(skill.id, skill);
 }
 
+export function clearFactorySkillRegistry(): void {
+  skillRegistry.clear();
+}
+
 export function listFactorySkills(): SkillContract[] {
   return [...skillRegistry.values()].sort((a, b) => a.id.localeCompare(b.id));
 }

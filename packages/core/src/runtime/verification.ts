@@ -87,7 +87,7 @@ export async function planVerificationExecution(input: {
   };
   runId?: string;
 }): Promise<VerificationPlan> {
-  initializeFactorySkills();
+  await initializeFactorySkills(input.cwd);
   const evidence = await discoverVerificationEvidence(input.cwd, input.commands);
   const selectedSkill = resolveVerificationPlanningSkill(input.goal, evidence);
   const deterministicPlan = await buildDeterministicVerificationPlan(evidence, selectedSkill);

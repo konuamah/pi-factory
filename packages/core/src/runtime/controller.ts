@@ -160,7 +160,7 @@ export async function runFactoryController(
   const repairGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "repair", goal: input.goal });
   const reviewerGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "reviewer", goal: input.goal });
 
-  initializeFactorySkills();
+  await initializeFactorySkills(projectRoot);
   const repoSkillSignals = await collectRuntimeSkillSignals(projectRoot);
   const plannerSkills = resolveFactorySkills({
     goal: input.goal,

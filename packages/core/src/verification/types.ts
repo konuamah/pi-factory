@@ -1,3 +1,5 @@
+import type { DecisionRequest } from "../decisions/types.js";
+
 export type VerificationRequirementType =
   | "COMMAND"
   | "TEST"
@@ -58,7 +60,11 @@ export interface ReviewFinding {
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
   claim: string;
   evidence?: string[];
+  disposition?: ReviewDisposition;
+  decision?: DecisionRequest;
 }
+
+export type ReviewDisposition = "PASS" | "REPAIR" | "NEEDS_DECISION";
 
 export interface ReviewRequirement extends VerificationRequirementBase {
   type: "REVIEW";
@@ -102,6 +108,7 @@ export interface VerificationResult {
   evidence: EvidenceRef[];
   findings?: ReviewFinding[];
   reason?: string;
+  decision?: DecisionRequest;
 }
 
 export interface VerificationContractPlan {

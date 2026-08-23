@@ -42,6 +42,7 @@ import {
 } from "@factory/core";
 import * as piExecutors from "../../../executors/pi/dist/index.js";
 import { buildPlanApprovalPreviewLines, requestPlanApprovalDecision } from "./approval.js";
+import { requestDecisionInput } from "./decision-dialog.js";
 import { promptFactorySetupChoices } from "./setup-wizard.js";
 import { mountFactoryStreamingWidget } from "./streaming-panel.js";
 import type { FactoryPiAutocompleteItem, FactoryPiCommandContext } from "./types.js";
@@ -1210,6 +1211,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
         `Approve prototype run ${runId} for goal: ${goal}`,
       );
     },
+    requestDecision: async (request) => requestDecisionInput(ctx.ui, request),
   });
 
   const latestShown = await showFactoryRun(path.join((await discoverFactoryProject(ctx.cwd)).paths.runsDir), result.runId);

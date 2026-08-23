@@ -238,6 +238,9 @@ function suggestResumePolicy(
   if (currentPhase === "plan-approval") {
     return { resumable: true, suggestedPhase: "plan-approval", nextStatus: "PENDING", reason: "Plan approval was interrupted." };
   }
+  if (currentPhase.startsWith("decision-")) {
+    return { resumable: true, suggestedPhase: currentPhase, nextStatus: "PENDING", reason: "Resume awaiting the pending human decision." };
+  }
   if (currentPhase === "plan-revision-requested") {
     return { resumable: true, suggestedPhase: "plan-revision-requested", nextStatus: "PENDING", reason: "Plan revisions are still required before implementation." };
   }

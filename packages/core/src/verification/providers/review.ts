@@ -5,6 +5,7 @@ import type {
   VerificationProvider,
   VerificationProviderContext,
 } from "../types.js";
+import type { DecisionRequest } from "../../decisions/types.js";
 import type { AgentExecutor } from "../../runtime/interfaces.js";
 
 export interface ReviewProviderOptions {
@@ -41,6 +42,7 @@ export function createReviewProvider(options: ReviewProviderOptions): Verificati
         });
 
         const findings = parseFindings(result.outputText);
+        const needsDecision = findings.find((finding) => finding.disposition === "NEEDS_DECISION");
         const blockingFindings = findings.filter((finding) =>
           (review.blockingSeverities as string[]).includes(finding.severity),
         );
@@ -50,6 +52,17 @@ export function createReviewProvider(options: ReviewProviderOptions): Verificati
           focus: review.focus,
           findings,
         };
+
+        if (needsDecision) {
+          return {
+            requirementId: requirement.id,
+            status: "INCONCLUSIVE",
+            evidence: [{ id: evidenceId, kind: "review-result" }],
+            findings,
+            reason: `Review requires a human decision: ${needsDecision.claim}`,
+            decision: needsDecision.decision,
+          };
+        }
 
         if (blockingFindings.length > 0) {
           return {
@@ -106,10 +119,27 @@ export function parseFindings(outputText: string): ReviewFinding[] {
   for (const line of outputText.split(/\r?\n/)) {
     const match = line.match(/^FINDING\s+(CRITICAL|HIGH|MEDIUM|LOW|INFO)\s*:\s*(.+)$/i);
     if (match) {
-      findings.push({
+      const finding: ReviewFinding = {
         severity: match[1]!.toUpperCase() as ReviewFinding["severity"],
         claim: match[2]!.trim(),
-      });
+      };
+      // A disposition line follows the finding: NEEDS_DECISION question | optionA; optionB; optionC
+      const dispositionMatch = line.match(/NEEDS_DECISION\s+([^|]+)\s*\|\s*(.+)/i);
+      if (dispositionMatch) {
+        finding.disposition = "NEEDS_DECISION";
+        finding.decision = {
+          id: `decision-${findings.length + 1}`,
+          title: "Reviewer decision required",
+          question: dispositionMatch[1]!.trim(),
+          options: dispositionMatch[2]!.split(";").map((option, index) => {
+            const [label, ...rest] = option.trim().split(" — ");
+            return { id: `option-${index + 1}`, label: label ?? option.trim(), description: rest.join(" — ") || undefined };
+          }),
+          source: "REVIEWER",
+          reason: "CONFLICT",
+        };
+      }
+      findings.push(finding);
     }
   }
   return findings;

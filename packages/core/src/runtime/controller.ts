@@ -38,6 +38,8 @@ import {
   type TaskTypeSelection,
 } from "../models/index.js";
 import { appendModelLedgerEntry } from "../runs/model-ledger.js";
+import { appendDecisionLedgerEntry, findPendingDecision } from "../decisions/index.js";
+import type { DecisionRequest, DecisionResult } from "../decisions/index.js";
 import { gatherVerificationRequirements, initializeVerificationProviders, runVerificationEngine } from "../verification/index.js";
 import type { VerificationContractPlan, VerificationEngineResult } from "../verification/index.js";
 import type { ReviewProviderOptions } from "../verification/providers/review.js";
@@ -48,7 +50,7 @@ import { planVerificationExecution, runVerificationCommands } from "./verificati
 export interface FactoryRunProgressEvent {
   runId: string;
   phase: string;
-  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "BLOCKED";
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "BLOCKED" | "DECISION_REQUIRED";
   message: string;
 }
 
@@ -74,6 +76,7 @@ export interface RunFactoryControllerInput {
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string; candidateSha?: string }) => Promise<boolean>;
+  requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
   delayMs?: number;
 }
 
@@ -749,6 +752,19 @@ export async function runFactoryController(
       createdFrom: contractPlan.createdFrom,
     },
   });
+
+  // If contract verification surfaced a human decision request, raise the gate.
+  const pendingDecision = contractResult.results.find((result) => result.decision);
+  if (pendingDecision?.decision) {
+    await requestHumanDecision({
+      controllerInput: input,
+      runDir: run.runDir,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      runId: run.runId,
+      request: pendingDecision.decision,
+    });
+  }
 
   if (verification.overallStatus === "failed" && input.repairExecutor && loaded.effectiveConfig.repair.enabled) {
     for (let attempt = 1; attempt <= loaded.effectiveConfig.repair.maxAttempts; attempt++) {
@@ -2398,6 +2414,79 @@ async function emitProgress(
   event: FactoryRunProgressEvent,
 ): Promise<void> {
   await input.onProgress?.(event);
+}
+
+async function requestHumanDecision(input: {
+  controllerInput: RunFactoryControllerInput;
+  runDir: string;
+  statePath: string;
+  eventsPath: string;
+  runId: string;
+  request: DecisionRequest;
+}): Promise<DecisionResult> {
+  // Persist the request first (audit + resume point).
+  await appendDecisionLedgerEntry(input.runDir, { type: "request", request: input.request });
+
+  // Pause the run in DECISION_REQUIRED state so a restart knows what it was waiting for.
+  await updateFactoryRunState({
+    statePath: input.statePath,
+    patch: { status: "DECISION_REQUIRED", phase: `decision-${input.request.source.toLowerCase()}` },
+  });
+  await appendFactoryRunEvent(input.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "decision.required",
+    data: {
+      decisionRequestId: input.request.id,
+      title: input.request.title,
+      question: input.request.question,
+      options: input.request.options.map((option) => option.id),
+      evidenceRefs: input.request.evidenceRefs ?? [],
+      source: input.request.source,
+      reason: input.request.reason,
+    },
+  });
+  await emitProgress(input.controllerInput, {
+    runId: input.runId,
+    phase: `decision-${input.request.source.toLowerCase()}`,
+    status: "DECISION_REQUIRED",
+    message: `Decision required: ${input.request.title}`,
+  });
+
+  // Reuse a persisted resolution if this request was already decided (resume case).
+  const pending = await findPendingDecision(input.runDir);
+  if (!pending) {
+    throw new Error(`Decision request '${input.request.id}' has no pending state; cannot resume.`);
+  }
+
+  const decide = input.controllerInput.requestDecision;
+  if (!decide) {
+    throw new Error(`Decision required ('${input.request.id}') but no requestDecision handler is configured.`);
+  }
+  const result = await decide(pending);
+
+  // Persist the resolution and resume.
+  await appendDecisionLedgerEntry(input.runDir, { type: "resolution", result });
+  await updateFactoryRunState({
+    statePath: input.statePath,
+    patch: { status: "RUNNING", phase: "running" },
+  });
+  await appendFactoryRunEvent(input.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "decision.resolved",
+    data: {
+      decisionRequestId: result.requestId,
+      optionId: result.optionId,
+      feedback: result.feedback,
+    },
+  });
+  await emitProgress(input.controllerInput, {
+    runId: input.runId,
+    phase: "running",
+    status: "RUNNING",
+    message: `Decision resolved: ${result.optionId}`,
+  });
+
+  return result;
 }
 
 async function wait(delayMs: number): Promise<void> {

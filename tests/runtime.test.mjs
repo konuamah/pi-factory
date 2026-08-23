@@ -802,6 +802,77 @@ test('verification artifact holds contract plan, results, and evidence', async (
   });
 });
 
+test('reviewer NEEDS_DECISION raises a decision gate and persists it', async () => {
+  const decidingReviewer = {
+    async execute() {
+      return {
+        executionId: 'reviewer',
+        status: 'completed',
+        outputText: 'FINDING HIGH: Architecture conflict | NEEDS_DECISION Which architecture should govern? | preserve current; follow constitution',
+        events: [],
+      };
+    },
+    async cancel() {},
+  };
+
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  lint: node -e ""',
+        '  typecheck: node -e ""',
+        '  test: node -e ""',
+        '  build: node -e ""',
+        'taskTypes:',
+        '  security-change:',
+        '    match:',
+        '      keywords: [security, auth]',
+        '    routing:',
+        '      builder: { model: opus }',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+    let decisionReceived = null;
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add security for login',
+      plannerExecutor,
+      builderExecutor,
+      reviewerExecutor: decidingReviewer,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+      requestDecision: async (request) => {
+        decisionReceived = request;
+        return { requestId: request.id, optionId: 'preserve-current', feedback: 'Keep current behavior', decidedAt: new Date().toISOString() };
+      },
+    });
+
+    assert.ok(decisionReceived);
+    assert.equal(decisionReceived.source, 'REVIEWER');
+    assert.equal(decisionReceived.reason, 'CONFLICT');
+
+    const ledgerRaw = await fs.readFile(path.join(result.runDir, 'decisions.jsonl'), 'utf8');
+    assert.match(ledgerRaw, /"type":"request"/);
+    assert.match(ledgerRaw, /"type":"resolution"/);
+  });
+});
+
 test('workflow node roles select the correct executor and context role', async () => {
   await withTempProject(async (root) => {
     await fs.writeFile(

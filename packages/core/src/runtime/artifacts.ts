@@ -87,6 +87,35 @@ export interface PrototypeVerificationArtifact {
       reason: string;
     }>;
   };
+  contract?: {
+    plan: {
+      requirements: Array<{
+        id: string;
+        type: string;
+        blocking: boolean;
+        description: string;
+        source: string;
+        scope: string;
+      }>;
+      createdFrom: {
+        skills: string[];
+        constitutionAreas: number[];
+        taskType?: string;
+        workflow?: string;
+        userCriteria?: string[];
+      };
+    };
+    results: Array<{
+      requirementId: string;
+      blocking: boolean;
+      status: string;
+      evidence: Array<{ id: string; kind: string }>;
+      reason?: string;
+    }>;
+    evidenceStore: Record<string, { kind: string; [key: string]: unknown }>;
+    overallStatus: string;
+    canComplete: boolean;
+  };
   failureClassification?: {
     kind: "harness/config" | "repo script/config" | "real code failure" | "unknown";
     reason: string;

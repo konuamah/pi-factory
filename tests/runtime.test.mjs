@@ -777,6 +777,31 @@ test('contract completion gate blocks the run when a blocking requirement fails'
   });
 });
 
+test('verification artifact holds contract plan, results, and evidence', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const verification = await readJson(result.verificationPath);
+    assert.ok(verification.contract);
+    assert.ok(Array.isArray(verification.contract.plan.requirements));
+    assert.ok(verification.contract.plan.requirements.length > 0);
+    assert.ok(Array.isArray(verification.contract.results));
+    assert.equal(verification.contract.overallStatus, 'PASS');
+    assert.equal(verification.contract.canComplete, true);
+  });
+});
+
 test('workflow node roles select the correct executor and context role', async () => {
   await withTempProject(async (root) => {
     await fs.writeFile(

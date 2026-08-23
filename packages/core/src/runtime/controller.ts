@@ -39,6 +39,7 @@ import {
 } from "../models/index.js";
 import { appendModelLedgerEntry } from "../runs/model-ledger.js";
 import { gatherVerificationRequirements, initializeVerificationProviders, runVerificationEngine } from "../verification/index.js";
+import type { VerificationContractPlan, VerificationEngineResult } from "../verification/index.js";
 import type { ReviewProviderOptions } from "../verification/providers/review.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { classifyVerificationFailure } from "./failure-classification.js";
@@ -138,7 +139,7 @@ export async function runFactoryController(
     workflowId: loaded.effectiveConfig.resolvedWorkflowId ?? input.workflowId,
   });
 
-  const phases = ["planning", "plan-approval", "implementation", "integration", "verification", "review", "approval-ready", "merge", "complete"];
+  const phases = ["planning", "plan-approval", "implementation", "integration", "verification", "repair", "verified", "review", "approval-ready", "merge", "complete"];
   const delayMs = input.delayMs ?? 150;
   const builderExecutionPaths: string[] = [];
   let integrationPath: string | undefined;
@@ -719,9 +720,18 @@ export async function runFactoryController(
     model: loaded.effectiveConfig.models.reviewer,
     goal: input.goal,
   } satisfies ReviewProviderOptions);
-  const contractResult = await runVerificationEngine({
+  let contractResult = await runVerificationEngine({
     cwd: executionCwd,
     plan: contractPlan,
+  });
+  verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
+    ...verification,
+    selectionSource: verificationPlan.selectionSource,
+    rationale: verificationPlan.rationale,
+    skill: verificationPlan.skill,
+    evidence: verificationPlan.evidence,
+    failureClassification: verificationFailureClassification,
+    contract: buildContractArtifact(contractPlan, contractResult),
   });
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
@@ -781,14 +791,6 @@ export async function runFactoryController(
       });
       verification.cwdResolution = verificationPlan.cwdResolution;
       const recheckFailureClassification = classifyVerificationFailure({ plan: verificationPlan, result: verification });
-      verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
-        ...verification,
-        selectionSource: verificationPlan.selectionSource,
-        rationale: verificationPlan.rationale,
-        skill: verificationPlan.skill,
-        evidence: verificationPlan.evidence,
-        failureClassification: recheckFailureClassification,
-      });
       await appendFactoryRunEvent(run.eventsPath, {
         timestamp: new Date().toISOString(),
         type: "verification.recheck_completed",
@@ -799,6 +801,33 @@ export async function runFactoryController(
         },
       });
 
+      // Incremental contract re-verification: only re-run requirements affected by changed files.
+      const changedAfterRepair = await gitChangedFiles(executionCwd);
+      contractResult = await runVerificationEngine({
+        cwd: executionCwd,
+        plan: contractPlan,
+        affectedFiles: changedAfterRepair,
+      });
+      verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
+        ...verification,
+        selectionSource: verificationPlan.selectionSource,
+        rationale: verificationPlan.rationale,
+        skill: verificationPlan.skill,
+        evidence: verificationPlan.evidence,
+        failureClassification: recheckFailureClassification,
+        contract: buildContractArtifact(contractPlan, contractResult),
+      });
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "verification.contract_recheck",
+        data: {
+          attempt,
+          overallStatus: contractResult.overallStatus,
+          canComplete: contractResult.canComplete,
+          affectedFiles: changedAfterRepair,
+        },
+      });
+
       if (verification.overallStatus !== "failed") {
         break;
       }
@@ -806,6 +835,9 @@ export async function runFactoryController(
   }
 
   let reviewerExecutionPath: string | undefined;
+
+  // Transition to VERIFIED once command verification passed (or was repaired to pass).
+  await movePhase(run.statePath, run.eventsPath, run.runId, input, "verified", "Candidate verified");
 
   if (verification.overallStatus === "failed") {
     const failedState = await updateFactoryRunState({
@@ -1947,6 +1979,41 @@ function resolveTaskDependencies(tasks: PlannerTask[]): Map<string, string[]> {
     dependencies.set(task.id, resolved);
   }
   return dependencies;
+}
+
+function buildContractArtifact(plan: VerificationContractPlan, result: VerificationEngineResult): {
+  plan: {
+    requirements: Array<{ id: string; type: string; blocking: boolean; description: string; source: string; scope: string }>;
+    createdFrom: VerificationContractPlan["createdFrom"];
+  };
+  results: Array<{ requirementId: string; blocking: boolean; status: string; evidence: Array<{ id: string; kind: string }>; reason?: string }>;
+  evidenceStore: VerificationEngineResult["evidence"];
+  overallStatus: string;
+  canComplete: boolean;
+} {
+  return {
+    plan: {
+      requirements: plan.requirements.map((requirement) => ({
+        id: requirement.id,
+        type: requirement.type,
+        blocking: requirement.blocking,
+        description: requirement.description,
+        source: requirement.source,
+        scope: requirement.scope,
+      })),
+      createdFrom: plan.createdFrom,
+    },
+    results: result.results.map((item) => ({
+      requirementId: item.requirementId,
+      blocking: item.blocking,
+      status: item.status,
+      evidence: item.evidence,
+      reason: item.reason,
+    })),
+    evidenceStore: result.evidence,
+    overallStatus: result.overallStatus,
+    canComplete: result.canComplete,
+  };
 }
 
 function resolveRunTaskType(input: RunFactoryControllerInput, config: EffectiveFactoryConfig): TaskTypeSelection {

@@ -47,7 +47,7 @@ import { planVerificationExecution, runVerificationCommands } from "./verificati
 export interface FactoryRunProgressEvent {
   runId: string;
   phase: string;
-  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "BLOCKED";
   message: string;
 }
 
@@ -822,6 +822,67 @@ export async function runFactoryController(
       goal: input.goal,
       status: "FAILED",
       phase: failedState.phase,
+      approved: false,
+      planPath,
+      taskPaths,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      reviewerExecutionPath,
+      verificationPath,
+      verificationStatus: verification.overallStatus,
+    });
+
+    return {
+      runId: run.runId,
+      runDir: run.runDir,
+      executionCwd,
+      worktree,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      phases,
+      approved: false,
+      planPath,
+      taskPaths,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      reviewerExecutionPath,
+      verificationPath,
+      summaryPath,
+    };
+  }
+
+  // Contract completion gate: the run only proceeds to review/approval if the
+  // contract verification can complete. Otherwise it is BLOCKED.
+  if (!contractResult.canComplete) {
+    const blockedState = await updateFactoryRunState({
+      statePath: run.statePath,
+      patch: { status: "BLOCKED", phase: "verification-blocked" },
+    });
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "verification.blocked",
+      data: {
+        overallStatus: contractResult.overallStatus,
+        failingRequirements: contractResult.results
+          .filter((result) => result.blocking && result.status !== "PASS" && result.status !== "NOT_APPLICABLE")
+          .map((result) => ({ requirementId: result.requirementId, status: result.status, reason: result.reason })),
+      },
+    });
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: "verification-blocked",
+      status: "BLOCKED",
+      message: "Contract verification cannot complete; run blocked",
+    });
+    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+      runId: run.runId,
+      goal: input.goal,
+      status: "BLOCKED",
+      phase: blockedState.phase,
       approved: false,
       planPath,
       taskPaths,

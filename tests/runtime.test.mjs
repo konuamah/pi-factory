@@ -718,6 +718,65 @@ test('contract verification runs and emits results after command verification', 
   });
 });
 
+test('contract completion gate blocks the run when a blocking requirement fails', async () => {
+  // A security-change task type with a reviewer executor that reports a blocking finding
+  // should leave the run BLOCKED instead of COMPLETED.
+  const failingReviewer = {
+    async execute() {
+      return { executionId: 'reviewer', status: 'completed', outputText: 'FINDING HIGH: Schema change breaks old clients', events: [] };
+    },
+    async cancel() {},
+  };
+
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  lint: node -e ""',
+        '  typecheck: node -e ""',
+        '  test: node -e ""',
+        '  build: node -e ""',
+        'taskTypes:',
+        '  security-change:',
+        '    match:',
+        '      keywords: [security, auth, permission]',
+        '    routing:',
+        '      builder: { model: opus }',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add security for login',
+      plannerExecutor,
+      builderExecutor,
+      reviewerExecutor: failingReviewer,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const summary = await readJson(result.summaryPath);
+    assert.equal(summary.status, 'BLOCKED');
+    assert.equal(summary.phase, 'verification-blocked');
+  });
+});
+
 test('workflow node roles select the correct executor and context role', async () => {
   await withTempProject(async (root) => {
     await fs.writeFile(

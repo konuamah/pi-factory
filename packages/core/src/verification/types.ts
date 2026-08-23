@@ -37,6 +37,7 @@ export interface CommandRequirement extends VerificationRequirementBase {
 export interface TestRequirement extends VerificationRequirementBase {
   type: "TEST";
   command?: string;
+  cwd?: string;
   selector?: string;
   minimumPassed?: number;
 }

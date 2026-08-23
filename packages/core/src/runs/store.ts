@@ -5,7 +5,7 @@ import type { EffectiveFactoryConfig } from "@factory/schemas";
 
 export interface FactoryRunState {
   runId: string;
-  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "BLOCKED";
   phase: string;
   workflowId?: string;
   createdAt: string;

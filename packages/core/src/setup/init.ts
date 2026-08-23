@@ -141,14 +141,14 @@ function defaultConstitutionTemplate(): string {
 
 function defaultWorkflowTemplate(preset: FactoryWorkflowPreset = "balanced"): string {
   if (preset === "fast") {
-    return `stages:\n  - name: plan\n  - name: build\n    dependsOn: [plan]\n  - name: approval\n    dependsOn: [build]\n  - name: merge\n    dependsOn: [approval]\n`;
+    return `defaultWorkflowId: default-dev\nworkflows:\n  - id: default-dev\n    name: Fast Development\n    stages:\n      - name: plan\n      - name: build\n        dependsOn: [plan]\n      - name: approval\n        dependsOn: [build]\n      - name: merge\n        dependsOn: [approval]\n`;
   }
 
   if (preset === "safe") {
-    return `stages:\n  - name: plan\n  - name: build\n    dependsOn: [plan]\n  - name: verify\n    dependsOn: [build]\n  - name: approval\n    dependsOn: [verify]\n  - name: merge\n    dependsOn: [approval]\n`;
+    return `defaultWorkflowId: default-dev\nworkflows:\n  - id: default-dev\n    name: Safe Development\n    stages:\n      - name: plan\n      - name: build\n        dependsOn: [plan]\n      - name: verify\n        dependsOn: [build]\n      - name: approval\n        dependsOn: [verify]\n      - name: merge\n        dependsOn: [approval]\n`;
   }
 
-  return `stages:\n  - name: plan\n  - name: build\n    dependsOn: [plan]\n  - name: verify\n    dependsOn: [build]\n  - name: approval\n    dependsOn: [verify]\n  - name: merge\n    dependsOn: [approval]\n`;
+  return `defaultWorkflowId: default-dev\nworkflows:\n  - id: default-dev\n    name: Balanced Development\n    stages:\n      - name: plan\n      - name: build\n        dependsOn: [plan]\n      - name: verify\n        dependsOn: [build]\n      - name: approval\n        dependsOn: [verify]\n      - name: merge\n        dependsOn: [approval]\n`;
 }
 
 function defaultProjectConfigTemplate(modelAssignments?: Partial<Record<ModelRole, ModelSelection>>): string {

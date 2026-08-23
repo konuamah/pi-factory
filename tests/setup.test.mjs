@@ -102,7 +102,7 @@ test('initializeFactoryProject writes selected workflow preset and role models',
     const workflow = await fs.readFile(path.join(projectDir, 'factory.yaml'), 'utf8');
     const config = await fs.readFile(path.join(projectDir, '.factory/config.yaml'), 'utf8');
 
-    assert.match(workflow, /stages:/);
+    assert.match(workflow, /workflows:/);
     assert.match(workflow, /- name: plan/);
     assert.match(workflow, /- name: build/);
     assert.doesNotMatch(workflow, /- name: verify/);

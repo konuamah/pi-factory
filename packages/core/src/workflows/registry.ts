@@ -33,13 +33,6 @@ export function normalizeWorkflowConfig(input?: WorkflowConfig): WorkflowConfig 
   }
 
   // Legacy: single stages array becomes the default workflow.
-  if (input.stages && !input.workflows) {
-    return {
-      defaultWorkflowId: DEFAULT_WORKFLOW_ID,
-      workflows: [{ ...defaultWorkflowDefinition(), stages: input.stages }],
-    };
-  }
-
   return {
     defaultWorkflowId: input.defaultWorkflowId ?? DEFAULT_WORKFLOW_ID,
     workflows: input.workflows ?? [defaultWorkflowDefinition()],

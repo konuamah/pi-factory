@@ -13,11 +13,11 @@ import {
   loadEffectiveConfig,
 } from '../packages/core/dist/index.js';
 
-test('normalizeWorkflowConfig converts legacy single stages into the default workflow', () => {
-  const config = normalizeWorkflowConfig({ stages: [{ name: 'plan' }, { name: 'build', dependsOn: ['plan'] }] });
+test('normalizeWorkflowConfig fills in a default workflow when empty', () => {
+  const config = normalizeWorkflowConfig();
   assert.equal(config.defaultWorkflowId, 'default-dev');
   assert.equal(config.workflows.length, 1);
-  assert.deepEqual(config.workflows[0].stages.map((stage) => stage.name), ['plan', 'build']);
+  assert.deepEqual(config.workflows[0].stages.map((stage) => stage.name), ['plan', 'implementation', 'verification', 'approval']);
 });
 
 test('normalizeWorkflowConfig preserves multi-workflow registry', () => {

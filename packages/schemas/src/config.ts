@@ -31,7 +31,6 @@ export interface WorkflowRegistry {
 export interface WorkflowConfig {
   defaultWorkflowId?: string;
   workflows?: WorkflowDefinition[];
-  stages?: WorkflowStage[];
 }
 
 export interface FactoryBuiltInDefaults {

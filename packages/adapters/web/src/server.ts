@@ -23,6 +23,8 @@ export interface DashboardServerOptions {
   cwd: string;
   port?: number;
   host?: string;
+  /** Directory containing the built dashboard (index.html + assets). If provided, the server serves it at `/`. */
+  staticDir?: string;
 }
 
 export interface DashboardServer {
@@ -32,7 +34,7 @@ export interface DashboardServer {
 }
 
 export async function createDashboardServer(options: DashboardServerOptions): Promise<DashboardServer> {
-  const handler = createRequestHandler(options.cwd);
+  const handler = createRequestHandler(options.cwd, options.staticDir);
 
   const server = http.createServer(async (req, res) => {
     await handler(req, res).catch((error) => {
@@ -56,13 +58,18 @@ export async function createDashboardServer(options: DashboardServerOptions): Pr
   };
 }
 
-function createRequestHandler(cwd: string) {
+function createRequestHandler(cwd: string, staticDir?: string) {
   return async function handler(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const method = req.method ?? "GET";
     const url = (req.url ?? "/").split("?")[0]!;
     const base = "/api";
 
-    // Root — a simple landing.
+    // Serve the built dashboard for non-API GET requests.
+    if (staticDir && !url.startsWith(base) && url !== "/health" && method === "GET") {
+      return serveStatic(staticDir, url, res);
+    }
+
+    // Root — a simple landing (or dashboard if staticDir provided above).
     if (url === "/" || url === "") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end("<!doctype html><html><body><h1>Factory Dashboard</h1><p>Read-only API at <code>/api</code></p></body></html>");
@@ -165,6 +172,40 @@ async function handleRunSubroute(rest: string, cwd: string, res: http.ServerResp
 function respondJson(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body));
+}
+
+async function serveStatic(staticDir: string, url: string, res: http.ServerResponse): Promise<void> {
+  const requested = url === "/" ? "index.html" : url.replace(/^\//, "");
+  const filePath = path.join(staticDir, requested);
+  try {
+    const raw = await fs.readFile(filePath);
+    const ext = path.extname(filePath);
+    const type = contentType(ext);
+    res.writeHead(200, { "content-type": `${type}; charset=utf-8` });
+    res.end(raw);
+  } catch {
+    // SPA fallback: serve index.html for client-side routes.
+    try {
+      const index = await fs.readFile(path.join(staticDir, "index.html"));
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(index);
+    } catch {
+      respondJson(res, 404, { error: "Dashboard not built. Run `npm run build` in dashboard/." });
+    }
+  }
+}
+
+function contentType(ext: string): string {
+  switch (ext) {
+    case ".html": return "text/html";
+    case ".js": return "application/javascript";
+    case ".css": return "text/css";
+    case ".json": return "application/json";
+    case ".svg": return "image/svg+xml";
+    case ".png": return "image/png";
+    case ".ico": return "image/x-icon";
+    default: return "text/plain";
+  }
 }
 
 async function handleEvents(cwd: string, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {

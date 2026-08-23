@@ -12,7 +12,9 @@
     "typecheck": "tsc -b --pretty false",
     "test": "npm run build && node --test tests/**/*.test.mjs",
     "harness:pi-executor": "node packages/executors/pi/dist/harness.js",
-    "harness:pi-runtime": "node packages/executors/pi/dist/runtime-harness.js"
+    "harness:pi-runtime": "node packages/executors/pi/dist/runtime-harness.js",
+    "dashboard:build": "npm --workspace @factory/dashboard run build",
+    "dashboard:serve": "npm run dashboard:build && node -e \"import('./packages/adapters/web/dist/index.js').then(async m => { const s = await m.createDashboardServer({ cwd: process.cwd(), staticDir: './dashboard/dist', port: 4199 }); console.log('Factory dashboard: http://127.0.0.1:' + s.port); })\""
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.74.2",

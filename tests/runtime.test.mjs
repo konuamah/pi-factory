@@ -697,6 +697,27 @@ test('custom workflow with nested stages and command nodes runs in dependency or
   });
 });
 
+test('contract verification runs and emits results after command verification', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const logs = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'), { limit: 80 });
+    assert.ok(logs.events.some((line) => /verification.contract_completed/.test(line)));
+    assert.ok(logs.events.some((line) => /verification.completed/.test(line)));
+  });
+});
+
 test('workflow node roles select the correct executor and context role', async () => {
   await withTempProject(async (root) => {
     await fs.writeFile(

@@ -38,6 +38,8 @@ import {
   type TaskTypeSelection,
 } from "../models/index.js";
 import { appendModelLedgerEntry } from "../runs/model-ledger.js";
+import { gatherVerificationRequirements, initializeVerificationProviders, runVerificationEngine } from "../verification/index.js";
+import type { ReviewProviderOptions } from "../verification/providers/review.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { classifyVerificationFailure } from "./failure-classification.js";
 import { planVerificationExecution, runVerificationCommands } from "./verification.js";
@@ -700,6 +702,42 @@ export async function runFactoryController(
     phase: "verification",
     status: verification.overallStatus === "failed" ? "FAILED" : "RUNNING",
     message: `Verification ${verification.overallStatus} in ${verification.cwd}`,
+  });
+
+  // Contract-based verification: gather requirements from all sources and run the engine.
+  const contractPlan = gatherVerificationRequirements({
+    goal: input.goal,
+    taskType: runTaskType.id,
+    config: loaded.effectiveConfig,
+    skills: undefined,
+    constitutionAreas: undefined,
+    workflowId: loaded.effectiveConfig.resolvedWorkflowId,
+    commands: loaded.effectiveConfig.commands,
+  });
+  initializeVerificationProviders({
+    executor: input.reviewerExecutor,
+    model: loaded.effectiveConfig.models.reviewer,
+    goal: input.goal,
+  } satisfies ReviewProviderOptions);
+  const contractResult = await runVerificationEngine({
+    cwd: executionCwd,
+    plan: contractPlan,
+  });
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "verification.contract_completed",
+    data: {
+      overallStatus: contractResult.overallStatus,
+      canComplete: contractResult.canComplete,
+      requirementCount: contractPlan.requirements.length,
+      results: contractResult.results.map((result) => ({
+        requirementId: result.requirementId,
+        status: result.status,
+        blocking: result.blocking,
+        reason: result.reason,
+      })),
+      createdFrom: contractPlan.createdFrom,
+    },
   });
 
   if (verification.overallStatus === "failed" && input.repairExecutor && loaded.effectiveConfig.repair.enabled) {

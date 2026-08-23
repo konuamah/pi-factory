@@ -7,6 +7,8 @@ import type {
 } from "./types.js";
 import { getVerificationProvider } from "./registry.js";
 import { commandProvider, artifactProvider } from "./providers/command-artifact.js";
+import { constitutionProvider } from "./providers/constitution.js";
+import { createReviewProvider, type ReviewProviderOptions } from "./providers/review.js";
 
 export interface VerificationEngineOptions {
   cwd: string;
@@ -27,9 +29,11 @@ export function registerProviderType(provider: VerificationProvider): void {
   PROVIDERS.set(provider.type, provider);
 }
 
-export function initializeVerificationProviders(): void {
+export function initializeVerificationProviders(reviewOptions?: ReviewProviderOptions): void {
   registerProviderType(commandProvider);
   registerProviderType(artifactProvider);
+  registerProviderType(constitutionProvider);
+  registerProviderType(createReviewProvider(reviewOptions ?? {}));
 }
 
 export async function runVerificationEngine(options: VerificationEngineOptions): Promise<VerificationEngineResult> {

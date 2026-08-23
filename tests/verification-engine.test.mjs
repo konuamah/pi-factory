@@ -122,6 +122,106 @@ test('computeOverallStatus handles FAIL and BLOCKED', () => {
   );
 });
 
+test('constitution provider checks area status against CONSTITUTION.md', async () => {
+  await withTempDir(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'CONSTITUTION.md'),
+      '## 51. Data migration safety\n- Status: DEFINED\n- Finding: Migrations must be expand/contract.\n',
+      'utf8',
+    );
+    const plan = gatherVerificationRequirements({ goal: 'x', config: {} });
+    plan.requirements.push({
+      id: 'constitution-51',
+      type: 'CONSTITUTION',
+      blocking: true,
+      description: 'Area 51 defined',
+      source: 'CONSTITUTION',
+      scope: 'RUN',
+      areaIds: [51],
+      requiredStatus: ['DEFINED'],
+    });
+    const result = await runVerificationEngine({ cwd: root, plan });
+    assert.equal(result.overallStatus, 'PASS');
+    assert.equal(result.canComplete, true);
+  });
+});
+
+test('constitution provider fails when area missing', async () => {
+  await withTempDir(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'CONSTITUTION.md'),
+      '## 1. Repository layout\n- Status: DEFINED\n',
+      'utf8',
+    );
+    const plan = gatherVerificationRequirements({ goal: 'x', config: {} });
+    plan.requirements.push({
+      id: 'constitution-99',
+      type: 'CONSTITUTION',
+      blocking: true,
+      description: 'Area 99 defined',
+      source: 'CONSTITUTION',
+      scope: 'RUN',
+      areaIds: [99],
+      requiredStatus: ['DEFINED'],
+    });
+    const result = await runVerificationEngine({ cwd: root, plan });
+    assert.equal(result.overallStatus, 'FAIL');
+  });
+});
+
+test('review provider returns INCONCLUSIVE without an executor', async () => {
+  await withTempDir(async (root) => {
+    const plan = gatherVerificationRequirements({ goal: 'x', config: {} });
+    plan.requirements.push({
+      id: 'review-1',
+      type: 'REVIEW',
+      blocking: true,
+      description: 'Security review',
+      source: 'TASK_TYPE',
+      scope: 'NODE',
+      focus: ['security'],
+      blockingSeverities: ['CRITICAL', 'HIGH'],
+    });
+    const result = await runVerificationEngine({ cwd: root, plan });
+    assert.equal(result.overallStatus, 'INCONCLUSIVE');
+    assert.equal(result.canComplete, false);
+  });
+});
+
+test('review provider passes with a clean reviewer executor', async () => {
+  await withTempDir(async (root) => {
+    const cleanExecutor = {
+      async execute() {
+        return { executionId: 'r', status: 'completed', outputText: 'CLEAN', events: [] };
+      },
+      async cancel() {},
+    };
+    initializeVerificationProviders({ executor: cleanExecutor, goal: 'test' });
+    const plan = gatherVerificationRequirements({ goal: 'x', config: {} });
+    plan.requirements.push({
+      id: 'review-2',
+      type: 'REVIEW',
+      blocking: true,
+      description: 'Security review',
+      source: 'TASK_TYPE',
+      scope: 'NODE',
+      focus: ['security'],
+      blockingSeverities: ['CRITICAL', 'HIGH'],
+    });
+    const result = await runVerificationEngine({ cwd: root, plan });
+    assert.equal(result.overallStatus, 'PASS');
+    assert.equal(result.canComplete, true);
+  });
+});
+
+test('parseFindings extracts severity and claim', async () => {
+  const { parseFindings } = await import('../packages/core/dist/index.js');
+  const findings = parseFindings('FINDING HIGH: Old clients will fail\nFINDING INFO: Minor note\nCLEAN');
+  assert.equal(findings.length, 2);
+  assert.equal(findings[0].severity, 'HIGH');
+  assert.match(findings[0].claim, /Old clients/);
+});
+
 test('custom provider can be registered', async () => {
   initializeVerificationProviders();
   registerVerificationProvider({

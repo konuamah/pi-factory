@@ -32,7 +32,7 @@ export function buildPlanArtifact(input: {
   config: EffectiveFactoryConfig;
   planText?: string;
 }): PlannerArtifact {
-  const workflowStages = normalizeWorkflowStages(input.config.workflow?.stages ?? []);
+  const workflowStages = normalizeWorkflowStages(input.config.resolvedWorkflow?.stages ?? input.config.workflow?.stages ?? []);
 
   const tasks = workflowStages.map((stage, index) => ({
     id: `task-${index + 1}`,

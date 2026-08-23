@@ -22,6 +22,8 @@ import {
   runFactoryDoctor,
   runPrototypeFactoryFlow,
   showFactoryRun,
+  readWorkflowRegistry,
+  writeWorkflowRegistry,
   detectPiModelConfiguration,
   appendFactoryRunEvent,
   updateFactoryRunState,
@@ -36,7 +38,7 @@ import type { FactoryPiAutocompleteItem, FactoryPiCommandContext } from "./types
 
 const execFileAsync = promisify(execFile);
 const FACTORY_WIDGET_ID = "factory-status";
-const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "plan", "resume", "cancel", "worktree", "cleanup", "constitution"];
+const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "plan", "resume", "cancel", "worktree", "workflow", "cleanup", "constitution"];
 
 export async function getFactoryCommandCompletions(
   prefix: string,
@@ -96,6 +98,7 @@ export async function handleFactoryCommand(
         "/factory resume  mark the latest interrupted run resumed",
         "/factory cancel  mark the latest run cancelled",
         "/factory worktree <branch> create or detect isolated workspace",
+        "/factory workflow list|create|show|edit|clone|delete|set-default manage reusable workflows",
         "/factory cleanup [retain-count] prune old runs/worktrees/branches",
         "/factory constitution scan repository constitution via facts + AI interpretation",
         "/factory <goal>  run a minimal end-to-end prototype flow",
@@ -136,6 +139,9 @@ export async function handleFactoryCommand(
         return;
       case "worktree":
         await handleWorktree(rest[0], ctx);
+        return;
+      case "workflow":
+        await handleWorkflow(rest, ctx);
         return;
       case "cleanup":
         await handleCleanup(rest[0], ctx);
@@ -310,7 +316,9 @@ async function handleStatus(ctx: FactoryPiCommandContext, runId?: string): Promi
     `effective max parallel agents: ${loaded.effectiveConfig.runtime.maxParallelAgents}`,
     `effective repair attempts: ${loaded.effectiveConfig.repair.maxAttempts}`,
     `effective approval: ${loaded.effectiveConfig.approval.finalMerge}`,
-    `workflow stages: ${loaded.effectiveConfig.workflow?.stages.map((stage) => stage.name).join(", ") ?? "none"}`,
+    `workflow: ${loaded.effectiveConfig.resolvedWorkflow?.name ?? "none"}`,
+    `workflow id: ${loaded.effectiveConfig.resolvedWorkflowId ?? "none"}`,
+    `workflow stages: ${loaded.effectiveConfig.resolvedWorkflow?.stages.map((stage) => stage.name).join(", ") ?? "none"}`,
     "",
     "Latest run",
     `run dir: ${latestRun.runDir ?? "none"}`,
@@ -756,6 +764,171 @@ async function handleWorktree(branchName: string | undefined, ctx: FactoryPiComm
   ctx.ui.notify(result.mode === "created" ? "Factory worktree created" : "Factory worktree inspected", "info");
 }
 
+async function handleWorkflow(rest: string[], ctx: FactoryPiCommandContext): Promise<void> {
+  const action = rest[0] ?? "list";
+  const arg = rest[1];
+
+  renderIntro(ctx, [
+    "Factory workflow manager.",
+    "I’ll read the project’s saved workflows and run the requested workflow action.",
+  ]);
+
+  const registry = await readWorkflowRegistry(ctx.cwd);
+
+  if (action === "list") {
+    renderLines(ctx, [
+      "Factory workflows",
+      `default: ${registry.defaultWorkflowId ?? "none"}`,
+      "",
+      ...registry.workflows.map((workflow) => {
+        const marker = workflow.id === registry.defaultWorkflowId ? "*" : " ";
+        return `${marker} ${workflow.id}: ${workflow.name} (${workflow.stages.map((stage) => stage.name).join(" → ")})`;
+      }),
+    ]);
+    ctx.ui.notify(`Factory has ${registry.workflows.length} workflow(s)`, "info");
+    return;
+  }
+
+  if (action === "set-default") {
+    if (!arg) {
+      ctx.ui.notify("Provide a workflow id to set as default", "warning");
+      return;
+    }
+    const target = registry.workflows.find((workflow) => workflow.id === arg);
+    if (!target) {
+      ctx.ui.notify(`No workflow with id '${arg}'`, "error");
+      return;
+    }
+    registry.defaultWorkflowId = target.id;
+    await writeWorkflowRegistry(ctx.cwd, registry);
+    renderLines(ctx, ["Factory workflow", `default: ${target.id}: ${target.name}`]);
+    ctx.ui.notify(`Default workflow set to ${target.name}`, "info");
+    return;
+  }
+
+  if (action === "show") {
+    if (!arg) {
+      ctx.ui.notify("Provide a workflow id to show", "warning");
+      return;
+    }
+    const target = registry.workflows.find((workflow) => workflow.id === arg);
+    if (!target) {
+      ctx.ui.notify(`No workflow with id '${arg}'`, "error");
+      return;
+    }
+    renderLines(ctx, [
+      `Factory workflow: ${target.id}`,
+      `name: ${target.name}`,
+      target.description ? `description: ${target.description}` : "description: none",
+      `stages: ${target.stages.length}`,
+      "",
+      ...target.stages.map((stage) => {
+        const depends = stage.dependsOn?.length ? ` (after: ${stage.dependsOn.join(", ")})` : "";
+        return `- ${stage.name} [${stage.type ?? "agent"}]${depends}`;
+      }),
+    ]);
+    return;
+  }
+
+  if (action === "clone") {
+    if (!arg) {
+      ctx.ui.notify("Provide a workflow id to clone", "warning");
+      return;
+    }
+    const source = registry.workflows.find((workflow) => workflow.id === arg);
+    if (!source) {
+      ctx.ui.notify(`No workflow with id '${arg}'`, "error");
+      return;
+    }
+    const newId = `${source.id}-copy-${Date.now().toString().slice(-4)}`;
+    registry.workflows.push({
+      ...source,
+      id: newId,
+      name: `${source.name} (copy)`,
+      stages: source.stages.map((stage) => ({ ...stage })),
+    });
+    await writeWorkflowRegistry(ctx.cwd, registry);
+    renderLines(ctx, ["Factory workflow cloned", `new id: ${newId}`]);
+    ctx.ui.notify(`Cloned ${source.name} as ${newId}`, "info");
+    return;
+  }
+
+  if (action === "delete") {
+    if (!arg) {
+      ctx.ui.notify("Provide a workflow id to delete", "warning");
+      return;
+    }
+    const target = registry.workflows.find((workflow) => workflow.id === arg);
+    if (!target) {
+      ctx.ui.notify(`No workflow with id '${arg}'`, "error");
+      return;
+    }
+    if (registry.defaultWorkflowId === target.id) {
+      ctx.ui.notify("Cannot delete the default workflow", "error");
+      return;
+    }
+    registry.workflows = registry.workflows.filter((workflow) => workflow.id !== arg);
+    await writeWorkflowRegistry(ctx.cwd, registry);
+    renderLines(ctx, ["Factory workflow deleted", `id: ${arg}`]);
+    ctx.ui.notify(`Deleted workflow ${arg}`, "info");
+    return;
+  }
+
+  if (action === "create") {
+    await handleWorkflowCreate(ctx, registry);
+    return;
+  }
+
+  ctx.ui.notify("Unknown workflow action. Use list|create|show|edit|clone|delete|set-default", "warning");
+}
+
+async function handleWorkflowCreate(ctx: FactoryPiCommandContext, registry: Awaited<ReturnType<typeof readWorkflowRegistry>>): Promise<void> {
+  if (!ctx.ui.input) {
+    renderLines(ctx, ["Factory workflow create", "Interactive input is not available in this shell."]);
+    ctx.ui.notify("Interactive input unavailable", "warning");
+    return;
+  }
+
+  const name = await ctx.ui.input("Factory workflow name", "Workflow name (e.g. High Risk Change)");
+  if (!name?.trim()) {
+    ctx.ui.notify("Workflow creation cancelled", "info");
+    return;
+  }
+
+  const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "workflow";
+  const description = (await ctx.ui.input("Factory workflow description", "Optional short description")) ?? undefined;
+
+  const stageNames: string[] = [];
+  let nextName: string | undefined;
+  do {
+    nextName = await ctx.ui.input("Add workflow node", "Node name, or blank to finish");
+    if (nextName?.trim()) {
+      stageNames.push(nextName.trim().toLowerCase().replace(/\s+/g, "-"));
+    }
+  } while (nextName?.trim());
+
+  if (stageNames.length === 0) {
+    ctx.ui.notify("Workflow needs at least one node", "error");
+    return;
+  }
+
+  const stages = stageNames.map((stageName, index) => ({
+    name: stageName,
+    dependsOn: index > 0 ? [stageNames[index - 1]!] : [],
+    type: index === stageNames.length - 1 ? ("approval" as const) : ("agent" as const),
+  }));
+
+  registry.workflows.push({
+    id,
+    name: name.trim(),
+    description: description?.trim() || undefined,
+    stages,
+  });
+  await writeWorkflowRegistry(ctx.cwd, registry);
+  renderLines(ctx, ["Factory workflow created", `id: ${id}`, `name: ${name.trim()}`, `nodes: ${stages.length}`]);
+  ctx.ui.notify(`Workflow ${name.trim()} created`, "info");
+}
+
 async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext): Promise<void> {
   const parsed = parseGoalRequest(rawGoal);
   const trimmedGoal = parsed.goal.trim();
@@ -864,6 +1037,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
   const result = await runPrototypeFactoryFlow({
     cwd: ctx.cwd,
     goal: trimmedGoal,
+    workflowId: parsed.workflowId,
     branchName: `factory-${trimmedGoal.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "run"}`,
     plannerExecutor: executorBundle?.plannerExecutor,
     builderExecutor: executorBundle?.builderExecutor,
@@ -1340,10 +1514,12 @@ function renderIntro(ctx: FactoryPiCommandContext, lines: string[]): void {
 function parseGoalRequest(raw: string): {
   goal: string;
   executorMode?: "fake" | "sdk" | "off";
+  workflowId?: string;
 } {
   const parts = raw.trim().split(/\s+/).filter(Boolean);
   const remaining: string[] = [];
   let executorMode: "fake" | "sdk" | "off" | undefined;
+  let workflowId: string | undefined;
 
   for (const part of parts) {
     if (part === "--executor=fake") {
@@ -1356,6 +1532,10 @@ function parseGoalRequest(raw: string): {
     }
     if (part === "--executor=off") {
       executorMode = "off";
+      continue;
+    }
+    if (part.startsWith("--workflow=")) {
+      workflowId = part.slice("--workflow=".length);
       continue;
     }
     remaining.push(part);
@@ -1371,6 +1551,7 @@ function parseGoalRequest(raw: string): {
   return {
     goal: remaining.join(" "),
     executorMode,
+    workflowId,
   };
 }
 

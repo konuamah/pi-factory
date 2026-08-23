@@ -16,8 +16,22 @@ export interface WorkflowStage {
   requiresApproval?: boolean;
 }
 
-export interface WorkflowConfig {
+export interface WorkflowDefinition {
+  id: string;
+  name: string;
+  description?: string;
   stages: WorkflowStage[];
+}
+
+export interface WorkflowRegistry {
+  defaultWorkflowId?: string;
+  workflows: WorkflowDefinition[];
+}
+
+export interface WorkflowConfig {
+  defaultWorkflowId?: string;
+  workflows?: WorkflowDefinition[];
+  stages?: WorkflowStage[];
 }
 
 export interface FactoryBuiltInDefaults {
@@ -98,6 +112,7 @@ export interface ProjectFactoryConfig {
 }
 
 export interface RunOverrides {
+  workflowId?: string;
   models?: Partial<Record<ModelRole, ModelSelection>>;
   runtime?: {
     maxParallelAgents?: number;
@@ -148,6 +163,8 @@ export interface EffectiveFactoryConfig {
     finalMerge: "required" | "not-required";
   };
   workflow?: WorkflowConfig;
+  resolvedWorkflow?: WorkflowDefinition;
+  resolvedWorkflowId?: string;
 }
 
 export interface FactoryProjectPaths {

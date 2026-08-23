@@ -5,7 +5,9 @@ import type {
   ProjectFactoryConfig,
   RunOverrides,
   WorkflowConfig,
+  WorkflowDefinition,
 } from "@factory/schemas";
+import { resolveWorkflowDefinition, normalizeWorkflowConfig } from "../workflows/registry.js";
 
 export function mergeConfigLayers(input: {
   builtIns: FactoryBuiltInDefaults;
@@ -15,6 +17,12 @@ export function mergeConfigLayers(input: {
   runOverrides?: RunOverrides;
 }): EffectiveFactoryConfig {
   const { builtIns, global, project, workflow, runOverrides } = input;
+
+  const mergedWorkflow = workflow ?? normalizeWorkflowConfig(undefined);
+  const resolvedWorkflow: WorkflowDefinition | undefined = resolveWorkflowDefinition(
+    { workflow: mergedWorkflow } as EffectiveFactoryConfig,
+    runOverrides?.workflowId,
+  );
 
   return {
     models: {
@@ -68,6 +76,8 @@ export function mergeConfigLayers(input: {
         project?.approval?.finalMerge ??
         builtIns.approval.finalMerge,
     },
-    workflow,
+    workflow: mergedWorkflow,
+    resolvedWorkflow,
+    resolvedWorkflowId: resolvedWorkflow?.id,
   };
 }

@@ -7,6 +7,7 @@ export interface FactoryRunState {
   runId: string;
   status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
   phase: string;
+  workflowId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -21,6 +22,7 @@ export interface CreateFactoryRunInput {
   runsDir: string;
   initialPhase?: string;
   effectiveConfig?: EffectiveFactoryConfig;
+  workflowId?: string;
 }
 
 export interface CreatedFactoryRun {
@@ -44,6 +46,7 @@ export async function createFactoryRun(input: CreateFactoryRunInput): Promise<Cr
     runId,
     status: "PENDING",
     phase: input.initialPhase ?? "setup",
+    workflowId: input.workflowId,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -63,6 +66,7 @@ export async function createFactoryRun(input: CreateFactoryRunInput): Promise<Cr
     data: {
       runId,
       phase: state.phase,
+      workflowId: state.workflowId,
     },
   });
 

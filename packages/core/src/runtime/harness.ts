@@ -15,6 +15,7 @@ export interface RuntimeHarnessResult {
 export async function runRuntimeHarness(input: {
   cwd: string;
   goal: string;
+  workflowId?: string;
   plannerExecutor: AgentExecutor;
   builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
@@ -26,6 +27,7 @@ export async function runRuntimeHarness(input: {
   const result = await runFactoryController({
     cwd: input.cwd,
     goal: input.goal,
+    workflowId: input.workflowId,
     plannerExecutor: input.plannerExecutor,
     builderExecutor: input.builderExecutor,
     repairExecutor: input.repairExecutor,

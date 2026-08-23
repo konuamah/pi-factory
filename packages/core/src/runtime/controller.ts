@@ -45,6 +45,7 @@ export interface RunFactoryControllerInput {
   cwd: string;
   goal: string;
   branchName?: string;
+  workflowId?: string;
   plannerExecutor?: AgentExecutor;
   builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
@@ -89,7 +90,10 @@ export interface RunFactoryControllerResult {
 export async function runFactoryController(
   input: RunFactoryControllerInput,
 ): Promise<RunFactoryControllerResult> {
-  const loaded = await loadEffectiveConfig({ cwd: input.cwd });
+  const loaded = await loadEffectiveConfig({
+    cwd: input.cwd,
+    runOverrides: input.workflowId ? { workflowId: input.workflowId } : undefined,
+  });
   const root = path.dirname(loaded.sources.projectConfigPath ?? path.join(input.cwd, ".factory", "config.yaml"));
   const projectRoot = path.dirname(root);
   const isolation = await inspectGitIsolation(input.cwd);
@@ -112,6 +116,7 @@ export async function runFactoryController(
     runsDir: path.join(projectRoot, ".factory", "runs"),
     initialPhase: "planning",
     effectiveConfig: loaded.effectiveConfig,
+    workflowId: loaded.effectiveConfig.resolvedWorkflowId ?? input.workflowId,
   });
 
   const phases = ["planning", "plan-approval", "implementation", "integration", "verification", "review", "approval-ready", "merge", "complete"];

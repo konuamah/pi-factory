@@ -104,6 +104,26 @@ test('proposed setup uses the detected package manager for commands', async () =
   });
 });
 
+test('plan recommends capabilities and task types from repo shape', async () => {
+  await withRepo({
+    'package.json': JSON.stringify({ name: 'app', type: 'module', scripts: { test: 'node --test', build: 'node build.js' } }, null, 2),
+    'package-lock.json': '',
+    'prisma/schema.prisma': 'model User { id Int @id }\n',
+    'prisma/migrations/001_init/migration.sql': 'CREATE TABLE users;\n',
+  }, async (root) => {
+    const plan = await planFactorySetup({ cwd: root, answers: { 'workflow-preset': 'balanced' } });
+    const capabilities = plan.recommendations.find((r) => r.id === 'capability:suggestions');
+    assert.ok(capabilities);
+    assert.ok(Array.isArray(capabilities.proposedValue));
+    const taskTypes = plan.recommendations.find((r) => r.id === 'task-type:suggestions');
+    assert.ok(taskTypes);
+    const config = plan.proposed.files.find((f) => f.path.includes('.factory') && f.path.endsWith(`config.yaml`));
+    assert.ok(config);
+    assert.match(config.content, /taskTypes:/);
+    assert.match(config.content, /database-migration/);
+  });
+});
+
 test('planFactorySetup preserves user-owned config in RECONCILE mode', async () => {
   await withRepo({ 'package.json': JSON.stringify({ name: 'app', type: 'module', scripts: { test: 'vitest run' } }, null, 2) }, async (root) => {
     // Simulate existing setup with a custom test command (user-owned).

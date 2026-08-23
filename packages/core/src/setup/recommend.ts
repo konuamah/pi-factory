@@ -78,6 +78,34 @@ export function recommendFromProfile(profile: RepositoryProfile): SetupRecommend
     });
   }
 
+  // Capabilities — MEDIUM/INFERRED: which capabilities this repo's shape needs.
+  const capabilities = inferCapabilities(profile);
+  if (capabilities.length > 0) {
+    recommendations.push({
+      id: "capability:suggestions",
+      category: "CAPABILITY",
+      proposedValue: capabilities,
+      confidence: "MEDIUM",
+      reason: `Repository shape needs these capabilities.`,
+      origin: "INFERRED",
+      requiresDecision: false,
+    });
+  }
+
+  // Task-type routing suggestions — MEDIUM/INFERRED.
+  const taskTypes = inferTaskTypes(profile);
+  if (taskTypes.length > 0) {
+    recommendations.push({
+      id: "task-type:suggestions",
+      category: "RUNTIME",
+      proposedValue: taskTypes,
+      confidence: "MEDIUM",
+      reason: `Repository shape suggests these task types for model routing.`,
+      origin: "INFERRED",
+      requiresDecision: false,
+    });
+  }
+
   // Constitution refresh — MEDIUM, INFERRED.
   recommendations.push({
     id: "constitution:refresh",
@@ -135,4 +163,32 @@ function inferSkillHints(profile: RepositoryProfile): string[] {
     hints.push(`${profile.testing.frameworks[0]}-testing`);
   }
   return hints;
+}
+
+function inferCapabilities(profile: RepositoryProfile): string[] {
+  const capabilities = new Set<string>(["repo.read", "repo.write", "shell.execute"]);
+  if (profile.persistence.technologies.length > 0 || profile.persistence.migrations) {
+    capabilities.add("db.inspect");
+  }
+  if (profile.ci.providers.length > 0) {
+    capabilities.add("ci.read");
+  }
+  if (profile.deployment.detected) {
+    capabilities.add("deploy.staging");
+  }
+  return [...capabilities].sort();
+}
+
+function inferTaskTypes(profile: RepositoryProfile): string[] {
+  const taskTypes: string[] = [];
+  if (profile.persistence.migrations || profile.persistence.technologies.includes("sql")) {
+    taskTypes.push("database-migration");
+  }
+  if (profile.testing.integration || profile.testing.e2e) {
+    taskTypes.push("integration-change");
+  }
+  if (profile.structure.monorepo) {
+    taskTypes.push("monorepo-change");
+  }
+  return taskTypes;
 }

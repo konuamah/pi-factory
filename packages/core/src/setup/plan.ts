@@ -133,6 +133,7 @@ async function buildProposedSetup(
     pm,
     existing,
     pi,
+    recommendedTaskTypes: (String(findValue("task-type:suggestions") ?? "").length ? findValue("task-type:suggestions") as string[] : undefined),
   });
   const configPath = path.join(root, ".factory", "config.yaml");
   files.push({
@@ -172,6 +173,7 @@ function buildProjectConfig(input: {
   pm: string;
   existing?: ExistingConfigShape;
   pi?: Awaited<ReturnType<typeof detectPiModelConfiguration>>;
+  recommendedTaskTypes?: string[];
 }): string {
   const modelBlock = renderModelBlock(input.pi);
   const maxParallelAgents = input.existing?.runtime?.maxParallelAgents ?? 4;
@@ -180,6 +182,8 @@ function buildProjectConfig(input: {
   const finalMerge = input.existing?.approval?.finalMerge ?? "required";
   const baseBranch = input.existing?.project?.baseBranch ?? "main";
   const setupCommand = input.existing?.commands?.setup ?? `${input.pm} install`;
+
+  const taskTypeBlock = renderTaskTypes(input.recommendedTaskTypes);
 
   return [
     "project:",
@@ -192,6 +196,7 @@ function buildProjectConfig(input: {
     `  test: ${input.testCommand}`,
     `  build: ${input.buildCommand}`,
     modelBlock,
+    taskTypeBlock,
     "runtime:",
     `  maxParallelAgents: ${maxParallelAgents}`,
     "",
@@ -221,6 +226,14 @@ function pick(...values: Array<string | unknown | undefined>): string {
     }
   }
   return "";
+}
+
+function renderTaskTypes(taskTypes: string[] | undefined): string {
+  if (!taskTypes?.length) {
+    return "";
+  }
+  const lines = taskTypes.map((id) => `  ${id}:\n    match:\n      keywords: [${id}]`).join("\n");
+  return `\ntaskTypes:\n${lines}\n\n`;
 }
 
 function renderModelBlock(pi?: Awaited<ReturnType<typeof detectPiModelConfiguration>>): string {

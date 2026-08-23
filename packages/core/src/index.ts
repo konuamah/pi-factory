@@ -3,6 +3,7 @@ export * from "./config/loader.js";
 export * from "./config/merge.js";
 export * from "./config/paths.js";
 export * from "./config/validate.js";
+export * from "./capabilities/index.js";
 export * from "./constitution/index.js";
 export * from "./context/index.js";
 export * from "./git/index.js";

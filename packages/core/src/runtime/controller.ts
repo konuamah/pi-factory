@@ -24,7 +24,13 @@ import {
 } from "./artifacts.js";
 import type { AgentExecutor } from "./interfaces.js";
 import { buildPlanArtifact, type PlannerTask } from "./planner.js";
-import type { ModelRole } from "@factory/schemas";
+import type { CapabilityPolicy, ModelRole } from "@factory/schemas";
+import {
+  capabilitiesToToolNames,
+  defaultCapabilitiesForRole,
+  resolveEffectiveCapabilities,
+  type AutonomyLevel,
+} from "../capabilities/index.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { classifyVerificationFailure } from "./failure-classification.js";
 import { planVerificationExecution, runVerificationCommands } from "./verification.js";
@@ -419,6 +425,9 @@ export async function runFactoryController(
       reviewer: reviewerSkills,
       repair: repairSkills,
     },
+    autonomy: loaded.effectiveConfig.defaults.autonomy as AutonomyLevel,
+    projectCapabilityPolicy: loaded.effectiveConfig.capabilities,
+    workflowCapabilityPolicy: loaded.effectiveConfig.resolvedWorkflow?.capabilityPolicy,
     onProgress: async (event) => emitProgress(input, event),
     delayMs,
     builderExecutionPaths,
@@ -1027,6 +1036,9 @@ async function runImplementationTasks(input: {
   roleExecutors: Partial<Record<ModelRole, AgentExecutor>>;
   roleModels: Partial<Record<ModelRole, { provider?: string; model: string }>>;
   roleSkills: Partial<Record<ModelRole, SkillBundleSelection>>;
+  autonomy?: AutonomyLevel;
+  projectCapabilityPolicy?: CapabilityPolicy;
+  workflowCapabilityPolicy?: CapabilityPolicy;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1098,6 +1110,9 @@ async function runImplementationTasks(input: {
           roleExecutors: input.roleExecutors,
           roleModels: input.roleModels,
           roleSkills: input.roleSkills,
+          autonomy: input.autonomy,
+          projectCapabilityPolicy: input.projectCapabilityPolicy,
+          workflowCapabilityPolicy: input.workflowCapabilityPolicy,
           onProgress: input.onProgress,
           delayMs: input.delayMs,
           builderExecutionPaths: input.builderExecutionPaths,
@@ -1134,6 +1149,9 @@ async function runImplementationTask(input: {
   roleExecutors: Partial<Record<ModelRole, AgentExecutor>>;
   roleModels: Partial<Record<ModelRole, { provider?: string; model: string }>>;
   roleSkills: Partial<Record<ModelRole, SkillBundleSelection>>;
+  autonomy?: AutonomyLevel;
+  projectCapabilityPolicy?: CapabilityPolicy;
+  workflowCapabilityPolicy?: CapabilityPolicy;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1240,6 +1258,13 @@ async function runImplementationTask(input: {
     const nodeRole = resolveNodeRole(input.task);
     const executor = input.roleExecutors[nodeRole];
     if (executor) {
+      const capabilities = resolveEffectiveCapabilities({
+        requested: input.task.requiredCapabilities?.length ? input.task.requiredCapabilities : defaultCapabilitiesForRole(nodeRole),
+        autonomy: (input.autonomy ?? "medium") as AutonomyLevel,
+        projectPolicy: input.projectCapabilityPolicy,
+        workflowPolicy: input.workflowCapabilityPolicy,
+        nodePolicy: input.task.capabilityPolicy,
+      });
       const compiled = await compileAgentContext({
         cwd: input.projectRoot,
         role: nodeRole,
@@ -1249,6 +1274,8 @@ async function runImplementationTask(input: {
         skills: input.roleSkills[nodeRole]?.selected,
         fileHints: input.task.context?.fileHints,
         maxChars: 6000,
+        grantedCapabilities: capabilities.granted,
+        deniedCapabilities: capabilities.denied,
       });
       await appendFactoryRunEvent(input.eventsPath, {
         timestamp: new Date().toISOString(),
@@ -1259,6 +1286,8 @@ async function runImplementationTask(input: {
           files: compiled.files.map((file) => file.path),
           dependencies: compiled.dependencies.map((dep) => dep.taskId),
           skills: compiled.skills.map((skill) => skill.id),
+          capabilities: capabilities.granted,
+          deniedCapabilities: capabilities.denied,
           tokenEstimate: compiled.tokenEstimate,
         },
       });
@@ -1267,7 +1296,7 @@ async function runImplementationTask(input: {
         cwd: workspace.path,
         prompt: buildCompiledPrompt(input.goal, compiled),
         model: input.roleModels[nodeRole],
-        tools: roleTools(nodeRole),
+        tools: [...roleTools(nodeRole), ...capabilitiesToToolNames(capabilities.granted)].filter((tool, index, arr) => arr.indexOf(tool) === index),
         metadata: {
           role: nodeRole,
           runId: input.runId,
@@ -1275,6 +1304,8 @@ async function runImplementationTask(input: {
           taskStage: input.task.stage,
           workspacePath: workspace.path,
           workspaceBranch: workspace.branch,
+          grantedCapabilities: capabilities.granted,
+          deniedCapabilities: capabilities.denied,
         },
       });
 

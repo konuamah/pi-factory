@@ -7,6 +7,23 @@ export interface ModelSelection {
 
 export type WorkflowNodeType = "agent" | "command" | "approval" | "task-graph";
 
+export type Capability =
+  | "repo.read"
+  | "repo.write"
+  | "shell.execute"
+  | "git.commit"
+  | "git.push"
+  | "ci.read"
+  | "ci.trigger"
+  | "pr.comment"
+  | "deploy.staging"
+  | "deploy.production";
+
+export interface CapabilityPolicy {
+  allow?: Capability[];
+  deny?: Capability[];
+}
+
 export interface WorkflowStage {
   name: string;
   dependsOn?: string[];
@@ -14,6 +31,15 @@ export interface WorkflowStage {
   role?: ModelRole;
   commands?: string[];
   requiresApproval?: boolean;
+  requiredCapabilities?: Capability[];
+}
+
+export interface WorkflowDefinition {
+  id: string;
+  name: string;
+  description?: string;
+  stages: WorkflowStage[];
+  capabilityPolicy?: CapabilityPolicy;
 }
 
 export interface WorkflowDefinition {
@@ -79,6 +105,7 @@ export interface ProjectFactoryConfig {
   project?: {
     baseBranch?: string;
   };
+  capabilities?: CapabilityPolicy;
   commands?: {
     cwd?: string;
     setup?: string;
@@ -161,6 +188,7 @@ export interface EffectiveFactoryConfig {
   approval: {
     finalMerge: "required" | "not-required";
   };
+  capabilities?: CapabilityPolicy;
   workflow?: WorkflowConfig;
   resolvedWorkflow?: WorkflowDefinition;
   resolvedWorkflowId?: string;

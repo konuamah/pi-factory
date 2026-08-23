@@ -1,4 +1,4 @@
-import type { EffectiveFactoryConfig, WorkflowNodeType, WorkflowStage } from "@factory/schemas";
+import type { Capability, CapabilityPolicy, EffectiveFactoryConfig, WorkflowNodeType, WorkflowStage } from "@factory/schemas";
 
 export interface PlannerTask {
   id: string;
@@ -16,6 +16,8 @@ export interface PlannerTask {
     requiredCapabilities?: string[];
     includeDependencyArtifacts?: boolean;
   };
+  requiredCapabilities?: Capability[];
+  capabilityPolicy?: CapabilityPolicy;
 }
 
 export interface PlannerArtifact {
@@ -29,6 +31,7 @@ export interface PlannerArtifact {
     role?: string;
     commands?: string[];
     requiresApproval?: boolean;
+    requiredCapabilities?: Capability[];
   }>;
   tasks: PlannerTask[];
 }
@@ -50,6 +53,7 @@ export function buildPlanArtifact(input: {
     role: stage.role,
     commands: stage.commands,
     requiresApproval: stage.requiresApproval,
+    requiredCapabilities: stage.requiredCapabilities,
   }));
 
   return {
@@ -78,6 +82,7 @@ function normalizeWorkflowStages(stages: WorkflowStage[]): PlannerArtifact["work
     role: stage.role,
     commands: stage.commands,
     requiresApproval: stage.requiresApproval,
+    requiredCapabilities: stage.requiredCapabilities,
   }));
 }
 

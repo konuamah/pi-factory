@@ -55,6 +55,7 @@ export function mergeConfigLayers(input: {
     commands: {
       ...project?.commands,
     },
+    capabilities: project?.capabilities,
     git: {
       baseBranch:
         project?.git?.baseBranch ?? project?.project?.baseBranch ?? "main",

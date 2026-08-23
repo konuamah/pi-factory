@@ -47,6 +47,8 @@ export interface CompiledContext {
   failures: FailureContext[];
   skills: SkillContext[];
   capabilities: string[];
+  grantedCapabilities: string[];
+  deniedCapabilities: string[];
   tokenEstimate: number;
 }
 
@@ -61,6 +63,8 @@ export interface ContextCompileRequest {
   constitutionAreas?: number[];
   fileHints?: string[];
   maxChars?: number;
+  grantedCapabilities?: string[];
+  deniedCapabilities?: string[];
 }
 
 export async function compileAgentContext(input: ContextCompileRequest): Promise<CompiledContext> {
@@ -109,6 +113,8 @@ export async function compileAgentContext(input: ContextCompileRequest): Promise
     failures: input.failures ?? [],
     skills,
     capabilities,
+    grantedCapabilities: input.grantedCapabilities ?? [],
+    deniedCapabilities: input.deniedCapabilities ?? [],
     tokenEstimate,
   };
 }
@@ -168,6 +174,13 @@ function renderInstructions(
 
   if (input.fileHints?.length) {
     instructions.push(`Likely files: ${input.fileHints.join(", ")}`);
+  }
+
+  if (input.grantedCapabilities?.length) {
+    instructions.push(`Available capabilities:\n${input.grantedCapabilities.map((capability) => `- ${capability}`).join("\n")}`);
+  }
+  if (input.deniedCapabilities?.length) {
+    instructions.push(`Unavailable capabilities (do not attempt):\n${input.deniedCapabilities.map((capability) => `- ${capability}`).join("\n")}`);
   }
 
   return instructions;

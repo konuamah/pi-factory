@@ -71,6 +71,26 @@ test('compileAgentContext builds a scoped builder context with dependencies and 
   });
 });
 
+test('compileAgentContext surfaces granted and denied capabilities in instructions', async () => {
+  await withTempProject(async (root) => {
+    const compiled = await compileAgentContext({
+      cwd: root,
+      role: 'builder',
+      goal: 'Add a migration',
+      grantedCapabilities: ['repo.read', 'repo.write', 'shell.execute'],
+      deniedCapabilities: ['deploy.production'],
+    });
+    const text = compiled.instructions.join('\n');
+    assert.match(text, /Available capabilities:/);
+    assert.match(text, /- repo\.read/);
+    assert.match(text, /- repo\.write/);
+    assert.match(text, /Unavailable capabilities \(do not attempt\):/);
+    assert.match(text, /- deploy\.production/);
+    assert.deepEqual(compiled.grantedCapabilities, ['repo.read', 'repo.write', 'shell.execute']);
+    assert.deepEqual(compiled.deniedCapabilities, ['deploy.production']);
+  });
+});
+
 test('compileAgentContext respects a tight budget', async () => {
   await withTempProject(async (root) => {
     const compiled = await compileAgentContext({

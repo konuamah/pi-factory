@@ -214,6 +214,12 @@ function parseSimpleWorkflowYaml(raw: string): WorkflowConfig {
       currentStage.requiresApproval = parseValue(trimmed.slice("requiresApproval:".length)) === true;
       continue;
     }
+
+    if (currentStage && indent === 8 && /^requiredCapabilities:/.test(trimmed)) {
+      const value = parseValue(trimmed.slice("requiredCapabilities:".length));
+      currentStage.requiredCapabilities = Array.isArray(value) ? value as WorkflowStage["requiredCapabilities"] : [];
+      continue;
+    }
   }
 
   return {

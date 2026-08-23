@@ -389,7 +389,7 @@ export async function runFactoryController(
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "implementation", "Executing task artifacts");
 
-  const implementationTasks = plan.tasks.filter((task) => isImplementationTaskStage(task.stage));
+  const implementationTasks = plan.tasks.filter((task) => isExecutableWorkflowNode(task));
   const implementationRun = await runImplementationTasks({
     runId: run.runId,
     runDir: run.runDir,
@@ -1705,15 +1705,31 @@ function resolveTaskDependencies(tasks: PlannerTask[]): Map<string, string[]> {
   return dependencies;
 }
 
-function isImplementationTaskStage(stage: string): boolean {
-  const normalized = stage.toLowerCase();
-  return normalized === "build"
-    || normalized === "implementation"
-    || normalized === "tests"
-    || normalized === "docs"
-    || normalized === "security-review"
-    || normalized === "architecture-review";
+function isExecutableWorkflowNode(task: PlannerTask): boolean {
+  const type = task.type;
+  if (type === "command" || type === "task-graph") {
+    return true;
+  }
+  if (type === "approval") {
+    return false;
+  }
+  // Agent/untyped nodes are executable unless they are reserved built-in phases
+  // (planning, verification, review, approval, merge) handled by dedicated runtime steps.
+  const normalized = task.stage.toLowerCase();
+  return !RESERVED_PHASE_STAGES.has(normalized);
 }
+
+const RESERVED_PHASE_STAGES = new Set([
+  "plan",
+  "planning",
+  "verify",
+  "verification",
+  "review",
+  "approval",
+  "approval-ready",
+  "merge",
+  "complete",
+]);
 
 function sanitizePlannerOutput(value: string | undefined): string | undefined {
   const trimmed = value?.trim();

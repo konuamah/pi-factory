@@ -135,11 +135,11 @@ async function pathExists(target: string): Promise<boolean> {
   }
 }
 
-function defaultConstitutionTemplate(): string {
+export function defaultConstitutionTemplate(): string {
   return `# CONSTITUTION\n\n## Purpose\nDescribe how this repository actually works.\n\n## Architecture\n- Add authoritative architecture notes here.\n\n## Commands\n- setup:\n- lint:\n- typecheck:\n- test:\n- build:\n\n## Conventions\n- Add coding and review conventions here.\n`;
 }
 
-function defaultWorkflowTemplate(preset: FactoryWorkflowPreset = "balanced"): string {
+export function defaultWorkflowTemplate(preset: FactoryWorkflowPreset = "balanced"): string {
   if (preset === "fast") {
     return `defaultWorkflowId: default-dev\nworkflows:\n  - id: default-dev\n    name: Fast Development\n    stages:\n      - name: plan\n      - name: build\n        dependsOn: [plan]\n      - name: approval\n        dependsOn: [build]\n      - name: merge\n        dependsOn: [approval]\n`;
   }
@@ -151,7 +151,7 @@ function defaultWorkflowTemplate(preset: FactoryWorkflowPreset = "balanced"): st
   return `defaultWorkflowId: default-dev\nworkflows:\n  - id: default-dev\n    name: Balanced Development\n    stages:\n      - name: plan\n      - name: build\n        dependsOn: [plan]\n      - name: verify\n        dependsOn: [build]\n      - name: approval\n        dependsOn: [verify]\n      - name: merge\n        dependsOn: [approval]\n`;
 }
 
-function defaultProjectConfigTemplate(modelAssignments?: Partial<Record<ModelRole, ModelSelection>>): string {
+export function defaultProjectConfigTemplate(modelAssignments?: Partial<Record<ModelRole, ModelSelection>>): string {
   const modelBlock = renderModelAssignments(modelAssignments);
   return `project:\n  baseBranch: main\n\ncommands:\n  setup: pnpm install\n  lint: pnpm lint\n  typecheck: pnpm typecheck\n  test: pnpm test\n  build: pnpm build\n${modelBlock}\nruntime:\n  maxParallelAgents: 4\n\nrepair:\n  enabled: true\n  maxAttempts: 3\n\napproval:\n  finalMerge: required\n`;
 }

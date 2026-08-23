@@ -1,4 +1,4 @@
-import type { EffectiveFactoryConfig, WorkflowStage } from "@factory/schemas";
+import type { EffectiveFactoryConfig, WorkflowNodeType, WorkflowStage } from "@factory/schemas";
 
 export interface PlannerTask {
   id: string;
@@ -6,6 +6,10 @@ export interface PlannerTask {
   stage: string;
   status: "pending" | "done";
   dependsOn: string[];
+  type?: WorkflowNodeType;
+  role?: string;
+  commands?: string[];
+  requiresApproval?: boolean;
 }
 
 export interface PlannerArtifact {
@@ -15,6 +19,10 @@ export interface PlannerArtifact {
   workflowStages: Array<{
     name: string;
     dependsOn: string[];
+    type?: WorkflowNodeType;
+    role?: string;
+    commands?: string[];
+    requiresApproval?: boolean;
   }>;
   tasks: PlannerTask[];
 }
@@ -32,6 +40,10 @@ export function buildPlanArtifact(input: {
     stage: stage.name,
     status: stage.name === "planning" || stage.name === "plan" ? "done" as const : "pending" as const,
     dependsOn: stage.dependsOn,
+    type: stage.type,
+    role: stage.role,
+    commands: stage.commands,
+    requiresApproval: stage.requiresApproval,
   }));
 
   return {
@@ -43,19 +55,23 @@ export function buildPlanArtifact(input: {
   };
 }
 
-function normalizeWorkflowStages(stages: WorkflowStage[]): Array<{ name: string; dependsOn: string[] }> {
+function normalizeWorkflowStages(stages: WorkflowStage[]): PlannerArtifact["workflowStages"] {
   if (stages.length === 0) {
     return [
-      { name: "planning", dependsOn: [] },
-      { name: "implementation", dependsOn: ["planning"] },
-      { name: "verification", dependsOn: ["implementation"] },
-      { name: "approval", dependsOn: ["verification"] },
+      { name: "planning", dependsOn: [], type: "agent", role: "planner" },
+      { name: "implementation", dependsOn: ["planning"], type: "agent", role: "builder" },
+      { name: "verification", dependsOn: ["implementation"], type: "command", commands: ["lint", "typecheck", "test", "build"] },
+      { name: "approval", dependsOn: ["verification"], type: "approval" },
     ];
   }
 
   return stages.map((stage) => ({
     name: stage.name,
     dependsOn: stage.dependsOn ?? [],
+    type: stage.type,
+    role: stage.role,
+    commands: stage.commands,
+    requiresApproval: stage.requiresApproval,
   }));
 }
 
@@ -83,7 +99,7 @@ function buildTaskTitle(stageName: string, goal: string): string {
 function buildSummary(
   goal: string,
   config: EffectiveFactoryConfig,
-  workflowStages: Array<{ name: string; dependsOn: string[] }>,
+  workflowStages: PlannerArtifact["workflowStages"],
 ): string {
   return [
     `Goal: ${goal}`,

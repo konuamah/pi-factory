@@ -640,6 +640,59 @@ test('logs and show surface plan feedback clearly', async () => {
   });
 });
 
+test('custom workflow with nested stages and command nodes runs in dependency order', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'stages:',
+        '  - name: plan',
+        '    type: agent',
+        '    role: planner',
+        '  - name: implementation',
+        '    type: agent',
+        '    role: builder',
+        '    dependsOn: [plan]',
+        '  - name: tests',
+        '    type: command',
+        '    commands: [node -e ""]',
+        '    dependsOn: [implementation]',
+        '  - name: docs',
+        '    type: agent',
+        '    role: builder',
+        '    dependsOn: [implementation]',
+        '  - name: final review',
+        '    type: approval',
+        '    dependsOn: [tests, docs]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add team invitations',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const plan = await readLatestFactoryRunPlan(path.join(root, '.factory', 'runs'));
+    const stages = plan.workflowStages ?? [];
+    const stageNames = stages.map((stage) => stage.name);
+    assert.deepEqual(stageNames, ['plan', 'implementation', 'tests', 'docs', 'final review']);
+
+    const events = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'), { limit: 80 });
+    assert.ok(events.events.some((line) => /task.command_started/.test(line)));
+    assert.ok(events.events.some((line) => /task.command_completed/.test(line)));
+    assert.ok(events.events.some((line) => /plan approved/.test(line)));
+  });
+});
+
 test('final approval still happens after plan approval and implementation', async () => {
   await withTempProject(async (root) => {
     const calls = [];

@@ -7,6 +7,10 @@ export interface PrototypeTaskArtifact {
   stage: string;
   status: "pending" | "done" | "running" | "failed";
   dependsOn: string[];
+  type?: string;
+  role?: string;
+  commands?: string[];
+  requiresApproval?: boolean;
   workspacePath?: string;
   workspaceMode?: "existing" | "created" | "in-place";
   workspaceBranch?: string;
@@ -19,6 +23,10 @@ export interface PrototypePlanArtifact {
   workflowStages: Array<{
     name: string;
     dependsOn: string[];
+    type?: string;
+    role?: string;
+    commands?: string[];
+    requiresApproval?: boolean;
   }>;
   tasks: Array<{
     id: string;
@@ -26,6 +34,10 @@ export interface PrototypePlanArtifact {
     stage: string;
     status: "pending" | "done";
     dependsOn: string[];
+    type?: string;
+    role?: string;
+    commands?: string[];
+    requiresApproval?: boolean;
   }>;
 }
 

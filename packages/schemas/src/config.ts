@@ -5,9 +5,15 @@ export interface ModelSelection {
   model: string;
 }
 
+export type WorkflowNodeType = "agent" | "command" | "approval" | "task-graph";
+
 export interface WorkflowStage {
   name: string;
   dependsOn?: string[];
+  type?: WorkflowNodeType;
+  role?: ModelRole;
+  commands?: string[];
+  requiresApproval?: boolean;
 }
 
 export interface WorkflowConfig {

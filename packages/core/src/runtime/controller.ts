@@ -271,6 +271,10 @@ export async function runFactoryController(
       stage: task.stage,
       status: task.status,
       dependsOn: task.dependsOn,
+      type: task.type,
+      role: task.role,
+      commands: task.commands,
+      requiresApproval: task.requiresApproval,
       workspacePath: task.id === "task-1" ? executionCwd : undefined,
       workspaceMode: task.id === "task-1" ? worktree.mode : undefined,
       workspaceBranch: task.id === "task-1" ? worktree.branch : undefined,
@@ -1153,7 +1157,65 @@ async function runImplementationTask(input: {
     message: `Running task ${input.task.id}: ${input.task.title}`,
   });
 
-  if (input.builderExecutor) {
+  if (input.task.type === "command" && input.task.commands?.length) {
+    for (const command of input.task.commands) {
+      await appendFactoryRunEvent(input.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "task.command_started",
+        data: {
+          taskId: input.task.id,
+          command,
+          workspacePath: workspace.path,
+        },
+      });
+      try {
+        const { stdout, stderr } = await execFileAsync(command, { cwd: workspace.path, shell: true, windowsHide: true });
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.command_completed",
+          data: {
+            taskId: input.task.id,
+            command,
+            status: "passed",
+            stdout,
+            stderr,
+          },
+        });
+      } catch (error) {
+        const execError = error as Error & { code?: number; stdout?: string; stderr?: string };
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.command_failed",
+          data: {
+            taskId: input.task.id,
+            command,
+            status: "failed",
+            exitCode: execError.code,
+            stdout: execError.stdout,
+            stderr: execError.stderr,
+          },
+        });
+        await updatePrototypeTaskArtifact({
+          runDir: input.runDir,
+          taskId: input.task.id,
+          patch: { status: "failed" },
+        });
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.failed",
+          data: {
+            taskId: input.task.id,
+            stage: input.task.stage,
+            title: input.task.title,
+            command,
+            workspacePath: workspace.path,
+            workspaceBranch: workspace.branch,
+          },
+        });
+        return { ok: false, task: input.task, workspace };
+      }
+    }
+  } else if (input.builderExecutor) {
     const builderResult = await input.builderExecutor.execute({
       executionId: `${input.runId}-builder-${input.task.id}`,
       cwd: workspace.path,
@@ -1640,7 +1702,12 @@ function resolveTaskDependencies(tasks: PlannerTask[]): Map<string, string[]> {
 
 function isImplementationTaskStage(stage: string): boolean {
   const normalized = stage.toLowerCase();
-  return normalized === "build" || normalized === "implementation";
+  return normalized === "build"
+    || normalized === "implementation"
+    || normalized === "tests"
+    || normalized === "docs"
+    || normalized === "security-review"
+    || normalized === "architecture-review";
 }
 
 function sanitizePlannerOutput(value: string | undefined): string | undefined {

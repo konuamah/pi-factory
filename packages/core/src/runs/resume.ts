@@ -20,6 +20,7 @@ export interface ResumeFactoryRunResult {
     executionCwd?: string;
     candidateSha?: string;
     finalMergePath?: string;
+    policyReason?: string;
     checks: Array<{
       name: string;
       ok: boolean;
@@ -93,6 +94,7 @@ export async function resumeLatestFactoryRun(runsDir: string): Promise<ResumeFac
         previousPhase: currentPhase,
         suggestedPhase: recovery.suggestedPhase,
         nextStatus: recovery.nextStatus,
+        policyReason: recovery.policyReason,
         checks: recovery.checks,
       },
     });
@@ -128,6 +130,7 @@ export async function resumeLatestFactoryRun(runsDir: string): Promise<ResumeFac
         previousPhase: currentPhase,
         suggestedPhase: recovery.suggestedPhase,
         nextStatus: recovery.nextStatus,
+        policyReason: recovery.policyReason,
         checks: recovery.checks,
       },
     });
@@ -168,6 +171,7 @@ async function inspectRecoveryState(
   const integration = await readJson<Record<string, unknown>>(path.join(runDir, "integration.json"));
   const finalMergePath = path.join(runDir, "final-merge.json");
   const finalMerge = await readJson<Record<string, unknown>>(finalMergePath);
+  const verification = await readJson<Record<string, unknown>>(path.join(runDir, "verification.json"));
   const taskArtifacts = await readTaskArtifacts(path.join(runDir, "tasks"));
   const executionCwd = typeof integration?.executionCwd === "string" ? integration.executionCwd : undefined;
   const candidateSha = typeof summary?.candidateSha === "string" ? summary.candidateSha : undefined;
@@ -212,7 +216,7 @@ async function inspectRecoveryState(
     }
   }
 
-  const resumePolicy = suggestResumePolicy(currentPhase, finalMerge);
+  const resumePolicy = suggestResumePolicy(currentPhase, finalMerge, verification);
 
   return {
     resumable: resumePolicy.resumable,
@@ -221,6 +225,7 @@ async function inspectRecoveryState(
     executionCwd,
     candidateSha,
     finalMergePath: await exists(finalMergePath) ? finalMergePath : undefined,
+    policyReason: resumePolicy.reason,
     checks,
   };
 }
@@ -228,32 +233,39 @@ async function inspectRecoveryState(
 function suggestResumePolicy(
   currentPhase: string,
   finalMerge: Record<string, unknown> | undefined,
-): { resumable: boolean; suggestedPhase: string; nextStatus: "PENDING" | "RUNNING" } {
+  verification: Record<string, unknown> | undefined,
+): { resumable: boolean; suggestedPhase: string; nextStatus: "PENDING" | "RUNNING"; reason: string } {
   if (currentPhase === "plan-approval") {
-    return { resumable: true, suggestedPhase: "plan-approval", nextStatus: "PENDING" };
+    return { resumable: true, suggestedPhase: "plan-approval", nextStatus: "PENDING", reason: "Plan approval was interrupted." };
   }
   if (currentPhase === "plan-revision-requested") {
-    return { resumable: true, suggestedPhase: "plan-revision-requested", nextStatus: "PENDING" };
+    return { resumable: true, suggestedPhase: "plan-revision-requested", nextStatus: "PENDING", reason: "Plan revisions are still required before implementation." };
   }
   if (currentPhase === "plan-approval-rejected") {
-    return { resumable: false, suggestedPhase: "plan-approval-rejected", nextStatus: "PENDING" };
+    return { resumable: false, suggestedPhase: "plan-approval-rejected", nextStatus: "PENDING", reason: "Rejected plans are not resumable." };
   }
   if (currentPhase.includes("approval")) {
-    return { resumable: true, suggestedPhase: "approval-ready", nextStatus: "RUNNING" };
+    return { resumable: true, suggestedPhase: "approval-ready", nextStatus: "RUNNING", reason: "Resume near final approval." };
   }
   if (currentPhase.includes("merge")) {
-    return { resumable: true, suggestedPhase: finalMerge ? "merge" : "approval-ready", nextStatus: "RUNNING" };
+    return { resumable: true, suggestedPhase: finalMerge ? "merge" : "approval-ready", nextStatus: "RUNNING", reason: finalMerge ? "Resume merge from saved merge artifact." : "Merge artifact missing; resume from approval-ready." };
   }
   if (currentPhase.includes("review")) {
-    return { resumable: true, suggestedPhase: "review", nextStatus: "RUNNING" };
+    return { resumable: true, suggestedPhase: "review", nextStatus: "RUNNING", reason: "Resume review stage." };
   }
   if (currentPhase.includes("verification") || currentPhase.includes("repair")) {
-    return { resumable: true, suggestedPhase: "verification", nextStatus: "RUNNING" };
+    const failureKind = typeof verification?.failureClassification === "object" && verification?.failureClassification && typeof (verification.failureClassification as { kind?: unknown }).kind === "string"
+      ? String((verification.failureClassification as { kind?: unknown }).kind)
+      : undefined;
+    if (failureKind === "harness/config" || failureKind === "repo script/config") {
+      return { resumable: true, suggestedPhase: "verification-planning", nextStatus: "RUNNING", reason: `Resume by re-planning verification because the last failure was classified as ${failureKind}.` };
+    }
+    return { resumable: true, suggestedPhase: "verification", nextStatus: "RUNNING", reason: failureKind === "real code failure" ? "Resume verification/repair for a real code failure." : "Resume verification stage." };
   }
   if (currentPhase.includes("integration")) {
-    return { resumable: true, suggestedPhase: "integration", nextStatus: "RUNNING" };
+    return { resumable: true, suggestedPhase: "integration", nextStatus: "RUNNING", reason: "Resume integration stage." };
   }
-  return { resumable: true, suggestedPhase: "implementation", nextStatus: "RUNNING" };
+  return { resumable: true, suggestedPhase: "implementation", nextStatus: "RUNNING", reason: "Resume implementation stage." };
 }
 
 async function readTaskArtifacts(tasksDir: string): Promise<Record<string, unknown>[]> {

@@ -61,6 +61,7 @@ export interface ProjectFactoryConfig {
     baseBranch?: string;
   };
   commands?: {
+    cwd?: string;
     setup?: string;
     lint?: string;
     typecheck?: string;
@@ -116,6 +117,7 @@ export interface EffectiveFactoryConfig {
     baseBranch: string;
   };
   commands: {
+    cwd?: string;
     setup?: string;
     lint?: string;
     typecheck?: string;

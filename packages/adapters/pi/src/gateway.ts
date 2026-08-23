@@ -383,6 +383,7 @@ async function handleLogs(ctx: FactoryPiCommandContext, runId?: string): Promise
     `plan feedback: ${logs.planFeedback ?? "none"}`,
     `implementation started: ${typeof logs.implementationStarted === "boolean" ? (logs.implementationStarted ? "yes" : "no") : "unknown"}`,
     ...buildGuidanceDiagnosticLines(logs.guidance),
+    ...buildVerificationDiagnosticLines(logs.verificationContext, undefined),
     ...buildIntegrationFailureLines(logs.integrationFailure),
     "",
     "Recent events",
@@ -507,6 +508,7 @@ async function handleShow(runId: string | undefined, ctx: FactoryPiCommandContex
     `reviewer execution: ${reviewerStatus}`,
     `verification commands: ${verificationCommands}`,
     ...buildGuidanceDiagnosticLines(result.guidance),
+    ...buildVerificationDiagnosticLines(result.verificationContext, result.verification),
     ...buildIntegrationFailureLines(result.integrationFailure),
   ]);
 
@@ -589,6 +591,7 @@ async function handleResume(ctx: FactoryPiCommandContext): Promise<void> {
     `execution cwd: ${result.recovery?.executionCwd ?? "none"}`,
     `candidate sha: ${result.recovery?.candidateSha ?? "none"}`,
     `final merge artifact: ${result.recovery?.finalMergePath ?? "none"}`,
+    `resume policy: ${result.recovery?.policyReason ?? "none"}`,
     ...(result.recovery?.checks.map((check) => `  ${check.ok ? "OK" : "WARN"} ${check.name}: ${check.detail}`) ?? []),
   ]);
 
@@ -803,12 +806,9 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     phase: "constitution-refresh",
     role: "constitution-interpreter",
     status: "starting",
-    lines: ["Press d to skip constitution scan, or Enter to continue."],
-    footer: "Press d to skip constitution scan, or Enter to continue. Use arrow keys to scroll.",
+    lines: ["Starting constitution refresh..."],
+    footer: "Live Factory stream. Use arrow keys to scroll.",
   });
-
-  const skipConstitution = await waitForConstitutionSkip(panel);
-  panel.setKeyHandler(undefined);
 
   let constitutionSummary: {
     mode: string;
@@ -817,39 +817,28 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     refresh: { mode: string; changedFiles: string[] };
   };
 
-  if (skipConstitution) {
-    panel.setStatus("skipped");
-    panel.append("Constitution scan skipped by user.");
-    constitutionSummary = {
-      mode: "skipped",
-      finalized: false,
-      refreshStrategy: "skipped",
-      refresh: { mode: "skipped", changedFiles: [] },
-    };
-  } else {
-    panel.setPhase("constitution-refresh");
-    panel.setStatus("running");
-    panel.append("Scanning repository facts...");
+  panel.setPhase("constitution-refresh");
+  panel.setStatus("running");
+  panel.append("Scanning repository facts...");
 
-    const constitutionExecutor = await createRequiredConstitutionExecutor((executionId, event) => {
-      panel.setRole(executionId.includes("planner") ? "planner" : "constitution-interpreter");
-      panel.setStatus("streaming");
-      if (event.text) {
-        panel.append(event.text);
-      }
-    });
+  const constitutionExecutor = await createRequiredConstitutionExecutor((executionId, event) => {
+    panel.setRole(executionId.includes("planner") ? "planner" : "constitution-interpreter");
+    panel.setStatus("streaming");
+    if (event.text) {
+      panel.append(event.text);
+    }
+  });
 
-    const constitutionResult = await runConstitutionScan({
-      cwd: ctx.cwd,
-      constitutionExecutor,
-    });
+  const constitutionResult = await runConstitutionScan({
+    cwd: ctx.cwd,
+    constitutionExecutor,
+  });
 
-    panel.setStatus("completed");
-    panel.append("Constitution refresh completed.");
-    panel.append(`Constitution strategy: ${constitutionResult.refreshStrategy}`);
-    panel.append(`Changed files: ${constitutionResult.refresh.changedFiles.length}`);
-    constitutionSummary = constitutionResult;
-  }
+  panel.setStatus("completed");
+  panel.append("Constitution refresh completed.");
+  panel.append(`Constitution strategy: ${constitutionResult.refreshStrategy}`);
+  panel.append(`Changed files: ${constitutionResult.refresh.changedFiles.length}`);
+  constitutionSummary = constitutionResult;
   panel.setPhase("planning");
   panel.setRole(effectiveExecutorMode && effectiveExecutorMode !== "off" ? "planner" : undefined);
   panel.setStatus("starting");
@@ -1238,6 +1227,10 @@ function buildGuidanceDiagnosticLines(guidance:
       builderInstructionFiles: string[];
       repairInstructionFiles: string[];
       reviewerInstructionFiles: string[];
+      plannerInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
+      builderInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
+      repairInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
+      reviewerInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
       plannerHasConstitution: boolean;
       builderHasConstitution: boolean;
       repairHasConstitution: boolean;
@@ -1259,6 +1252,7 @@ function buildGuidanceDiagnosticLines(guidance:
 
   return [
     `planner guidance files: ${guidance.plannerInstructionFiles.join(", ") || "none"}`,
+    ...((guidance.plannerInstructionDetails ?? []).slice(0, 3).map((detail) => `  planner reason: ${detail.path} (score ${detail.score}) - ${detail.reason}`)),
     `builder guidance files: ${guidance.builderInstructionFiles.join(", ") || "none"}`,
     `repair guidance files: ${guidance.repairInstructionFiles.join(", ") || "none"}`,
     `reviewer guidance files: ${guidance.reviewerInstructionFiles.join(", ") || "none"}`,
@@ -1270,6 +1264,48 @@ function buildGuidanceDiagnosticLines(guidance:
     `builder guidance chars: ${guidance.builderGuidanceChars}`,
     `repair guidance chars: ${guidance.repairGuidanceChars}`,
     `reviewer guidance chars: ${guidance.reviewerGuidanceChars}`,
+  ];
+}
+
+function buildVerificationDiagnosticLines(
+  verificationContext:
+    | {
+        cwd?: string;
+        cwdResolution?: string;
+        selectionSource?: string;
+        rationale?: string;
+        failureKind?: string;
+        failureReason?: string;
+      }
+    | undefined,
+  verification: Record<string, unknown> | undefined,
+): string[] {
+  if (!verificationContext && !verification) {
+    return [];
+  }
+
+  const commands = Array.isArray(verification?.commands)
+    ? verification.commands.filter((item): item is { name?: unknown; status?: unknown } => Boolean(item) && typeof item === "object")
+    : [];
+  const commandLines = commands.slice(0, 5).map((item) => `  command ${String(item.name ?? "?")}: ${String(item.status ?? "unknown")}`);
+  const verificationEvidence = verification?.evidence && typeof verification.evidence === "object"
+    ? verification.evidence as { commandDecisions?: unknown }
+    : undefined;
+  const decisionLines = Array.isArray(verificationEvidence?.commandDecisions)
+    ? (verificationEvidence.commandDecisions as Array<{ name?: unknown; selected?: unknown; reason?: unknown }>)
+        .slice(0, 5)
+        .map((item) => `  selection ${String(item.name ?? "?")}: ${Boolean(item.selected) ? "run" : "skip"} - ${String(item.reason ?? "unknown")}`)
+    : [];
+
+  return [
+    `verification cwd: ${verificationContext?.cwd ?? String(verification?.cwd ?? "none")}`,
+    `verification cwd reason: ${verificationContext?.cwdResolution ?? String(verification?.cwdResolution ?? "none")}`,
+    `verification selection source: ${verificationContext?.selectionSource ?? String(verification?.selectionSource ?? "none")}`,
+    `verification rationale: ${verificationContext?.rationale ?? String(verification?.rationale ?? "none")}`,
+    `verification failure class: ${verificationContext?.failureKind ?? String((verification?.failureClassification as { kind?: unknown } | undefined)?.kind ?? "none")}`,
+    `verification failure reason: ${verificationContext?.failureReason ?? String((verification?.failureClassification as { reason?: unknown } | undefined)?.reason ?? "none")}`,
+    ...decisionLines,
+    ...commandLines,
   ];
 }
 
@@ -1299,35 +1335,6 @@ function renderLines(ctx: FactoryPiCommandContext, lines: string[]): void {
 
 function renderIntro(ctx: FactoryPiCommandContext, lines: string[]): void {
   renderLines(ctx, ["Factory", "", ...lines]);
-}
-
-async function waitForConstitutionSkip(panel: { setKeyHandler(handler: ((data: string) => boolean | void) | undefined): void; append(text: string): void; setStatus(value: string): void; }): Promise<boolean> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (value: boolean) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      panel.setKeyHandler(undefined);
-      resolve(value);
-    };
-
-    panel.setKeyHandler((data) => {
-      if (data.toLowerCase?.() === "d") {
-        panel.setStatus("skipped");
-        panel.append("Skip requested: constitution scan will be skipped.");
-        finish(true);
-        return true;
-      }
-      if (data === "\r" || data === "\n") {
-        panel.append("Continuing with constitution scan.");
-        finish(false);
-        return true;
-      }
-      return false;
-    });
-  });
 }
 
 function parseGoalRequest(raw: string): {

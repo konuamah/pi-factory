@@ -5,6 +5,7 @@ import { loadEffectiveConfig } from "../config/loader.js";
 import { selectConstitutionContext } from "../constitution/context.js";
 import { createGitWorktree, createSiblingGitWorktree, inspectGitIsolation } from "../git/worktree.js";
 import { appendFactoryRunEvent, createFactoryRun, updateFactoryRunState } from "../runs/store.js";
+import { appendRepoLearning } from "../learnings/store.js";
 import {
   writePrototypeBuilderExecutionArtifact,
   writePrototypeFinalMergeArtifact,
@@ -20,7 +21,8 @@ import {
 import type { AgentExecutor } from "./interfaces.js";
 import { buildPlanArtifact, type PlannerTask } from "./planner.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
-import { runVerificationCommands } from "./verification.js";
+import { classifyVerificationFailure } from "./failure-classification.js";
+import { planVerificationExecution, runVerificationCommands } from "./verification.js";
 
 export interface FactoryRunProgressEvent {
   runId: string;
@@ -44,6 +46,7 @@ export interface RunFactoryControllerInput {
   builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
+  verificationPlannerExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string; candidateSha?: string }) => Promise<boolean>;
@@ -155,6 +158,10 @@ export async function runFactoryController(
       builderInstructionFiles: builderGuidance.instructionFiles,
       repairInstructionFiles: repairGuidance.instructionFiles,
       reviewerInstructionFiles: reviewerGuidance.instructionFiles,
+      plannerInstructionDetails: plannerGuidance.instructionDetails,
+      builderInstructionDetails: builderGuidance.instructionDetails,
+      repairInstructionDetails: repairGuidance.instructionDetails,
+      reviewerInstructionDetails: reviewerGuidance.instructionDetails,
       plannerHasConstitution: plannerGuidance.hasConstitution,
       builderHasConstitution: builderGuidance.hasConstitution,
       repairHasConstitution: repairGuidance.hasConstitution,
@@ -469,22 +476,88 @@ export async function runFactoryController(
 
   await wait(delayMs);
 
-  await movePhase(run.statePath, run.eventsPath, run.runId, input, "verification", "Running configured verification commands");
-  let verification = await runVerificationCommands({
+  await movePhase(run.statePath, run.eventsPath, run.runId, input, "verification", "Planning verification strategy");
+  const verificationPlan = await planVerificationExecution({
     cwd: executionCwd,
+    goal: input.goal,
     commands: loaded.effectiveConfig.commands,
+    constitutionContext: repairGuidance.text,
+    executor: input.verificationPlannerExecutor ?? input.plannerExecutor,
+    model: loaded.effectiveConfig.models.planner,
+    runId: run.runId,
   });
-  let verificationPath = await writePrototypeVerificationArtifact(run.runDir, verification);
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "verification.plan_selected",
+    data: {
+      verificationCwd: verificationPlan.cwd,
+      verificationCwdResolution: verificationPlan.cwdResolution,
+      commandNames: Object.keys(verificationPlan.commands),
+      selectionSource: verificationPlan.selectionSource,
+      rationale: verificationPlan.rationale,
+      evidence: verificationPlan.evidence,
+    },
+  });
+  await appendRepoLearning({
+    projectRoot,
+    category: "verification-plan",
+    summary: `Verification uses ${verificationPlan.cwdResolution} at ${verificationPlan.cwd}`,
+    data: {
+      cwd: verificationPlan.cwd,
+      cwdResolution: verificationPlan.cwdResolution,
+      commandNames: Object.keys(verificationPlan.commands),
+      selectionSource: verificationPlan.selectionSource,
+    },
+  });
+  await emitProgress(input, {
+    runId: run.runId,
+    phase: "verification",
+    status: "RUNNING",
+    message: `Verification plan: ${Object.keys(verificationPlan.commands).join(", ") || "none"} in ${verificationPlan.cwd}`,
+  });
+  let verification = await runVerificationCommands({
+    cwd: verificationPlan.cwd,
+    commands: verificationPlan.commands,
+  });
+  verification.cwdResolution = verificationPlan.cwdResolution;
+  const verificationFailureClassification = classifyVerificationFailure({ plan: verificationPlan, result: verification });
+  let verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
+    ...verification,
+    selectionSource: verificationPlan.selectionSource,
+    rationale: verificationPlan.rationale,
+    evidence: verificationPlan.evidence,
+    failureClassification: verificationFailureClassification,
+  });
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "verification.commands_detected",
-    data: loaded.effectiveConfig.commands,
+    data: {
+      ...verificationPlan.commands,
+      verificationCwd: verificationPlan.cwd,
+      verificationCwdResolution: verificationPlan.cwdResolution,
+      verificationSelectionSource: verificationPlan.selectionSource,
+      verificationRationale: verificationPlan.rationale,
+      verificationEvidence: verificationPlan.evidence,
+      verificationFailureKind: verificationFailureClassification?.kind,
+      verificationFailureReason: verificationFailureClassification?.reason,
+    },
   });
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "verification.completed",
-    data: { overallStatus: verification.overallStatus },
+    data: {
+      overallStatus: verification.overallStatus,
+      failureClassification: verificationFailureClassification as unknown as Record<string, unknown> | undefined,
+    },
   });
+  if (verificationFailureClassification) {
+    await appendRepoLearning({
+      projectRoot,
+      category: "verification-failure",
+      summary: verificationFailureClassification.reason,
+      data: verificationFailureClassification as unknown as Record<string, unknown>,
+    });
+  }
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "verification.artifact_written",
@@ -494,7 +567,7 @@ export async function runFactoryController(
     runId: run.runId,
     phase: "verification",
     status: verification.overallStatus === "failed" ? "FAILED" : "RUNNING",
-    message: `Verification ${verification.overallStatus}`,
+    message: `Verification ${verification.overallStatus} in ${verification.cwd}`,
   });
 
   if (verification.overallStatus === "failed" && input.repairExecutor && loaded.effectiveConfig.repair.enabled) {
@@ -507,7 +580,7 @@ export async function runFactoryController(
       });
       const repairResult = await input.repairExecutor.execute({
         executionId: `${run.runId}-repair-${attempt}`,
-        cwd: executionCwd,
+        cwd: verification.cwd,
         prompt: buildRepairPrompt(input.goal, verification, repairGuidance.text),
         model: loaded.effectiveConfig.models.repair,
         tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
@@ -533,10 +606,18 @@ export async function runFactoryController(
       });
 
       verification = await runVerificationCommands({
-        cwd: executionCwd,
-        commands: loaded.effectiveConfig.commands,
+        cwd: verificationPlan.cwd,
+        commands: verificationPlan.commands,
       });
-      verificationPath = await writePrototypeVerificationArtifact(run.runDir, verification);
+      verification.cwdResolution = verificationPlan.cwdResolution;
+      const recheckFailureClassification = classifyVerificationFailure({ plan: verificationPlan, result: verification });
+      verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
+        ...verification,
+        selectionSource: verificationPlan.selectionSource,
+        rationale: verificationPlan.rationale,
+        evidence: verificationPlan.evidence,
+        failureClassification: recheckFailureClassification,
+      });
       await appendFactoryRunEvent(run.eventsPath, {
         timestamp: new Date().toISOString(),
         type: "verification.recheck_completed",
@@ -1576,17 +1657,18 @@ function buildIntegrationRepairPrompt(
 
 function buildRepairPrompt(
   goal: string,
-  verification: { overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string; stderr?: string }> },
+  verification: { cwd: string; overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string; stdout?: string; stderr?: string }> },
   constitutionContext?: string,
 ): string {
   const failures = verification.commands
     .filter((command) => command.status === "failed")
-    .map((command) => `${command.name}: ${command.stderr ?? "failed"}`)
+    .map((command) => `${command.name}: ${firstNonEmpty(command.stderr, command.stdout, "failed")}`)
     .join("\n");
 
   return [
     `Goal: ${goal}`,
     `Verification status: ${verification.overallStatus}`,
+    `Verification cwd: ${verification.cwd}`,
     failures ? `Failures:\n${failures}` : "Failures: none recorded",
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Repair the code so verification can pass.",
@@ -1611,6 +1693,15 @@ function buildReviewerPrompt(
     "Review the candidate and report whether it looks ready for approval.",
     "Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly.",
   ].filter(Boolean).join("\n");
+}
+
+function firstNonEmpty(...values: Array<string | undefined>): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return "";
 }
 
 function slugifyGoal(goal: string): string {

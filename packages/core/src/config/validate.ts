@@ -21,5 +21,9 @@ export function validateEffectiveConfig(config: EffectiveFactoryConfig): Effecti
     throw new Error("git.cleanup.retainRuns must be >= 0");
   }
 
+  if (typeof config.commands.cwd === "string" && !config.commands.cwd.trim()) {
+    throw new Error("commands.cwd must not be empty when provided");
+  }
+
   return config;
 }

@@ -19,6 +19,10 @@ export interface FactoryRunLogsByIdResult {
     builderInstructionFiles: string[];
     repairInstructionFiles: string[];
     reviewerInstructionFiles: string[];
+    plannerInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
+    builderInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
+    repairInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
+    reviewerInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
     plannerHasConstitution: boolean;
     builderHasConstitution: boolean;
     repairHasConstitution: boolean;
@@ -36,6 +40,15 @@ export interface FactoryRunLogsByIdResult {
     reason?: string;
     conflictingFiles: string[];
     mergeInProgress: boolean;
+  };
+  verificationContext?: {
+    cwd?: string;
+    cwdResolution?: string;
+    selectionSource?: string;
+    rationale?: string;
+    failureKind?: string;
+    failureReason?: string;
+    evidence?: Record<string, unknown>;
   };
 }
 
@@ -62,6 +75,7 @@ export async function readFactoryRunLogs(
   const planSummary = summarizePlanEvents(parsedEvents);
   const guidance = summarizeGuidanceEvents(parsedEvents);
   const integrationFailure = summarizeIntegrationFailureEvents(parsedEvents);
+  const verificationContext = summarizeVerificationEvents(parsedEvents);
 
   return {
     runDir,
@@ -78,6 +92,7 @@ export async function readFactoryRunLogs(
     implementationStarted: planSummary.implementationStarted,
     guidance,
     integrationFailure,
+    verificationContext,
   };
 }
 
@@ -170,6 +185,10 @@ function summarizeGuidanceEvents(events: Array<{ type?: string; data?: Record<st
       builderInstructionFiles: stringArray(event.data?.builderInstructionFiles),
       repairInstructionFiles: stringArray(event.data?.repairInstructionFiles),
       reviewerInstructionFiles: stringArray(event.data?.reviewerInstructionFiles),
+      plannerInstructionDetails: detailArray(event.data?.plannerInstructionDetails),
+      builderInstructionDetails: detailArray(event.data?.builderInstructionDetails),
+      repairInstructionDetails: detailArray(event.data?.repairInstructionDetails),
+      reviewerInstructionDetails: detailArray(event.data?.reviewerInstructionDetails),
       plannerHasConstitution: Boolean(event.data?.plannerHasConstitution),
       builderHasConstitution: Boolean(event.data?.builderHasConstitution),
       repairHasConstitution: Boolean(event.data?.repairHasConstitution),
@@ -201,6 +220,24 @@ function summarizeIntegrationFailureEvents(events: Array<{ type?: string; data?:
   return undefined;
 }
 
+function summarizeVerificationEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): FactoryRunLogsByIdResult["verificationContext"] {
+  for (const event of events) {
+    if (event.type !== "verification.commands_detected") {
+      continue;
+    }
+    return {
+      cwd: typeof event.data?.verificationCwd === "string" ? event.data.verificationCwd : undefined,
+      cwdResolution: typeof event.data?.verificationCwdResolution === "string" ? event.data.verificationCwdResolution : undefined,
+      selectionSource: typeof event.data?.verificationSelectionSource === "string" ? event.data.verificationSelectionSource : undefined,
+      rationale: typeof event.data?.verificationRationale === "string" ? event.data.verificationRationale : undefined,
+      failureKind: typeof event.data?.verificationFailureKind === "string" ? event.data.verificationFailureKind : undefined,
+      failureReason: typeof event.data?.verificationFailureReason === "string" ? event.data.verificationFailureReason : undefined,
+      evidence: recordValue(event.data?.verificationEvidence),
+    };
+  }
+  return undefined;
+}
+
 function formatEventLine(event: { timestamp?: string; type?: string; data?: Record<string, unknown> }): string {
   const timestamp = event.timestamp ?? "unknown-time";
   const type = event.type ?? "unknown-event";
@@ -214,7 +251,7 @@ function formatEventLine(event: { timestamp?: string; type?: string; data?: Reco
     return `${timestamp} plan revision requested${typeof event.data?.feedback === "string" ? ` | feedback: ${event.data.feedback}` : ""}`;
   }
   if (type === "run.resumed" || type === "run.resume_requested") {
-    return `${timestamp} ${type}${typeof event.data?.suggestedPhase === "string" ? ` | suggested phase: ${event.data.suggestedPhase}` : ""}${typeof event.data?.nextStatus === "string" ? ` | next status: ${event.data.nextStatus}` : ""}`;
+    return `${timestamp} ${type}${typeof event.data?.suggestedPhase === "string" ? ` | suggested phase: ${event.data.suggestedPhase}` : ""}${typeof event.data?.nextStatus === "string" ? ` | next status: ${event.data.nextStatus}` : ""}${typeof event.data?.policyReason === "string" ? ` | policy: ${event.data.policyReason}` : ""}`;
   }
   if (type === "guidance.context_selected") {
     const planner = stringArray(event.data?.plannerInstructionFiles);
@@ -236,6 +273,9 @@ function formatEventLine(event: { timestamp?: string; type?: string; data?: Reco
     const files = stringArray(event.data?.conflictingFiles);
     return `${timestamp} integration repair failed | branch: ${typeof event.data?.branch === "string" ? event.data.branch : "unknown"}${files.length > 0 ? ` | conflicts: ${files.join(", ")}` : ""}`;
   }
+  if (type === "verification.commands_detected") {
+    return `${timestamp} verification commands detected | cwd: ${typeof event.data?.verificationCwd === "string" ? event.data.verificationCwd : "unknown"} | resolution: ${typeof event.data?.verificationCwdResolution === "string" ? event.data.verificationCwdResolution : "unknown"} | source: ${typeof event.data?.verificationSelectionSource === "string" ? event.data.verificationSelectionSource : "unknown"}${typeof event.data?.verificationFailureKind === "string" ? ` | failure: ${event.data.verificationFailureKind}` : ""}`;
+  }
   return `${timestamp} ${type}${event.data ? ` | ${JSON.stringify(event.data)}` : ""}`;
 }
 
@@ -245,6 +285,23 @@ function numberValue(value: unknown): number {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function detailArray(value: unknown): Array<{ path: string; score: number; reason: string }> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is { path?: unknown; score?: unknown; reason?: unknown } => Boolean(item) && typeof item === "object")
+    .map((item) => ({
+      path: typeof item.path === "string" ? item.path : "unknown",
+      score: numberValue(item.score),
+      reason: typeof item.reason === "string" ? item.reason : "unknown",
+    }));
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
 }
 
 async function exists(target: string): Promise<boolean> {

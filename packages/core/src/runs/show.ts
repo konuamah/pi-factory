@@ -18,6 +18,10 @@ export interface FactoryRunShowResult {
     builderInstructionFiles: string[];
     repairInstructionFiles: string[];
     reviewerInstructionFiles: string[];
+    plannerInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
+    builderInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
+    repairInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
+    reviewerInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
     plannerHasConstitution: boolean;
     builderHasConstitution: boolean;
     repairHasConstitution: boolean;
@@ -35,6 +39,15 @@ export interface FactoryRunShowResult {
     reason?: string;
     conflictingFiles: string[];
     mergeInProgress: boolean;
+  };
+  verificationContext?: {
+    cwd?: string;
+    cwdResolution?: string;
+    selectionSource?: string;
+    rationale?: string;
+    failureKind?: string;
+    failureReason?: string;
+    evidence?: Record<string, unknown>;
   };
 }
 
@@ -57,6 +70,7 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
   const planSummary = summarizePlanEvents(events);
   const guidance = summarizeGuidanceEvents(events);
   const integrationFailure = summarizeIntegrationFailureEvents(events);
+  const verificationContext = summarizeVerificationEvents(events);
 
   return {
     runDir,
@@ -72,6 +86,7 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     implementationStarted: planSummary.implementationStarted,
     guidance,
     integrationFailure,
+    verificationContext,
   };
 }
 
@@ -139,6 +154,10 @@ function summarizeGuidanceEvents(events: Array<{ type?: string; data?: Record<st
       builderInstructionFiles: stringArray(event.data?.builderInstructionFiles),
       repairInstructionFiles: stringArray(event.data?.repairInstructionFiles),
       reviewerInstructionFiles: stringArray(event.data?.reviewerInstructionFiles),
+      plannerInstructionDetails: detailArray(event.data?.plannerInstructionDetails),
+      builderInstructionDetails: detailArray(event.data?.builderInstructionDetails),
+      repairInstructionDetails: detailArray(event.data?.repairInstructionDetails),
+      reviewerInstructionDetails: detailArray(event.data?.reviewerInstructionDetails),
       plannerHasConstitution: Boolean(event.data?.plannerHasConstitution),
       builderHasConstitution: Boolean(event.data?.builderHasConstitution),
       repairHasConstitution: Boolean(event.data?.repairHasConstitution),
@@ -170,12 +189,47 @@ function summarizeIntegrationFailureEvents(events: Array<{ type?: string; data?:
   return undefined;
 }
 
+function summarizeVerificationEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): FactoryRunShowResult["verificationContext"] {
+  for (const event of events) {
+    if (event.type !== "verification.commands_detected") {
+      continue;
+    }
+    return {
+      cwd: typeof event.data?.verificationCwd === "string" ? event.data.verificationCwd : undefined,
+      cwdResolution: typeof event.data?.verificationCwdResolution === "string" ? event.data.verificationCwdResolution : undefined,
+      selectionSource: typeof event.data?.verificationSelectionSource === "string" ? event.data.verificationSelectionSource : undefined,
+      rationale: typeof event.data?.verificationRationale === "string" ? event.data.verificationRationale : undefined,
+      failureKind: typeof event.data?.verificationFailureKind === "string" ? event.data.verificationFailureKind : undefined,
+      failureReason: typeof event.data?.verificationFailureReason === "string" ? event.data.verificationFailureReason : undefined,
+      evidence: recordValue(event.data?.verificationEvidence),
+    };
+  }
+  return undefined;
+}
+
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function detailArray(value: unknown): Array<{ path: string; score: number; reason: string }> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is { path?: unknown; score?: unknown; reason?: unknown } => Boolean(item) && typeof item === "object")
+    .map((item) => ({
+      path: typeof item.path === "string" ? item.path : "unknown",
+      score: numberValue(item.score),
+      reason: typeof item.reason === "string" ? item.reason : "unknown",
+    }));
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
 }
 
 async function readRepairExecutions(runDir: string): Promise<Record<string, unknown>[]> {

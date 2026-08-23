@@ -30,6 +30,8 @@ export interface PrototypePlanArtifact {
 }
 
 export interface PrototypeVerificationArtifact {
+  cwd: string;
+  cwdResolution: "configured" | "root-package" | "inferred-single-package" | "default-root";
   commands: Array<{
     name: string;
     command: string;
@@ -39,6 +41,40 @@ export interface PrototypeVerificationArtifact {
     stderr?: string;
   }>;
   overallStatus: "passed" | "failed" | "incomplete";
+  selectionSource?: "configured" | "ai" | "deterministic";
+  rationale?: string;
+  evidence?: {
+    rootCwd: string;
+    configuredCwd?: string;
+    rootScripts: string[];
+    candidateCwds: Array<{
+      path: string;
+      relativePath: string;
+      reason: string;
+      packageName?: string;
+      scripts: string[];
+    }>;
+    selectedCandidate?: {
+      path: string;
+      relativePath: string;
+      reason: string;
+      packageName?: string;
+      scripts: string[];
+    };
+    commandDecisions?: Array<{
+      name: string;
+      configured: boolean;
+      selected: boolean;
+      command?: string;
+      reason: string;
+    }>;
+  };
+  failureClassification?: {
+    kind: "harness/config" | "repo script/config" | "real code failure" | "unknown";
+    reason: string;
+    retryable: boolean;
+    suggestedPhase: string;
+  };
 }
 
 export interface PrototypePlannerExecutionArtifact {

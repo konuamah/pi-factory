@@ -4,6 +4,11 @@ import path from "node:path";
 export interface ProjectGuidanceContext {
   text?: string;
   instructionFiles: string[];
+  instructionDetails: Array<{
+    path: string;
+    score: number;
+    reason: string;
+  }>;
   hasConstitution: boolean;
   usedConstitution: boolean;
   approxChars: number;
@@ -15,7 +20,8 @@ export async function selectConstitutionContext(input: {
   goal: string;
 }): Promise<ProjectGuidanceContext> {
   const policy = guidancePolicyForRole(input.role);
-  const instructionFiles = await readProjectInstructionFiles(input.cwd, input.goal, policy.maxInstructionFiles, policy.maxInstructionFileChars);
+  const selectedInstructions = await readProjectInstructionFiles(input.cwd, input.goal, policy.maxInstructionFiles, policy.maxInstructionFileChars);
+  const instructionFiles = selectedInstructions.map((item) => item.path);
   const totalInstructionChars = instructionFiles.reduce((sum, file) => sum + (readCache.get(file)?.length ?? 0), 0);
 
   const constitutionPath = path.join(input.cwd, "CONSTITUTION.md");
@@ -62,6 +68,7 @@ export async function selectConstitutionContext(input: {
   return {
     text: joined || undefined,
     instructionFiles,
+    instructionDetails: selectedInstructions,
     hasConstitution: Boolean(text),
     usedConstitution: Boolean(shouldUseConstitution && summary && joined.includes("Constitution summary:")),
     approxChars: joined.length,
@@ -217,7 +224,7 @@ async function readProjectInstructionFiles(
   goal: string,
   maxInstructionFiles: number,
   maxInstructionFileChars: number,
-): Promise<string[]> {
+): Promise<Array<{ path: string; score: number; reason: string }>> {
   readCache.clear();
   const discovered = await discoverInstructionCandidates(cwd);
   const goalTokens = tokenize(goal);
@@ -229,7 +236,7 @@ async function readProjectInstructionFiles(
     }))
     .sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath));
 
-  const selected: string[] = [];
+  const selected: Array<{ path: string; score: number; reason: string }> = [];
   const seen = new Set<string>();
 
   for (const entry of ranked) {
@@ -244,13 +251,23 @@ async function readProjectInstructionFiles(
       continue;
     }
     readCache.set(entry.filePath, truncate(text.trim(), maxInstructionFileChars));
-    selected.push(entry.filePath);
+    selected.push({ path: entry.filePath, score: entry.score, reason: describeInstructionReason(entry.filePath, goalTokens) });
     if (selected.length >= maxInstructionFiles) {
       break;
     }
   }
 
   return selected;
+}
+
+function describeInstructionReason(filePath: string, goalTokens: Set<string>): string {
+  const normalized = filePath.toLowerCase();
+  const segments = normalized.split("/").slice(0, -1);
+  const matched = segments.filter((segment) => goalTokens.has(segment) || [...goalTokens].some((token) => token.length >= 4 && segment.includes(token)));
+  if (matched.length > 0) {
+    return `matched goal-relevant path segment(s): ${matched.join(", ")}`;
+  }
+  return segments.length > 0 ? "selected nested repo-local guidance" : "selected root repo guidance";
 }
 
 async function discoverInstructionCandidates(cwd: string): Promise<string[]> {
@@ -279,7 +296,7 @@ async function walkInstructionFiles(root: string, current: string, results: stri
 
 function shouldSkip(relativePath: string): boolean {
   return relativePath.split("/").some((segment) =>
-    [".git", "node_modules", ".factory", "dist", "build", "coverage", ".next"].includes(segment),
+    [".git", "node_modules", ".factory", ".worktrees", "worktrees", "dist", "build", "coverage", ".next"].includes(segment),
   );
 }
 

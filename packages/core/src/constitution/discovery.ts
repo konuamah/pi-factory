@@ -9,6 +9,8 @@ const execFileAsync = promisify(execFile);
 const EXCLUDED_SEGMENTS = new Set([
   ".git",
   "node_modules",
+  ".worktrees",
+  "worktrees",
   "vendor",
   "dist",
   "build",

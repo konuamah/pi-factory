@@ -9,10 +9,12 @@ import { classifyIntegrationFailure, initializeFactoryProject, readLatestFactory
 
 const execFile = promisify(execFileCb);
 
-async function withTempProject(fn) {
+async function withTempProject(fn, options = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-factory-runtime-'));
   try {
-    await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'tmp', type: 'module' }, null, 2));
+    if (options.rootPackage !== false) {
+      await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'tmp', type: 'module' }, null, 2));
+    }
     await fs.mkdir(path.join(root, 'src'), { recursive: true });
     await fs.writeFile(path.join(root, 'src/index.ts'), 'export const x = 1;\n');
     await initGitRepo(root);
@@ -169,6 +171,227 @@ test('repair prompt focuses on observed failures only', async () => {
 
     const repairPrompt = calls.find((call) => call.label === 'repair')?.prompt ?? '';
     assert.match(repairPrompt, /Focus only on the observed failures and avoid unrelated edits\./);
+    assert.match(repairPrompt, /Verification cwd:/);
+  });
+});
+
+test('verification planner can choose only repo-authoritative commands from package script evidence', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({ name: 'tmp', type: 'module', scripts: { lint: 'node -e ""', build: 'node -e ""' } }, null, 2),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const verificationPlannerExecutor = {
+      async execute(input) {
+        calls.push({ label: 'verification-planner', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: JSON.stringify({
+            cwd: root,
+            commands: {
+              lint: 'node -e ""',
+              build: 'node -e ""',
+            },
+            rationale: 'Only lint and build exist as package scripts.',
+          }),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      verificationPlannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const verification = await readJson(result.verificationPath);
+    assert.deepEqual(verification.commands.map((item) => item.name), ['lint', 'build']);
+    const logs = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'));
+    assert.equal(logs.verificationContext?.cwd, root);
+  });
+});
+
+test('verification infers a single nested package root when the worktree root has no package.json', async () => {
+  await withTempProject(async (root) => {
+    const appDir = path.join(root, 'frontend', 'landoptima');
+    await fs.mkdir(appDir, { recursive: true });
+    await fs.writeFile(path.join(appDir, 'package.json'), JSON.stringify({ name: 'landoptima-web', type: 'module' }, null, 2), 'utf8');
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  build: node -e "require(\'node:fs\').writeFileSync(\'verify-marker.txt\', process.cwd())"',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const verification = await readJson(result.verificationPath);
+    assert.equal(verification.cwd, appDir);
+    assert.equal(verification.cwdResolution, 'inferred-single-package');
+    const marker = await fs.readFile(path.join(appDir, 'verify-marker.txt'), 'utf8');
+    assert.equal(marker, appDir);
+    const logs = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'));
+    assert.equal(logs.verificationContext?.cwd, appDir);
+    assert.equal(logs.verificationContext?.cwdResolution, 'inferred-single-package');
+  }, { rootPackage: false });
+});
+
+test('verification artifacts persist reasoning, classification, and repo learnings', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  lint: npm run lint',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({ name: 'tmp', type: 'module', scripts: {} }, null, 2),
+      'utf8',
+    );
+
+    const plannerExecutor = makeExecutor('planner', []);
+    const builderExecutor = makeExecutor('builder', []);
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const verification = await readJson(result.verificationPath);
+    assert.equal(verification.selectionSource, 'deterministic');
+    assert.ok(Array.isArray(verification.evidence?.candidateCwds));
+    assert.ok(Array.isArray(verification.evidence?.commandDecisions));
+    assert.equal(verification.failureClassification?.kind, 'repo script/config');
+    assert.match(verification.failureClassification?.reason ?? '', /could not be executed|Verification command/i);
+
+    const learningsPath = path.join(root, '.factory', 'learnings.jsonl');
+    const learningsRaw = await fs.readFile(learningsPath, 'utf8');
+    assert.match(learningsRaw, /verification-plan/);
+    assert.match(learningsRaw, /verification-failure/);
+
+    const logs = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'));
+    assert.equal(logs.verificationContext?.failureKind, 'repo script/config');
+
+    const shown = await showFactoryRun(path.join(root, '.factory', 'runs'), String(logs.state?.runId));
+    assert.equal(shown.verificationContext?.failureKind, 'repo script/config');
+  });
+});
+
+test('resume re-plans verification after config-classified verification failures', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  lint: npm run lint',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({ name: 'tmp', type: 'module', scripts: {} }, null, 2),
+      'utf8',
+    );
+
+    const plannerExecutor = makeExecutor('planner', []);
+    const builderExecutor = makeExecutor('builder', []);
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const resumed = await resumeLatestFactoryRun(path.join(root, '.factory', 'runs'));
+    assert.equal(resumed.resumed, true);
+    assert.equal(resumed.recovery?.suggestedPhase, 'verification-planning');
+    assert.match(resumed.recovery?.policyReason ?? '', /re-planning verification/i);
+  });
+});
+
+test('transient worktree guidance files are ignored during instruction selection', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(path.join(root, 'AGENTS.md'), 'Root guidance only.\n', 'utf8');
+    await fs.mkdir(path.join(root, '.worktrees', 'old-run'), { recursive: true });
+    await fs.writeFile(path.join(root, '.worktrees', 'old-run', 'AGENTS.md'), 'Stale worktree guidance.\n', 'utf8');
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Update docs',
+      plannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'reject' }),
+      requestApproval: async () => true,
+    });
+
+    const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
+    assert.match(plannerPrompt, /AGENTS\.md:/);
+    assert.match(plannerPrompt, /Root guidance only\./);
+    assert.doesNotMatch(plannerPrompt, /Stale worktree guidance\./);
+    assert.doesNotMatch(plannerPrompt, /\.worktrees\/old-run\/AGENTS\.md/);
   });
 });
 
@@ -392,6 +615,7 @@ test('logs and show surface plan feedback clearly', async () => {
     assert.ok(logs.events.some((line) => /narrow the scope/i.test(line)));
     assert.ok(logs.events.some((line) => /guidance selected/i.test(line)));
     assert.ok(Array.isArray(logs.guidance?.plannerInstructionFiles));
+    assert.ok(Array.isArray(logs.guidance?.plannerInstructionDetails));
     assert.ok((logs.guidance?.plannerGuidanceChars ?? 0) >= 0);
 
     const runId = String(logs.state?.runId);
@@ -400,6 +624,7 @@ test('logs and show surface plan feedback clearly', async () => {
     assert.equal(shown.planFeedback, 'narrow the scope');
     assert.equal(shown.implementationStarted, false);
     assert.ok(Array.isArray(shown.guidance?.plannerInstructionFiles));
+    assert.ok(Array.isArray(shown.guidance?.plannerInstructionDetails));
     assert.ok((shown.guidance?.plannerGuidanceChars ?? 0) >= 0);
   });
 });

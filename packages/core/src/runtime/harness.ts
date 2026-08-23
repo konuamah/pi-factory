@@ -19,6 +19,7 @@ export async function runRuntimeHarness(input: {
   builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
+  verificationPlannerExecutor?: AgentExecutor;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; planText?: string; tasks: Array<{ id: string; title: string; stage: string; status: "pending" | "done"; dependsOn: string[] }> }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string }) => Promise<boolean>;
 }): Promise<RuntimeHarnessResult> {
@@ -29,6 +30,7 @@ export async function runRuntimeHarness(input: {
     builderExecutor: input.builderExecutor,
     repairExecutor: input.repairExecutor,
     reviewerExecutor: input.reviewerExecutor,
+    verificationPlannerExecutor: input.verificationPlannerExecutor,
     requestPlanApproval: input.requestPlanApproval ?? (async () => ({ decision: "approve" })),
     requestApproval: input.requestApproval ?? (async () => true),
   });

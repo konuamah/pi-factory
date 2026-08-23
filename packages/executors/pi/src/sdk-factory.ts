@@ -4,10 +4,14 @@ import type {
   PiSessionFactoryResult,
   PiSessionLike,
 } from "./types.js";
+import type { ToolCallContext } from "@factory/core";
+import { wrapToolsWithGate, type ToolGateOptions } from "./tool-gate.js";
 
 export interface PiSdkSessionFactoryOptions {
   packageName?: string;
   sdkLoader?: (packageName: string) => Promise<PiSdkModule>;
+  toolGate?: Omit<ToolGateOptions, "context">;
+  createTools?: (sdk: PiSdkModule, cwd: string, names: string[]) => Array<{ name: string; execute: (args: unknown) => Promise<unknown> }>;
 }
 
 export function createPiSdkSessionFactory(
@@ -26,8 +30,18 @@ export function createPiSdkSessionFactory(
       };
       const diagnostics: PiSessionFactoryResult["diagnostics"] = [];
 
-      if (input.tools && input.tools.length > 0) {
-        createOptions.tools = input.tools;
+      const tools = input.tools && input.tools.length > 0 ? input.tools : undefined;
+      if (tools) {
+        if (options.toolGate) {
+          const gateContext = buildGateContext(input, options.toolGate);
+          const createdTools = (options.createTools ?? createBuiltinTools)(sdk, input.cwd, tools);
+          createOptions.tools = wrapToolsWithGate(createdTools as Parameters<typeof wrapToolsWithGate>[0], {
+            ...options.toolGate,
+            context: gateContext,
+          });
+        } else {
+          createOptions.tools = tools;
+        }
       }
 
       if (input.model) {
@@ -160,6 +174,41 @@ async function resolveRequestedModel(
   };
 }
 
+function buildGateContext(
+  input: PiSessionFactoryInput,
+  gate: Omit<ToolGateOptions, "context">,
+): ToolCallContext {
+  const metadata = asRecord(input.metadata) ?? {};
+  return {
+    executionId: typeof metadata.executionId === "string" ? metadata.executionId : "unknown",
+    role: typeof metadata.role === "string" ? metadata.role : undefined,
+    taskId: typeof metadata.taskId === "string" ? metadata.taskId : undefined,
+    workflowId: typeof metadata.workflowId === "string" ? metadata.workflowId : undefined,
+    grantedCapabilities: stringArray(metadata.grantedCapabilities),
+    deniedCapabilities: stringArray(metadata.deniedCapabilities),
+    needsApproval: stringArray(metadata.needsApprovalCapabilities),
+    approvedCapabilities: new Set<string>(),
+    skills: gate.skills,
+    projectPolicy: gate.projectPolicy,
+    workflowPolicy: gate.workflowPolicy,
+    nodePolicy: gate.nodePolicy,
+    cwd: input.cwd,
+  };
+}
+
+function createBuiltinTools(sdk: PiSdkModule, cwd: string, names: string[]): Array<{ name: string; execute: (args: unknown) => Promise<unknown> }> {
+  const all = [...(sdk.createReadOnlyTools?.(cwd) ?? []), ...(sdk.createCodingTools?.(cwd) ?? [])];
+  const byName = new Map(all.map((tool) => [tool.name, tool]));
+  return names
+    .map((name) => byName.get(name))
+    .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool))
+    .map((tool) => ({ name: tool.name, execute: tool.execute }));
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
 async function loadPiSdk(packageName: string): Promise<PiSdkModule> {
   const importer = new Function("specifier", "return import(specifier);") as (
     specifier: string,
@@ -188,6 +237,8 @@ interface PiSdkModule {
   SessionManager: {
     inMemory(cwd?: string): unknown;
   };
+  createReadOnlyTools?(cwd?: string): Array<{ name: string; execute: (args: unknown) => Promise<unknown> }>;
+  createCodingTools?(cwd?: string): Array<{ name: string; execute: (args: unknown) => Promise<unknown> }>;
   ModelRuntime?: {
     create(): Promise<{
       getModel?: (provider: string, model: string) => unknown;

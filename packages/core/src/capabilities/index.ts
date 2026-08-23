@@ -1,3 +1,5 @@
+export * from "./gate.js";
+export * from "./tool-map.js";
 import type { Capability, CapabilityPolicy } from "@factory/schemas";
 
 export type AutonomyLevel = "low" | "medium" | "high";

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PiAgentExecutor } from '../packages/executors/pi/dist/index.js';
+import { PiAgentExecutor, wrapToolsWithGate } from '../packages/executors/pi/dist/index.js';
 
 function makeSession(events = []) {
   return {
@@ -126,6 +126,62 @@ test('executor routes needsApproval capabilities through the approval callback',
   assert.equal(approvalAsked.capability, 'shell.execute');
   assert.equal(approvalAsked.toolName, 'bash');
   assert.deepEqual(receivedTools, ['bash']);
+});
+
+test('wrapToolsWithGate returns structured denial instead of executing', async () => {
+  let executed = false;
+  const tools = [{ name: 'write', execute: async () => { executed = true; return 'ok'; } }];
+  const wrapped = wrapToolsWithGate(tools, {
+    context: {
+      executionId: 'exec-5',
+      cwd: process.cwd(),
+      grantedCapabilities: ['repo.read'],
+      deniedCapabilities: ['repo.write'],
+      needsApproval: [],
+      approvedCapabilities: new Set(),
+    },
+  });
+  const result = await wrapped[0].execute({ path: 'src/a.ts', content: 'x' });
+  assert.equal(executed, false);
+  assert.equal(result.__factory_blocked, true);
+  assert.equal(result.capability, 'repo.write');
+});
+
+test('wrapToolsWithGate executes when allowed', async () => {
+  let executed = false;
+  const tools = [{ name: 'read', execute: async () => { executed = true; return 'content'; } }];
+  const wrapped = wrapToolsWithGate(tools, {
+    context: {
+      executionId: 'exec-6',
+      cwd: process.cwd(),
+      grantedCapabilities: ['repo.read'],
+      deniedCapabilities: [],
+      needsApproval: [],
+      approvedCapabilities: new Set(),
+    },
+  });
+  const result = await wrapped[0].execute({ path: 'a.ts' });
+  assert.equal(executed, true);
+  assert.equal(result, 'content');
+});
+
+test('wrapToolsWithGate requires approval then executes when approved', async () => {
+  let executed = false;
+  const tools = [{ name: 'bash', execute: async () => { executed = true; return 'done'; } }];
+  const wrapped = wrapToolsWithGate(tools, {
+    context: {
+      executionId: 'exec-7',
+      cwd: process.cwd(),
+      grantedCapabilities: ['shell.execute'],
+      deniedCapabilities: [],
+      needsApproval: ['shell.execute'],
+      approvedCapabilities: new Set(),
+    },
+    onApprovalRequired: () => true,
+  });
+  const result = await wrapped[0].execute({ command: 'ls' });
+  assert.equal(executed, true);
+  assert.equal(result, 'done');
 });
 
 test('executor drops a needsApproval tool when approval is denied', async () => {

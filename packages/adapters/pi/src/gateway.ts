@@ -1019,6 +1019,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
   panel.setFooter("Live Factory stream. Use arrow keys to scroll.");
 
   const executorBundle = await createOptionalExecutorBundle(effectiveExecutorMode, (executionId, event) => {
+
     panel.setStatus("streaming");
     if (executionId.includes("planner")) {
       panel.setRole("planner");
@@ -1032,7 +1033,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     if (event.text) {
       panel.append(event.text);
     }
-  });
+  }, ctx);
 
   const result = await runPrototypeFactoryFlow({
     cwd: ctx.cwd,
@@ -1567,6 +1568,7 @@ async function createRequiredConstitutionExecutor(
 async function createOptionalExecutorBundle(
   mode: "fake" | "sdk" | "off" | undefined,
   onEvent?: (executionId: string, event: { type: string; text?: string; data?: Record<string, unknown> }) => void,
+  ctx?: FactoryPiCommandContext,
 ): Promise<
   | {
       plannerExecutor: AgentExecutor;
@@ -1584,6 +1586,17 @@ async function createOptionalExecutorBundle(
     mode === "sdk"
       ? piExecutors.createPiSdkSessionFactory({
           packageName: process.env.FACTORY_PI_SDK_PACKAGE,
+          toolGate: {
+            onApprovalRequired: async ({ capability, toolName }) => {
+              if (!ctx?.ui.confirm) {
+                return false;
+              }
+              return ctx.ui.confirm(
+                "Factory capability approval",
+                `Allow tool '${toolName}' to use capability '${capability}' for this node?`,
+              );
+            },
+          },
         })
       : piExecutors.createFakePiSessionFactory();
 

@@ -1,26 +1,26 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { api, type RunDetail as RunDetailType, type LogEntry } from '../api/client';
+import { useRevalidate, runEvent } from '../api/use-revalidate';
 import { StatusBadge } from './overview';
 
 const TABS = ['Overview', 'Logs', 'Verification'] as const;
 
 export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void }) {
-  const [run, setRun] = useState<RunDetailType | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [tab, setTab] = useState<(typeof TABS)[number]>('Overview');
   const [logFilter, setLogFilter] = useState('All');
-  const [error, setError] = useState(false);
 
-  useEffect(() => {
-    api.run(runId).then(setRun).catch(() => setError(true));
-    api.runLogs(runId).then(setLogs).catch(() => setLogs([]));
-  }, [runId]);
+  const { data: run, error } = useRevalidate<RunDetailType>(`run:${runId}`, () => api.run(runId), {
+    onEvent: (type, data) => runEvent(type, data, runId),
+  });
+  const { data: logs } = useRevalidate<LogEntry[]>(`logs:${runId}`, () => api.runLogs(runId), {
+    initial: [],
+    onEvent: (type, data) => /^log\.|^task\.|^verification\.|^run\./.test(type) && data.runId === runId,
+  });
 
   if (error || !run) {
-    return <p>{run ? 'Loading…' : 'Run not found.'} <button className="link" onClick={goBack}>← back</button></p>;
+    return <p>{error ? 'Run not found.' : 'Loading…'} <button className="link" onClick={goBack}>← back</button></p>;
   }
 
-  const stages = run.plan?.workflowStages as Array<{ name?: string }> | undefined;
   const planTasks = run.plan?.tasks as Array<{ id?: string; stage?: string; status?: string }> | undefined;
   const models = (run.models ?? []).slice(0, 8);
 
@@ -93,14 +93,14 @@ export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void
             ))}
           </div>
           <div className="log-viewer">
-            {logs.filter((log) => logFilter === 'All' || log.source === logFilter).map((log) => (
+            {(logs ?? []).filter((log) => logFilter === 'All' || log.source === logFilter).map((log) => (
               <div key={log.id} className={`log-line log-${log.level.toLowerCase()}`}>
                 <span className="log-time">{log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '--:--:--'}</span>
                 <span className="log-source">{log.source}</span>
                 <span className="log-msg">{log.message}</span>
               </div>
             ))}
-            {logs.length === 0 && <p className="muted">No logs yet.</p>}
+            {(logs ?? []).length === 0 && <p className="muted">No logs yet.</p>}
           </div>
         </>
       )}

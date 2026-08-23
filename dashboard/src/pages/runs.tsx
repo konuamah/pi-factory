@@ -1,16 +1,16 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { api, type RunListItem } from '../api/client';
+import { useRevalidate } from '../api/use-revalidate';
 import { StatusBadge } from './overview';
 
 const FILTERS = ['All', 'Running', 'Complete', 'Failed', 'Blocked', 'Decision required'];
 
 export function Runs({ goToRun }: { goToRun: (runId: string) => void }) {
-  const [runs, setRuns] = useState<RunListItem[]>([]);
   const [filter, setFilter] = useState('All');
-
-  useEffect(() => {
-    api.runs().then(setRuns).catch(() => setRuns([]));
-  }, []);
+  const { data: runs } = useRevalidate<RunListItem[]>('runs', () => api.runs(), {
+    initial: [],
+    onEvent: (type) => /^run\.|^log\.|^decision\./.test(type),
+  });
 
   const matches = (run: RunListItem): boolean => {
     if (filter === 'All') return true;
@@ -22,7 +22,7 @@ export function Runs({ goToRun }: { goToRun: (runId: string) => void }) {
     return true;
   };
 
-  const filtered = runs.filter(matches);
+  const filtered = (runs ?? []).filter(matches);
 
   return (
     <>

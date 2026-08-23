@@ -1,15 +1,10 @@
-import { useEffect, useState } from 'preact/hooks';
 import { api, type DashboardStatus } from '../api/client';
+import { useRevalidate } from '../api/use-revalidate';
 
 export function Overview({ goToRun }: { goToRun: (runId: string) => void }) {
-  const [status, setStatus] = useState<DashboardStatus | null>(null);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    api.status()
-      .then(setStatus)
-      .catch(() => setError(true));
-  }, []);
+  const { data: status, error } = useRevalidate<DashboardStatus>('status', () => api.status(), {
+    onEvent: (type) => /^run\.|^decision\.|^constitution\./.test(type),
+  });
 
   if (error) {
     return (
@@ -43,7 +38,7 @@ export function Overview({ goToRun }: { goToRun: (runId: string) => void }) {
         {stat('Active runs', status.activeRuns)}
         {stat('Needs attention', status.needsAttention?.length ?? 0)}
         {stat('Verification failures', status.verificationFailures)}
-        {stat('Constitution', status.constitution?.totalAreas ? `${status.constitution.totalAreas - 0}/120` : '—')}
+        {stat('Constitution', status.constitution?.totalAreas ? `${status.constitution.evaluatedAreas ?? 0}/120` : '—')}
       </div>
 
       {status.needsAttention && status.needsAttention.length > 0 && (

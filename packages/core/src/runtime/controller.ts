@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { loadEffectiveConfig } from "../config/loader.js";
 import { selectConstitutionContext } from "../constitution/context.js";
 import { discoverConstitutionRepository } from "../constitution/discovery.js";
+import { compileAgentContext, type CompiledContext } from "../context/compiler.js";
 import { createGitWorktree, createSiblingGitWorktree, inspectGitIsolation } from "../git/worktree.js";
 import { initializeFactorySkills, resolveFactorySkills, type SkillBundleSelection } from "../skills/index.js";
 import { appendFactoryRunEvent, createFactoryRun, updateFactoryRunState } from "../runs/store.js";
@@ -406,6 +407,9 @@ export async function runFactoryController(
     builderModel: loaded.effectiveConfig.models.builder,
     builderConstitutionContext: builderGuidance.text,
     skillBundleText: renderSkillBundleForPrompt(builderSkills),
+    projectRoot,
+    dependencyTasks: plan.tasks,
+    builderSkills,
     onProgress: async (event) => emitProgress(input, event),
     delayMs,
     builderExecutionPaths,
@@ -1013,6 +1017,9 @@ async function runImplementationTasks(input: {
   builderModel?: { provider?: string; model: string };
   builderConstitutionContext?: string;
   skillBundleText?: string;
+  projectRoot: string;
+  dependencyTasks?: PlannerTask[];
+  builderSkills?: SkillBundleSelection;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1083,6 +1090,9 @@ async function runImplementationTasks(input: {
           builderModel: input.builderModel,
           builderConstitutionContext: input.builderConstitutionContext,
           skillBundleText: input.skillBundleText,
+          projectRoot: input.projectRoot,
+          dependencyTasks: input.dependencyTasks,
+          builderSkills: input.builderSkills,
           onProgress: input.onProgress,
           delayMs: input.delayMs,
           builderExecutionPaths: input.builderExecutionPaths,
@@ -1118,6 +1128,9 @@ async function runImplementationTask(input: {
   builderModel?: { provider?: string; model: string };
   builderConstitutionContext?: string;
   skillBundleText?: string;
+  projectRoot: string;
+  dependencyTasks?: PlannerTask[];
+  builderSkills?: SkillBundleSelection;
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1221,10 +1234,32 @@ async function runImplementationTask(input: {
       }
     }
   } else if (input.builderExecutor) {
+    const compiled = await compileAgentContext({
+      cwd: input.projectRoot,
+      role: "builder",
+      goal: input.goal,
+      task: input.task,
+      dependencyTasks: input.dependencyTasks?.filter((dep) => input.task.dependsOn.includes(dep.id)),
+      skills: input.builderSkills?.selected,
+      fileHints: input.task.context?.fileHints,
+      maxChars: 6000,
+    });
+    await appendFactoryRunEvent(input.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "task.context_compiled",
+      data: {
+        taskId: input.task.id,
+        role: "builder",
+        files: compiled.files.map((file) => file.path),
+        dependencies: compiled.dependencies.map((dep) => dep.taskId),
+        skills: compiled.skills.map((skill) => skill.id),
+        tokenEstimate: compiled.tokenEstimate,
+      },
+    });
     const builderResult = await input.builderExecutor.execute({
       executionId: `${input.runId}-builder-${input.task.id}`,
       cwd: workspace.path,
-      prompt: buildBuilderPrompt(input.goal, input.task, input.builderConstitutionContext, input.skillBundleText),
+      prompt: buildCompiledPrompt(input.goal, compiled),
       model: input.builderModel,
       tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
       metadata: {
@@ -1775,6 +1810,15 @@ function buildPlannerPrompt(
     "- Do not repeat the prompt or project guidance context.",
     "- End with exactly: WAITING_FOR_APPROVAL",
   ].filter(Boolean).join("\n");
+}
+
+function buildCompiledPrompt(goal: string, compiled: CompiledContext): string {
+  const sections = [
+    `Goal: ${goal}`,
+    ...compiled.instructions,
+    `Role: ${compiled.role}`,
+  ];
+  return sections.join("\n");
 }
 
 function buildBuilderPrompt(

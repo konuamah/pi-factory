@@ -10,6 +10,12 @@ export interface PlannerTask {
   role?: string;
   commands?: string[];
   requiresApproval?: boolean;
+  context?: {
+    fileHints?: string[];
+    constitutionAreas?: number[];
+    requiredCapabilities?: string[];
+    includeDependencyArtifacts?: boolean;
+  };
 }
 
 export interface PlannerArtifact {

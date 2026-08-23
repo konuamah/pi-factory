@@ -43,9 +43,23 @@ export interface PiSessionFactory {
   create(input: PiSessionFactoryInput): Promise<PiSessionFactoryResult>;
 }
 
+export interface PiCapabilityGate {
+  granted: string[];
+  denied: string[];
+  needsApproval: string[];
+  toolAllowlist?: string[];
+  onApprovalRequired?: (input: {
+    executionId: string;
+    capability: string;
+    toolName: string;
+    args?: unknown;
+  }) => Promise<boolean> | boolean;
+}
+
 export interface PiExecutorOptions {
   sessionFactory: PiSessionFactory;
   onEvent?: (executionId: string, event: PiSessionEvent) => Promise<void> | void;
+  capabilityGate?: PiCapabilityGate;
 }
 
 export interface PiExecutorState {

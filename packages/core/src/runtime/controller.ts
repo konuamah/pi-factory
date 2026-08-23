@@ -1306,6 +1306,7 @@ async function runImplementationTask(input: {
           workspaceBranch: workspace.branch,
           grantedCapabilities: capabilities.granted,
           deniedCapabilities: capabilities.denied,
+          needsApprovalCapabilities: capabilities.needsApproval,
         },
       });
 

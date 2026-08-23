@@ -24,8 +24,19 @@ export interface PiSessionFactoryInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface PiSessionFactoryDiagnostic {
+  type: "model.selection_warning";
+  data: {
+    requestedProvider?: string;
+    requestedModel: string;
+    reason: string;
+    fallback: "sdk-default";
+  };
+}
+
 export interface PiSessionFactoryResult {
   session: PiSessionLike;
+  diagnostics?: PiSessionFactoryDiagnostic[];
 }
 
 export interface PiSessionFactory {

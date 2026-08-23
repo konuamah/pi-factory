@@ -10,6 +10,7 @@ export interface LatestFactoryRunPlan {
   phase?: string;
   planPath?: string;
   summary?: string;
+  planText?: string;
   workflowStages?: Array<{ name: string; dependsOn?: string[] }>;
   tasks?: Array<{
     id?: string;
@@ -79,6 +80,7 @@ export async function readLatestFactoryRunPlan(runsDir: string): Promise<LatestF
     phase: typeof summary?.phase === "string" ? summary.phase : latest.state.phase,
     planPath: path.join(latest.runDir, "plan.json"),
     summary: typeof plan.summary === "string" ? plan.summary : undefined,
+    planText: typeof plan.planText === "string" ? plan.planText : typeof shown.plannerExecution?.outputText === "string" ? shown.plannerExecution.outputText : undefined,
     workflowStages,
     tasks,
   };

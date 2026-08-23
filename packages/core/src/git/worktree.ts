@@ -118,32 +118,65 @@ async function createWorktreeAtGitRoot(input: {
   const location = await resolveWorktreeLocation(gitRoot, input.preferredLocation);
   await ensureWorktreeDirectoryIgnored(gitRoot, location.relativeDir);
 
-  const targetPath = path.join(location.absoluteDir, input.branchName);
-  const args = ["worktree", "add", targetPath, "-b", input.branchName];
-  if (input.baseRef) {
-    args.push(input.baseRef);
+  const existing = await findWorktreeByBranch(gitRoot, input.branchName);
+  if (existing) {
+    return {
+      mode: "existing",
+      path: existing.path,
+      branch: input.branchName,
+      reason: `Reusing existing worktree for branch ${input.branchName}`,
+      location: path.relative(gitRoot, path.dirname(existing.path)).replace(/\\/g, "/") || location.relativeDir,
+    };
   }
 
-  try {
-    await execFileAsync("git", args, { cwd: gitRoot, windowsHide: true });
-    return {
-      mode: "created",
-      path: targetPath,
-      branch: input.branchName,
-      location: location.relativeDir,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/denied|permission|sandbox/i.test(message)) {
-      return {
-        mode: "in-place",
-        path: input.cwd,
-        branch: isolation.branch,
-        reason: "Worktree creation blocked by sandbox/permissions; working in place",
-      };
+  let branchName = input.branchName;
+  let targetPath = path.join(location.absoluteDir, branchName);
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const args = ["worktree", "add", targetPath, "-b", branchName];
+    if (input.baseRef) {
+      args.push(input.baseRef);
     }
-    throw error;
+
+    try {
+      await execFileAsync("git", args, { cwd: gitRoot, windowsHide: true });
+      return {
+        mode: "created",
+        path: targetPath,
+        branch: branchName,
+        location: location.relativeDir,
+        reason: branchName === input.branchName ? undefined : `Created unique worktree branch after branch-name collision: ${branchName}`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/denied|permission|sandbox/i.test(message)) {
+        return {
+          mode: "in-place",
+          path: input.cwd,
+          branch: isolation.branch,
+          reason: "Worktree creation blocked by sandbox/permissions; working in place",
+        };
+      }
+      if (/already exists/i.test(message) && /branch named/i.test(message)) {
+        const currentExisting = await findWorktreeByBranch(gitRoot, branchName);
+        if (currentExisting) {
+          return {
+            mode: "existing",
+            path: currentExisting.path,
+            branch: branchName,
+            reason: `Reusing existing worktree for branch ${branchName}`,
+            location: path.relative(gitRoot, path.dirname(currentExisting.path)).replace(/\\/g, "/") || location.relativeDir,
+          };
+        }
+        branchName = `${input.branchName}-${Date.now().toString(36).slice(-6)}`;
+        targetPath = path.join(location.absoluteDir, branchName);
+        continue;
+      }
+      throw error;
+    }
   }
+
+  throw new Error(`Failed to create git worktree for branch ${input.branchName} after retrying branch-name collisions.`);
 }
 
 export async function resolveWorktreeLocation(
@@ -191,6 +224,32 @@ export async function ensureWorktreeDirectoryIgnored(
 
   await fs.writeFile(gitignorePath, next, "utf8");
   await fs.mkdir(path.join(gitRoot, relativeDir), { recursive: true });
+}
+
+async function findWorktreeByBranch(
+  gitRoot: string,
+  branchName: string,
+): Promise<{ path: string; branch?: string } | undefined> {
+  try {
+    const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], {
+      cwd: gitRoot,
+      windowsHide: true,
+    });
+    const entries = stdout.split(/\r?\n\r?\n/);
+    for (const entry of entries) {
+      const lines = entry.split(/\r?\n/).filter(Boolean);
+      const worktreeLine = lines.find((line) => line.startsWith("worktree "));
+      const branchLine = lines.find((line) => line.startsWith("branch refs/heads/"));
+      const worktreePath = worktreeLine?.slice("worktree ".length).trim();
+      const branch = branchLine?.slice("branch refs/heads/".length).trim();
+      if (worktreePath && branch === branchName) {
+        return { path: worktreePath, branch };
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function isGitIgnored(cwd: string, relativeDir: string): Promise<boolean> {

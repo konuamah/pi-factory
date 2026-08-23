@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { initializeFactoryProject, readLatestFactoryRunLogs, readLatestFactoryRunPlan, resumeLatestFactoryRun, runRuntimeHarness, showFactoryRun } from '../packages/core/dist/index.js';
+import { classifyIntegrationFailure, initializeFactoryProject, readLatestFactoryRunLogs, readLatestFactoryRunPlan, resumeLatestFactoryRun, runRuntimeHarness, showFactoryRun } from '../packages/core/dist/index.js';
 
 const execFile = promisify(execFileCb);
 
@@ -59,7 +59,9 @@ function makeExecutor(label, calls) {
       return {
         executionId: input.executionId,
         status: 'completed',
-        outputText: `${label} completed`,
+        outputText: label === 'planner'
+          ? ['Feature Plan', '- Update the target document for clarity', '- Keep scope limited to the requested file', 'WAITING_FOR_APPROVAL'].join('\n')
+          : `${label} completed`,
         events: [],
       };
     },
@@ -70,6 +72,128 @@ function makeExecutor(label, calls) {
 async function readJson(filePath) {
   return JSON.parse(await fs.readFile(filePath, 'utf8'));
 }
+
+test('project instruction files are injected into planner context ahead of constitution summary', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(path.join(root, 'AGENTS.md'), 'Use concise release notes.\nPrefer root docs for contributor guidance.\n', 'utf8');
+    await fs.writeFile(path.join(root, 'CLAUDE.md'), 'Always check developer-facing markdown files before editing them.\n', 'utf8');
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'reject' }),
+      requestApproval: async () => true,
+    });
+
+    const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
+    assert.match(plannerPrompt, /Project guidance context:/);
+    assert.match(plannerPrompt, /Project instruction files:/);
+    assert.match(plannerPrompt, /AGENTS\.md:/);
+    assert.match(plannerPrompt, /Use concise release notes\./);
+    assert.match(plannerPrompt, /CLAUDE\.md:/);
+    assert.match(plannerPrompt, /Always check developer-facing markdown files/);
+    assert.ok(plannerPrompt.indexOf('Project instruction files:') > plannerPrompt.indexOf('Project guidance context:'));
+  });
+});
+
+test('planner, builder, and reviewer prompts include tighter scope rules', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+    const reviewerExecutor = makeExecutor('reviewer', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      reviewerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
+    const builderPrompt = calls.find((call) => call.label === 'builder')?.prompt ?? '';
+    const reviewerPrompt = calls.find((call) => call.label === 'reviewer')?.prompt ?? '';
+
+    assert.match(plannerPrompt, /Do not broaden scope beyond the requested outcome\./);
+    assert.match(builderPrompt, /Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits/);
+    assert.match(reviewerPrompt, /Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly\./);
+  });
+});
+
+test('repair prompt focuses on observed failures only', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+    const repairExecutor = makeExecutor('repair', calls);
+
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  lint: node -e "process.exit(1)"',
+        '  typecheck: node -e ""',
+        '  test: node -e ""',
+        '  build: node -e ""',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: true',
+        '  maxAttempts: 1',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      repairExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const repairPrompt = calls.find((call) => call.label === 'repair')?.prompt ?? '';
+    assert.match(repairPrompt, /Focus only on the observed failures and avoid unrelated edits\./);
+  });
+});
+
+test('path-relevant subtree instruction files are preferred over root-only guidance', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(path.join(root, 'AGENTS.md'), 'Root guidance only.\n', 'utf8');
+    await fs.mkdir(path.join(root, 'frontend'), { recursive: true });
+    await fs.writeFile(path.join(root, 'frontend', 'AGENTS.md'), 'Frontend local guidance.\n', 'utf8');
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Update frontend docs',
+      plannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'reject' }),
+      requestApproval: async () => true,
+    });
+
+    const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
+    assert.match(plannerPrompt, /frontend\/AGENTS\.md:/);
+    assert.match(plannerPrompt, /Frontend local guidance\./);
+  });
+});
 
 test('plan approval rejection stops the run before implementation', async () => {
   await withTempProject(async (root) => {
@@ -100,6 +224,61 @@ test('plan approval rejection stops the run before implementation', async () => 
   });
 });
 
+test('verification stages are not executed as builder task branches', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    assert.equal(calls.filter((call) => call.label === 'builder').length, 1);
+    assert.ok((result.builderExecutionPaths?.length ?? 0) === 1);
+  });
+});
+
+test('integration failure classifier surfaces conflicting files clearly', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(path.join(root, 'README.md'), 'base\n', 'utf8');
+    await execFile('git', ['add', 'README.md'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'add readme'], { cwd: root });
+
+    await execFile('git', ['checkout', '-b', 'branch-a'], { cwd: root });
+    await fs.writeFile(path.join(root, 'README.md'), 'branch-a\n', 'utf8');
+    await execFile('git', ['add', 'README.md'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'branch a'], { cwd: root });
+
+    await execFile('git', ['checkout', 'main'], { cwd: root });
+    await execFile('git', ['checkout', '-b', 'branch-b'], { cwd: root });
+    await fs.writeFile(path.join(root, 'README.md'), 'branch-b\n', 'utf8');
+    await execFile('git', ['add', 'README.md'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'branch b'], { cwd: root });
+
+    await execFile('git', ['checkout', 'main'], { cwd: root });
+    await execFile('git', ['merge', '--no-ff', '--no-edit', 'branch-a'], { cwd: root });
+
+    let mergeError;
+    try {
+      await execFile('git', ['merge', '--no-ff', '--no-edit', 'branch-b'], { cwd: root });
+    } catch (error) {
+      mergeError = error;
+    }
+
+    assert.ok(mergeError);
+    const classified = await classifyIntegrationFailure(root, mergeError);
+    assert.equal(classified.mergeInProgress, true);
+    assert.ok(classified.conflictingFiles.includes('README.md'));
+    assert.match(classified.reason, /git merge/i);
+  });
+});
+
 test('latest run plan summary can be read after a successful run', async () => {
   await withTempProject(async (root) => {
     const calls = [];
@@ -120,6 +299,7 @@ test('latest run plan summary can be read after a successful run', async () => {
     assert.ok(plan.planPath?.endsWith('plan.json'));
     assert.ok((plan.tasks?.length ?? 0) > 0);
     assert.match(plan.summary ?? '', /Goal: Add a demo feature/);
+    assert.match(plan.planText ?? '', /Update the target document for clarity/);
   });
 });
 
@@ -210,12 +390,17 @@ test('logs and show surface plan feedback clearly', async () => {
     assert.equal(logs.implementationStarted, false);
     assert.ok(logs.events.some((line) => /plan revision requested/i.test(line)));
     assert.ok(logs.events.some((line) => /narrow the scope/i.test(line)));
+    assert.ok(logs.events.some((line) => /guidance selected/i.test(line)));
+    assert.ok(Array.isArray(logs.guidance?.plannerInstructionFiles));
+    assert.ok((logs.guidance?.plannerGuidanceChars ?? 0) >= 0);
 
     const runId = String(logs.state?.runId);
     const shown = await showFactoryRun(path.join(root, '.factory', 'runs'), runId);
     assert.equal(shown.planDecision, 'revise');
     assert.equal(shown.planFeedback, 'narrow the scope');
     assert.equal(shown.implementationStarted, false);
+    assert.ok(Array.isArray(shown.guidance?.plannerInstructionFiles));
+    assert.ok((shown.guidance?.plannerGuidanceChars ?? 0) >= 0);
   });
 });
 

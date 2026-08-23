@@ -19,7 +19,7 @@ export async function runRuntimeHarness(input: {
   builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
-  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; tasks: Array<{ id: string; title: string; stage: string; status: "pending" | "done"; dependsOn: string[] }> }) => Promise<PlanApprovalResult>;
+  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; planText?: string; tasks: Array<{ id: string; title: string; stage: string; status: "pending" | "done"; dependsOn: string[] }> }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string }) => Promise<boolean>;
 }): Promise<RuntimeHarnessResult> {
   const result = await runFactoryController({

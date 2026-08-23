@@ -13,6 +13,29 @@ export interface FactoryRunShowResult {
   planDecision?: "approve" | "reject" | "revise";
   planFeedback?: string;
   implementationStarted?: boolean;
+  guidance?: {
+    plannerInstructionFiles: string[];
+    builderInstructionFiles: string[];
+    repairInstructionFiles: string[];
+    reviewerInstructionFiles: string[];
+    plannerHasConstitution: boolean;
+    builderHasConstitution: boolean;
+    repairHasConstitution: boolean;
+    reviewerHasConstitution: boolean;
+    plannerUsedConstitution: boolean;
+    builderUsedConstitution: boolean;
+    repairUsedConstitution: boolean;
+    reviewerUsedConstitution: boolean;
+    plannerGuidanceChars: number;
+    builderGuidanceChars: number;
+    repairGuidanceChars: number;
+    reviewerGuidanceChars: number;
+  };
+  integrationFailure?: {
+    reason?: string;
+    conflictingFiles: string[];
+    mergeInProgress: boolean;
+  };
 }
 
 export async function showFactoryRun(runsDir: string, runId: string): Promise<FactoryRunShowResult> {
@@ -32,6 +55,8 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     readJsonlFile(path.join(runDir, "events.jsonl")),
   ]);
   const planSummary = summarizePlanEvents(events);
+  const guidance = summarizeGuidanceEvents(events);
+  const integrationFailure = summarizeIntegrationFailureEvents(events);
 
   return {
     runDir,
@@ -45,6 +70,8 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     planDecision: planSummary.decision,
     planFeedback: planSummary.feedback,
     implementationStarted: planSummary.implementationStarted,
+    guidance,
+    integrationFailure,
   };
 }
 
@@ -100,6 +127,55 @@ function summarizePlanEvents(events: Array<{ type?: string; data?: Record<string
   }
 
   return { decision, feedback, implementationStarted };
+}
+
+function summarizeGuidanceEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): FactoryRunShowResult["guidance"] {
+  for (const event of events) {
+    if (event.type !== "guidance.context_selected") {
+      continue;
+    }
+    return {
+      plannerInstructionFiles: stringArray(event.data?.plannerInstructionFiles),
+      builderInstructionFiles: stringArray(event.data?.builderInstructionFiles),
+      repairInstructionFiles: stringArray(event.data?.repairInstructionFiles),
+      reviewerInstructionFiles: stringArray(event.data?.reviewerInstructionFiles),
+      plannerHasConstitution: Boolean(event.data?.plannerHasConstitution),
+      builderHasConstitution: Boolean(event.data?.builderHasConstitution),
+      repairHasConstitution: Boolean(event.data?.repairHasConstitution),
+      reviewerHasConstitution: Boolean(event.data?.reviewerHasConstitution),
+      plannerUsedConstitution: Boolean(event.data?.plannerUsedConstitution),
+      builderUsedConstitution: Boolean(event.data?.builderUsedConstitution),
+      repairUsedConstitution: Boolean(event.data?.repairUsedConstitution),
+      reviewerUsedConstitution: Boolean(event.data?.reviewerUsedConstitution),
+      plannerGuidanceChars: numberValue(event.data?.plannerGuidanceChars),
+      builderGuidanceChars: numberValue(event.data?.builderGuidanceChars),
+      repairGuidanceChars: numberValue(event.data?.repairGuidanceChars),
+      reviewerGuidanceChars: numberValue(event.data?.reviewerGuidanceChars),
+    };
+  }
+  return undefined;
+}
+
+function summarizeIntegrationFailureEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): FactoryRunShowResult["integrationFailure"] {
+  for (const event of events) {
+    if (event.type !== "integration.failed") {
+      continue;
+    }
+    return {
+      reason: typeof event.data?.reason === "string" ? event.data.reason : undefined,
+      conflictingFiles: stringArray(event.data?.conflictingFiles),
+      mergeInProgress: Boolean(event.data?.mergeInProgress),
+    };
+  }
+  return undefined;
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 async function readRepairExecutions(runDir: string): Promise<Record<string, unknown>[]> {

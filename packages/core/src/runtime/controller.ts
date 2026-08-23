@@ -45,7 +45,7 @@ export interface RunFactoryControllerInput {
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
-  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
+  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string; candidateSha?: string }) => Promise<boolean>;
   delayMs?: number;
 }
@@ -142,17 +142,47 @@ export async function runFactoryController(
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "planning", "Building plan");
 
-  const plannerConstitutionContext = await selectConstitutionContext({ cwd: projectRoot, role: "planner", goal: input.goal });
-  const builderConstitutionContext = await selectConstitutionContext({ cwd: projectRoot, role: "builder", goal: input.goal });
-  const repairConstitutionContext = await selectConstitutionContext({ cwd: projectRoot, role: "repair", goal: input.goal });
-  const reviewerConstitutionContext = await selectConstitutionContext({ cwd: projectRoot, role: "reviewer", goal: input.goal });
+  const plannerGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "planner", goal: input.goal });
+  const builderGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "builder", goal: input.goal });
+  const repairGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "repair", goal: input.goal });
+  const reviewerGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "reviewer", goal: input.goal });
+
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "guidance.context_selected",
+    data: {
+      plannerInstructionFiles: plannerGuidance.instructionFiles,
+      builderInstructionFiles: builderGuidance.instructionFiles,
+      repairInstructionFiles: repairGuidance.instructionFiles,
+      reviewerInstructionFiles: reviewerGuidance.instructionFiles,
+      plannerHasConstitution: plannerGuidance.hasConstitution,
+      builderHasConstitution: builderGuidance.hasConstitution,
+      repairHasConstitution: repairGuidance.hasConstitution,
+      reviewerHasConstitution: reviewerGuidance.hasConstitution,
+      plannerUsedConstitution: plannerGuidance.usedConstitution,
+      builderUsedConstitution: builderGuidance.usedConstitution,
+      repairUsedConstitution: repairGuidance.usedConstitution,
+      reviewerUsedConstitution: reviewerGuidance.usedConstitution,
+      plannerGuidanceChars: plannerGuidance.approxChars,
+      builderGuidanceChars: builderGuidance.approxChars,
+      repairGuidanceChars: repairGuidance.approxChars,
+      reviewerGuidanceChars: reviewerGuidance.approxChars,
+    },
+  });
+  await emitProgress(input, {
+    runId: run.runId,
+    phase: "planning",
+    status: "RUNNING",
+    message: `Guidance selected: planner files=${plannerGuidance.instructionFiles.length}, constitution=${plannerGuidance.usedConstitution ? "used" : "skipped"}, approx chars=${plannerGuidance.approxChars}`,
+  });
 
   let plannerExecutionPath: string | undefined;
+  let plannerOutputText: string | undefined;
   if (input.plannerExecutor) {
     const plannerResult = await input.plannerExecutor.execute({
       executionId: `${run.runId}-planner`,
       cwd: executionCwd,
-      prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerConstitutionContext),
+      prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text),
       model: loaded.effectiveConfig.models.planner,
       tools: ["read", "grep", "find", "ls"],
       metadata: {
@@ -160,6 +190,7 @@ export async function runFactoryController(
         runId: run.runId,
       },
     });
+    plannerOutputText = sanitizePlannerOutput(plannerResult.outputText);
     plannerExecutionPath = await writePrototypePlannerExecutionArtifact(run.runDir, plannerResult);
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
@@ -174,6 +205,7 @@ export async function runFactoryController(
   const plan = buildPlanArtifact({
     goal: input.goal,
     config: loaded.effectiveConfig,
+    planText: plannerOutputText,
   });
   const planPath = await writePrototypePlanArtifact(run.runDir, plan);
   const taskPaths = await writePrototypeTaskArtifacts(
@@ -226,6 +258,7 @@ export async function runFactoryController(
     taskCount: plan.tasks.length,
     workflowStages: plan.workflowStages.map((stage) => stage.name),
     summary: plan.summary,
+    planText: plan.planText,
     tasks: plan.tasks,
   })) ?? { decision: "approve" as const };
   await appendFactoryRunEvent(run.eventsPath, {
@@ -307,7 +340,7 @@ export async function runFactoryController(
     maxParallelAgents: loaded.effectiveConfig.runtime.maxParallelAgents,
     builderExecutor: input.builderExecutor,
     builderModel: loaded.effectiveConfig.models.builder,
-    builderConstitutionContext,
+    builderConstitutionContext: builderGuidance.text,
     onProgress: async (event) => emitProgress(input, event),
     delayMs,
     builderExecutionPaths,
@@ -362,12 +395,77 @@ export async function runFactoryController(
   await wait(delayMs);
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "integration", "Integrating isolated task workspaces");
-  integrationPath = await runIntegrationPhase({
-    runDir: run.runDir,
-    eventsPath: run.eventsPath,
-    executionCwd,
-    taskWorkspaces: implementationRun.taskWorkspaces,
-  });
+  try {
+    integrationPath = await runIntegrationPhase({
+      runDir: run.runDir,
+      eventsPath: run.eventsPath,
+      executionCwd,
+      taskWorkspaces: implementationRun.taskWorkspaces,
+      goal: input.goal,
+      runId: run.runId,
+      repairExecutor: input.repairExecutor,
+      repairModel: loaded.effectiveConfig.models.repair,
+      repairGuidanceContext: repairGuidance.text,
+    });
+  } catch (error) {
+    const integrationFailure = await classifyIntegrationFailure(executionCwd, error);
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "integration.failed",
+      data: integrationFailure,
+    });
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "run.failed",
+      data: { reason: `integration failed: ${integrationFailure.reason}` },
+    });
+    const failedState = await updateFactoryRunState({
+      statePath: run.statePath,
+      patch: { status: "FAILED", phase: "integration-failed" },
+    });
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: "integration-failed",
+      status: "FAILED",
+      message: integrationFailure.conflictingFiles.length > 0
+        ? `Integration failed with conflicts: ${integrationFailure.conflictingFiles.join(", ")}`
+        : `Integration failed: ${integrationFailure.reason}`,
+    });
+    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+      runId: run.runId,
+      goal: input.goal,
+      status: "FAILED",
+      phase: failedState.phase,
+      approved: false,
+      planPath,
+      taskPaths,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      verificationPath: path.join(run.runDir, "verification.json"),
+      verificationStatus: "incomplete",
+    });
+
+    return {
+      runId: run.runId,
+      runDir: run.runDir,
+      executionCwd,
+      worktree,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      phases,
+      approved: false,
+      planPath,
+      taskPaths,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      verificationPath: path.join(run.runDir, "verification.json"),
+      summaryPath,
+    };
+  }
 
   await wait(delayMs);
 
@@ -410,7 +508,7 @@ export async function runFactoryController(
       const repairResult = await input.repairExecutor.execute({
         executionId: `${run.runId}-repair-${attempt}`,
         cwd: executionCwd,
-        prompt: buildRepairPrompt(input.goal, verification, repairConstitutionContext),
+        prompt: buildRepairPrompt(input.goal, verification, repairGuidance.text),
         model: loaded.effectiveConfig.models.repair,
         tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
         metadata: {
@@ -512,7 +610,7 @@ export async function runFactoryController(
     const reviewerResult = await input.reviewerExecutor.execute({
       executionId: `${run.runId}-reviewer`,
       cwd: executionCwd,
-      prompt: buildReviewerPrompt(input.goal, verification, reviewerConstitutionContext),
+      prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text),
       model: loaded.effectiveConfig.models.reviewer,
       tools: ["read", "grep", "find", "ls"],
       metadata: {
@@ -1001,6 +1099,11 @@ async function runIntegrationPhase(input: {
   eventsPath: string;
   executionCwd: string;
   taskWorkspaces: TaskWorkspaceSelection[];
+  goal: string;
+  runId: string;
+  repairExecutor?: AgentExecutor;
+  repairModel?: { provider?: string; model: string };
+  repairGuidanceContext?: string;
 }): Promise<string | undefined> {
   const mergedBranches: Array<{
     taskId: string;
@@ -1032,17 +1135,55 @@ async function runIntegrationPhase(input: {
       },
     });
 
-    await execFileAsync("git", ["merge", "--no-ff", "--no-edit", workspace.branch], {
-      cwd: input.executionCwd,
-      windowsHide: true,
-    });
+    try {
+      await execFileAsync("git", ["merge", "--no-ff", "--no-edit", workspace.branch], {
+        cwd: input.executionCwd,
+        windowsHide: true,
+      });
 
-    mergedBranches.push({
-      taskId: workspace.taskId,
-      branch: workspace.branch,
-      workspacePath: workspace.path,
-      status: "merged",
-    });
+      mergedBranches.push({
+        taskId: workspace.taskId,
+        branch: workspace.branch,
+        workspacePath: workspace.path,
+        status: "merged",
+      });
+    } catch (error) {
+      const failure = await classifyIntegrationFailure(input.executionCwd, error);
+      await appendFactoryRunEvent(input.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "integration.merge_failed",
+        data: {
+          taskId: workspace.taskId,
+          branch: workspace.branch,
+          workspacePath: workspace.path,
+          ...failure,
+        },
+      });
+
+      const repaired = await attemptIntegrationAutoRepair({
+        runId: input.runId,
+        goal: input.goal,
+        executionCwd: input.executionCwd,
+        eventsPath: input.eventsPath,
+        taskId: workspace.taskId,
+        branch: workspace.branch,
+        conflictingFiles: failure.conflictingFiles,
+        repairExecutor: input.repairExecutor,
+        repairModel: input.repairModel,
+        repairGuidanceContext: input.repairGuidanceContext,
+      });
+
+      if (!repaired) {
+        throw error;
+      }
+
+      mergedBranches.push({
+        taskId: workspace.taskId,
+        branch: workspace.branch,
+        workspacePath: workspace.path,
+        status: "merged",
+      });
+    }
   }
 
   await appendFactoryRunEvent(input.eventsPath, {
@@ -1057,6 +1198,115 @@ async function runIntegrationPhase(input: {
     executionCwd: input.executionCwd,
     mergedBranches,
   });
+}
+
+async function attemptIntegrationAutoRepair(input: {
+  runId: string;
+  goal: string;
+  executionCwd: string;
+  eventsPath: string;
+  taskId: string;
+  branch: string;
+  conflictingFiles: string[];
+  repairExecutor?: AgentExecutor;
+  repairModel?: { provider?: string; model: string };
+  repairGuidanceContext?: string;
+}): Promise<boolean> {
+  if (!input.repairExecutor || input.conflictingFiles.length === 0) {
+    return false;
+  }
+
+  await appendFactoryRunEvent(input.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "integration.repair_requested",
+    data: {
+      taskId: input.taskId,
+      branch: input.branch,
+      conflictingFiles: input.conflictingFiles,
+    },
+  });
+
+  await input.repairExecutor.execute({
+    executionId: `${input.runId}-integration-repair-${input.taskId}`,
+    cwd: input.executionCwd,
+    prompt: buildIntegrationRepairPrompt(input.goal, input.branch, input.conflictingFiles, input.repairGuidanceContext),
+    model: input.repairModel,
+    tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+    metadata: {
+      role: "repair",
+      runId: input.runId,
+      phase: "integration",
+      taskId: input.taskId,
+    },
+  });
+
+  const remainingConflicts = await readGitConflictFiles(input.executionCwd);
+  const mergeInProgress = await hasGitMergeInProgress(input.executionCwd);
+  if (remainingConflicts.length > 0) {
+    await appendFactoryRunEvent(input.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "integration.repair_failed",
+      data: {
+        taskId: input.taskId,
+        branch: input.branch,
+        conflictingFiles: remainingConflicts,
+      },
+    });
+    return false;
+  }
+
+  if (mergeInProgress) {
+    await execFileAsync("git", ["add", "-A"], { cwd: input.executionCwd, windowsHide: true });
+    await execFileAsync("git", ["commit", "--no-edit"], { cwd: input.executionCwd, windowsHide: true });
+  }
+
+  await appendFactoryRunEvent(input.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "integration.repair_completed",
+    data: {
+      taskId: input.taskId,
+      branch: input.branch,
+    },
+  });
+  return true;
+}
+
+export async function classifyIntegrationFailure(
+  cwd: string,
+  error: unknown,
+): Promise<{ reason: string; conflictingFiles: string[]; mergeInProgress: boolean }> {
+  const reason = error instanceof Error ? error.message : String(error);
+  const conflictingFiles = await readGitConflictFiles(cwd);
+  const mergeInProgress = await hasGitMergeInProgress(cwd);
+  return {
+    reason,
+    conflictingFiles,
+    mergeInProgress,
+  };
+}
+
+async function readGitConflictFiles(cwd: string): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync("git", ["diff", "--name-only", "--diff-filter=U"], {
+      cwd,
+      windowsHide: true,
+    });
+    return stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function hasGitMergeInProgress(cwd: string): Promise<boolean> {
+  try {
+    await execFileAsync("git", ["rev-parse", "-q", "--verify", "MERGE_HEAD"], {
+      cwd,
+      windowsHide: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function resolveTaskWorkspace(input: {
@@ -1243,7 +1493,16 @@ function resolveTaskDependencies(tasks: PlannerTask[]): Map<string, string[]> {
 
 function isImplementationTaskStage(stage: string): boolean {
   const normalized = stage.toLowerCase();
-  return normalized === "build" || normalized === "implementation" || normalized === "verify" || normalized === "verification";
+  return normalized === "build" || normalized === "implementation";
+}
+
+function sanitizePlannerOutput(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  return trimmed.replace(/\bWAITING_FOR_APPROVAL\b\s*$/m, "").trim() || undefined;
 }
 
 function buildPlannerPrompt(
@@ -1261,7 +1520,7 @@ function buildPlannerPrompt(
     `Base branch: ${config.git.baseBranch}`,
     `Approval policy: ${config.approval.finalMerge}`,
     `Repair attempts: ${config.repair.maxAttempts}`,
-    constitutionContext ? `Constitution context:\n${constitutionContext}` : undefined,
+    constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "",
     "Return exactly these sections and keep each section concise:",
     "1. Requirements Breakdown",
@@ -1274,7 +1533,9 @@ function buildPlannerPrompt(
     "- Maximum 20 bullet points total across the whole response.",
     "- Maximum 6 implementation steps.",
     "- Reference likely files/modules only when strongly justified by repository evidence.",
-    "- Do not repeat the prompt or constitution context.",
+    "- Do not broaden scope beyond the requested outcome.",
+    "- Do not propose unrelated documentation rewrites or adjacent cleanup unless clearly required.",
+    "- Do not repeat the prompt or project guidance context.",
     "- End with exactly: WAITING_FOR_APPROVAL",
   ].filter(Boolean).join("\n");
 }
@@ -1290,8 +1551,26 @@ function buildBuilderPrompt(
     `Task stage: ${task.stage}`,
     `Task title: ${task.title}`,
     task.dependsOn.length > 0 ? `Depends on: ${task.dependsOn.join(", ")}` : "Depends on: none",
-    constitutionContext ? `Constitution context:\n${constitutionContext}` : undefined,
-    "Implement the task in this repository and leave the workspace ready for verification.",
+    constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    "Implement only the requested task in this repository and leave the workspace ready for verification.",
+    "Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.",
+  ].filter(Boolean).join("\n");
+}
+
+function buildIntegrationRepairPrompt(
+  goal: string,
+  branch: string,
+  conflictingFiles: string[],
+  constitutionContext?: string,
+): string {
+  return [
+    `Goal: ${goal}`,
+    `Integration conflict while merging branch: ${branch}`,
+    `Conflicting files: ${conflictingFiles.join(", ")}`,
+    constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    "Resolve the active git merge conflict in the current workspace.",
+    "Keep the original task scope, preserve intended changes from both sides when possible, and avoid unrelated edits.",
+    "After resolving, leave the workspace with no unresolved merge conflicts.",
   ].filter(Boolean).join("\n");
 }
 
@@ -1309,8 +1588,9 @@ function buildRepairPrompt(
     `Goal: ${goal}`,
     `Verification status: ${verification.overallStatus}`,
     failures ? `Failures:\n${failures}` : "Failures: none recorded",
-    constitutionContext ? `Constitution context:\n${constitutionContext}` : undefined,
+    constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Repair the code so verification can pass.",
+    "Focus only on the observed failures and avoid unrelated edits.",
   ].filter(Boolean).join("\n");
 }
 
@@ -1327,8 +1607,9 @@ function buildReviewerPrompt(
     `Goal: ${goal}`,
     `Verification status: ${verification.overallStatus}`,
     commandStatuses ? `Command results:\n${commandStatuses}` : "Command results: none",
-    constitutionContext ? `Constitution context:\n${constitutionContext}` : undefined,
+    constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Review the candidate and report whether it looks ready for approval.",
+    "Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly.",
   ].filter(Boolean).join("\n");
 }
 

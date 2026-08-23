@@ -1,36 +1,66 @@
 {
-  "scannedAt": "2026-08-22T11:38:44.961Z",
+  "scannedAt": "2026-08-22T14:00:07.959Z",
   "root": "D:/projects/pi-factory",
   "mode": "single-pipeline",
+  "refreshStrategy": "full-interpretation",
   "refresh": {
     "previousScanSha": "5c91081bdf92e38d7db7fe4b8db812add1abe21f",
-    "currentScanSha": "5c91081bdf92e38d7db7fe4b8db812add1abe21f",
+    "currentScanSha": "975743dac447821b2d5a5ec890023431e7b756ae",
     "changedFiles": [
       ".factory/constitution/facts.json",
       ".factory/constitution/metadata.json",
       "CONSTITUTION.md",
+      "NEXT_ITEMS.md",
       "NUL",
+      "README.md",
+      "constitution_120_areas_handoff.md",
       "package-lock.json",
       "package.json",
+      "packages/adapters/pi/src/approval.ts",
       "packages/adapters/pi/src/gateway.ts",
+      "packages/adapters/pi/src/index.ts",
+      "packages/adapters/pi/src/setup-wizard.ts",
+      "packages/adapters/pi/src/streaming-panel.ts",
+      "packages/adapters/pi/src/types.ts",
       "packages/core/src/constitution/context.ts",
       "packages/core/src/constitution/evaluators/dependencies.ts",
       "packages/core/src/constitution/evaluators/foundation.ts",
       "packages/core/src/constitution/evaluators/shared.ts",
+      "packages/core/src/constitution/refresh.ts",
       "packages/core/src/constitution/render.ts",
       "packages/core/src/constitution/scan.ts",
       "packages/core/src/constitution/types.ts",
+      "packages/core/src/runs/index.ts",
+      "packages/core/src/runs/logs-by-id.ts",
+      "packages/core/src/runs/plan.ts",
+      "packages/core/src/runs/resume.ts",
+      "packages/core/src/runs/show.ts",
+      "packages/core/src/runtime/artifacts.ts",
+      "packages/core/src/runtime/controller.ts",
+      "packages/core/src/runtime/harness.ts",
+      "packages/core/src/runtime/planner.ts",
+      "packages/core/src/setup/index.ts",
+      "packages/core/src/setup/init.ts",
+      "packages/core/src/setup/pi-models.ts",
       "packages/executors/pi/src/executor.ts",
       "packages/executors/pi/src/fake-session-factory.ts",
+      "packages/executors/pi/src/runtime-harness.ts",
       "packages/executors/pi/src/sdk-factory.ts",
       "packages/executors/pi/src/types.ts",
-      "tests/constitution.test.mjs"
+      "tests/constitution.test.mjs",
+      "tests/gateway-ui.test.mjs",
+      "tests/pi-adapter.test.mjs",
+      "tests/pi-executor.test.mjs",
+      "tests/runtime.test.mjs",
+      "tests/setup-ui.test.mjs",
+      "tests/setup.test.mjs"
     ],
     "impactedAreaIds": [
       1,
       2,
       3,
       4,
+      5,
       9,
       10,
       11,
@@ -51,12 +81,12 @@
     "Docs roots: README.md",
     "API files: 0",
     "Data files: 0",
-    "Tests: 1",
+    "Tests: 3",
     "CI: not detected",
     "Deterministic areas evaluated: 120",
     "Refresh mode: FAST",
-    "Changed files: 19",
-    "Impacted areas: 1, 2, 3, 4, 9, 10, 11, 20, 73, 81, 83, 85",
+    "Changed files: 47",
+    "Impacted areas: 1, 2, 3, 4, 5, 9, 10, 11, 20, 73, 81, 83, 85",
     "Reused areas: none",
     "Critic warnings: 0"
   ],
@@ -64,10 +94,12 @@
     "root": "D:/projects/pi-factory",
     "trackedFiles": [
       ".factory/config.example.json",
+      ".factory/constitution/facts.json",
       ".factory/constitution/metadata.json",
       ".gitignore",
       ".pi/extensions/factory/index.ts",
       "CONSTITUTION.md",
+      "NEXT_ITEMS.md",
       "README.md",
       "SKILL.md",
       "constitution_120_areas_handoff.md",
@@ -75,6 +107,7 @@
       "package-lock.json",
       "package.json",
       "packages/adapters/pi/package.json",
+      "packages/adapters/pi/src/approval.ts",
       "packages/adapters/pi/src/extension.ts",
       "packages/adapters/pi/src/gateway.ts",
       "packages/adapters/pi/src/index.ts",
@@ -122,6 +155,7 @@
       "packages/core/src/runs/list.ts",
       "packages/core/src/runs/logs-by-id.ts",
       "packages/core/src/runs/logs.ts",
+      "packages/core/src/runs/plan.ts",
       "packages/core/src/runs/resume.ts",
       "packages/core/src/runs/show.ts",
       "packages/core/src/runs/status.ts",
@@ -182,6 +216,8 @@
       "packages/schemas/tsconfig.json",
       "pi_native_factory_support_research.md",
       "tests/constitution.test.mjs",
+      "tests/pi-adapter.test.mjs",
+      "tests/runtime.test.mjs",
       "tsconfig.json"
     ],
     "instructionFiles": [
@@ -206,11 +242,14 @@
     ],
     "ciFiles": [],
     "testFiles": [
-      "tests/constitution.test.mjs"
+      "tests/constitution.test.mjs",
+      "tests/pi-adapter.test.mjs",
+      "tests/runtime.test.mjs"
     ],
     "dockerFiles": [],
     "sourceFiles": [
       "packages/adapters/pi/package.json",
+      "packages/adapters/pi/src/approval.ts",
       "packages/adapters/pi/src/extension.ts",
       "packages/adapters/pi/src/gateway.ts",
       "packages/adapters/pi/src/index.ts",
@@ -258,6 +297,7 @@
       "packages/core/src/runs/list.ts",
       "packages/core/src/runs/logs-by-id.ts",
       "packages/core/src/runs/logs.ts",
+      "packages/core/src/runs/plan.ts",
       "packages/core/src/runs/resume.ts",
       "packages/core/src/runs/show.ts",
       "packages/core/src/runs/status.ts",
@@ -364,7 +404,7 @@
       "id": 1,
       "title": "Repository layout",
       "status": "DEFINED",
-      "finding": "Tracked repository with 120 files and source roots in packages.",
+      "finding": "Tracked repository with 126 files and source roots in packages.",
       "evidence": [
         {
           "kind": "file",
@@ -374,7 +414,7 @@
       ],
       "claims": [
         {
-          "statement": "Tracked repository with 120 files and source roots in packages.",
+          "statement": "Tracked repository with 126 files and source roots in packages.",
           "kind": "observed",
           "evidence": [
             {
@@ -395,7 +435,7 @@
       "title": "Monorepo / single-project model",
       "status": "DEFINED",
       "confidence": "HIGH",
-      "finding": "Root `package.json` declares `workspaces: [\"packages/*\"]`, and root `tsconfig.json` references multiple package projects, so the repository model is explicitly a monorepo.",
+      "finding": "Repository uses a package-based npm workspace monorepo model, defined by `package.json` workspaces and reinforced by TypeScript project references in `tsconfig.json`.",
       "evidence": [
         {
           "kind": "file",
@@ -460,7 +500,7 @@
       ],
       "claims": [
         {
-          "statement": "Root `package.json` declares `workspaces: [\"packages/*\"]`, and root `tsconfig.json` references multiple package projects, so the repository model is explicitly a monorepo.",
+          "statement": "Repository uses a package-based npm workspace monorepo model, defined by `package.json` workspaces and reinforced by TypeScript project references in `tsconfig.json`.",
           "kind": "observed",
           "confidence": "HIGH",
           "evidence": [
@@ -554,9 +594,6 @@
           ],
           "criticWarnings": []
         }
-      ],
-      "driftWarnings": [
-        "Finding changed for this impacted area during refresh."
       ]
     },
     {
@@ -564,23 +601,43 @@
       "title": "Test directory organization",
       "status": "DEFINED",
       "confidence": "HIGH",
-      "finding": "Test organization is explicitly evidenced by root `tests/` and `tests/constitution.test.mjs`, with root `package.json` running `node --test tests/**/*.test.mjs`.",
+      "finding": "Tests are explicitly organized under the top-level `tests/` directory with `*.test.mjs` naming, and the root `test` script runs them via `node --test tests/**/*.test.mjs`.",
       "evidence": [
         {
           "kind": "file",
           "path": "tests/constitution.test.mjs",
           "detail": "test organization"
+        },
+        {
+          "kind": "file",
+          "path": "tests/pi-adapter.test.mjs",
+          "detail": "test organization"
+        },
+        {
+          "kind": "file",
+          "path": "tests/runtime.test.mjs",
+          "detail": "test organization"
         }
       ],
       "claims": [
         {
-          "statement": "Test organization is explicitly evidenced by root `tests/` and `tests/constitution.test.mjs`, with root `package.json` running `node --test tests/**/*.test.mjs`.",
+          "statement": "Tests are explicitly organized under the top-level `tests/` directory with `*.test.mjs` naming, and the root `test` script runs them via `node --test tests/**/*.test.mjs`.",
           "kind": "observed",
           "confidence": "HIGH",
           "evidence": [
             {
               "kind": "file",
               "path": "tests/constitution.test.mjs",
+              "detail": "test organization"
+            },
+            {
+              "kind": "file",
+              "path": "tests/pi-adapter.test.mjs",
+              "detail": "test organization"
+            },
+            {
+              "kind": "file",
+              "path": "tests/runtime.test.mjs",
               "detail": "test organization"
             }
           ],
@@ -602,8 +659,8 @@
       ],
       "claims": [
         {
-          "kind": "observed",
           "statement": "Detected documentation files in README.md.",
+          "kind": "observed",
           "evidence": [
             {
               "kind": "file",
@@ -638,14 +695,11 @@
       "evidence": [],
       "claims": [
         {
-          "statement": "No generated/build output handling evidence detected.",
           "kind": "unknown",
+          "statement": "No generated/build output handling evidence detected.",
           "evidence": [],
           "criticWarnings": []
         }
-      ],
-      "driftWarnings": [
-        "Status changed from INFERRED to NOT_DEFINED based on current repository evidence."
       ]
     },
     {
@@ -808,9 +862,6 @@
           ],
           "criticWarnings": []
         }
-      ],
-      "driftWarnings": [
-        "Finding changed for this impacted area during refresh."
       ]
     },
     {
@@ -948,9 +999,6 @@
           ],
           "criticWarnings": []
         }
-      ],
-      "driftWarnings": [
-        "Finding changed for this impacted area during refresh."
       ]
     },
     {
@@ -978,9 +1026,6 @@
           ],
           "criticWarnings": []
         }
-      ],
-      "driftWarnings": [
-        "Finding changed for this impacted area during refresh."
       ]
     },
     {
@@ -1105,14 +1150,11 @@
       "evidence": [],
       "claims": [
         {
-          "statement": "No secrets handling evidence detected.",
           "kind": "unknown",
+          "statement": "No secrets handling evidence detected.",
           "evidence": [],
           "criticWarnings": []
         }
-      ],
-      "driftWarnings": [
-        "Status changed from INFERRED to NOT_DEFINED based on current repository evidence."
       ]
     },
     {
@@ -1276,9 +1318,6 @@
           ],
           "criticWarnings": []
         }
-      ],
-      "driftWarnings": [
-        "Finding changed for this impacted area during refresh."
       ]
     },
     {
@@ -1300,7 +1339,8 @@
       "id": 22,
       "title": "File naming conventions",
       "status": "INFERRED",
-      "finding": "File names commonly use kebab-case patterns such as packages/core/src/runs/logs-by-id.ts, packages/executors/pi/src/fake-session-factory.js, packages/executors/pi/src/fake-session-factory.ts, packages/executors/pi/src/runtime-harness.js, packages/executors/pi/src/runtime-harness.ts.",
+      "confidence": "MEDIUM",
+      "finding": "File names commonly use kebab-case patterns such as packages/core/src/runs/logs-by-id.ts, packages/executors/pi/src/fake-session-factory.js, packages/executors/pi/src/fake-session-factory.ts.",
       "evidence": [
         {
           "kind": "file",
@@ -1316,19 +1356,13 @@
           "kind": "file",
           "path": "packages/executors/pi/src/fake-session-factory.ts",
           "detail": "kebab-case file name"
-        },
-        {
-          "kind": "file",
-          "path": "packages/executors/pi/src/runtime-harness.js",
-          "detail": "kebab-case file name"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "File names commonly use kebab-case patterns such as packages/core/src/runs/logs-by-id.ts, packages/executors/pi/src/fake-session-factory.js, packages/executors/pi/src/fake-session-factory.ts.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "File names commonly use kebab-case patterns such as packages/core/src/runs/logs-by-id.ts, packages/executors/pi/src/fake-session-factory.js, packages/executors/pi/src/fake-session-factory.ts, packages/executors/pi/src/runtime-harness.js, packages/executors/pi/src/runtime-harness.ts.",
           "evidence": [
             {
               "kind": "file",
@@ -1344,11 +1378,6 @@
               "kind": "file",
               "path": "packages/executors/pi/src/fake-session-factory.ts",
               "detail": "kebab-case file name"
-            },
-            {
-              "kind": "file",
-              "path": "packages/executors/pi/src/runtime-harness.js",
-              "detail": "kebab-case file name"
             }
           ],
           "criticWarnings": []
@@ -1359,8 +1388,14 @@
       "id": 23,
       "title": "Type/class/component naming",
       "status": "INFERRED",
+      "confidence": "MEDIUM",
       "finding": "Types, interfaces, or classes commonly use PascalCase identifiers.",
       "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "interface PlanApprovalPreviewInput"
+        },
         {
           "kind": "file",
           "path": "packages/adapters/pi/src/types.ts",
@@ -1378,8 +1413,8 @@
         },
         {
           "kind": "file",
-          "path": "packages/core/src/constitution/evaluators/shared.ts",
-          "detail": "interface ConstitutionEvaluationContext"
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "class PlanApprovalDialog"
         },
         {
           "kind": "file",
@@ -1395,20 +1430,19 @@
           "kind": "file",
           "path": "packages/executors/pi/src/executor.ts",
           "detail": "class PiAgentExecutor"
-        },
-        {
-          "kind": "file",
-          "path": "packages/executors/pi/src/fake-session-factory.js",
-          "detail": "class FakePiSession"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Types, interfaces, or classes commonly use PascalCase identifiers.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Types, interfaces, or classes commonly use PascalCase identifiers.",
           "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "interface PlanApprovalPreviewInput"
+            },
             {
               "kind": "file",
               "path": "packages/adapters/pi/src/types.ts",
@@ -1426,8 +1460,8 @@
             },
             {
               "kind": "file",
-              "path": "packages/core/src/constitution/evaluators/shared.ts",
-              "detail": "interface ConstitutionEvaluationContext"
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "class PlanApprovalDialog"
             },
             {
               "kind": "file",
@@ -1443,11 +1477,6 @@
               "kind": "file",
               "path": "packages/executors/pi/src/executor.ts",
               "detail": "class PiAgentExecutor"
-            },
-            {
-              "kind": "file",
-              "path": "packages/executors/pi/src/fake-session-factory.js",
-              "detail": "class FakePiSession"
             }
           ],
           "criticWarnings": []
@@ -1458,8 +1487,14 @@
       "id": 24,
       "title": "Variable/function naming",
       "status": "INFERRED",
+      "confidence": "MEDIUM",
       "finding": "Functions and local identifiers commonly use camelCase names.",
       "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "function buildPlanApprovalPreviewLines"
+        },
         {
           "kind": "file",
           "path": "packages/adapters/pi/src/extension.ts",
@@ -1494,20 +1529,19 @@
           "kind": "file",
           "path": "packages/core/src/constitution/areas.ts",
           "detail": "function naming"
-        },
-        {
-          "kind": "file",
-          "path": "packages/core/src/constitution/context.ts",
-          "detail": "function selectConstitutionContext"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Functions and local identifiers commonly use camelCase names.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Functions and local identifiers commonly use camelCase names.",
           "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "function buildPlanApprovalPreviewLines"
+            },
             {
               "kind": "file",
               "path": "packages/adapters/pi/src/extension.ts",
@@ -1542,11 +1576,6 @@
               "kind": "file",
               "path": "packages/core/src/constitution/areas.ts",
               "detail": "function naming"
-            },
-            {
-              "kind": "file",
-              "path": "packages/core/src/constitution/context.ts",
-              "detail": "function selectConstitutionContext"
             }
           ],
           "criticWarnings": []
@@ -1611,13 +1640,18 @@
       "evidence": [
         {
           "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "import type { PlanApprovalDecision, PlanApprovalResult } from \"@factory/core\""
+        },
+        {
+          "kind": "file",
           "path": "packages/adapters/pi/src/extension.ts",
           "detail": "import type { FactoryPiExtensionApiLike } from \"./types.js\""
         },
         {
           "kind": "file",
           "path": "packages/adapters/pi/src/gateway.ts",
-          "detail": "import {\n  discoverFactoryProject,\n  initializeFactoryProject,\n  loadEffectiveConfig,\n  cancelLatestFactoryRun,\n  cleanupFactoryRuns,\n  createGitWorktree,\n  inspectFactoryRun,\n  runConstitutionScan,\n  inspectGitIsolation,\n  listFactoryRuns,\n  readFactoryRunLogs,\n  readLatestFactoryRunLogs,\n  readLatestFactoryRunStatus,\n  readLatestFactoryRunSummary,\n  resumeLatestFactoryRun,\n  runFactoryDoctor,\n  runPrototypeFactoryFlow,\n  showFactoryRun,\n  type AgentExecutor,\n  type FactoryRunProgressEvent,\n} from \"@factory/core\""
+          "detail": "import {\n  discoverFactoryProject,\n  initializeFactoryProject,\n  loadEffectiveConfig,\n  cancelLatestFactoryRun,\n  cleanupFactoryRuns,\n  createGitWorktree,\n  inspectFactoryRun,\n  runConstitutionScan,\n  inspectGitIsolation,\n  listFactoryRuns,\n  readFactoryRunLogs,\n  readLatestFactoryRunLogs,\n  readLatestFactoryRunStatus,\n  readLatestFactoryRunSummary,\n  readLatestFactoryRunPlan,\n  resumeLatestFactoryRun,\n  runFactoryDoctor,\n  runPrototypeFactoryFlow,\n  showFactoryRun,\n  detectPiModelConfiguration,\n  type AgentExecutor,\n  type FactoryRunProgressEvent,\n} from \"@factory/core\""
         },
         {
           "kind": "file",
@@ -1643,11 +1677,6 @@
           "kind": "file",
           "path": "packages/core/src/config/paths.ts",
           "detail": "import path from \"node:path\""
-        },
-        {
-          "kind": "file",
-          "path": "packages/core/src/config/validate.ts",
-          "detail": "import type { EffectiveFactoryConfig } from \"@factory/schemas\""
         }
       ],
       "claims": [
@@ -1658,13 +1687,18 @@
           "evidence": [
             {
               "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "import type { PlanApprovalDecision, PlanApprovalResult } from \"@factory/core\""
+            },
+            {
+              "kind": "file",
               "path": "packages/adapters/pi/src/extension.ts",
               "detail": "import type { FactoryPiExtensionApiLike } from \"./types.js\""
             },
             {
               "kind": "file",
               "path": "packages/adapters/pi/src/gateway.ts",
-              "detail": "import {\n  discoverFactoryProject,\n  initializeFactoryProject,\n  loadEffectiveConfig,\n  cancelLatestFactoryRun,\n  cleanupFactoryRuns,\n  createGitWorktree,\n  inspectFactoryRun,\n  runConstitutionScan,\n  inspectGitIsolation,\n  listFactoryRuns,\n  readFactoryRunLogs,\n  readLatestFactoryRunLogs,\n  readLatestFactoryRunStatus,\n  readLatestFactoryRunSummary,\n  resumeLatestFactoryRun,\n  runFactoryDoctor,\n  runPrototypeFactoryFlow,\n  showFactoryRun,\n  type AgentExecutor,\n  type FactoryRunProgressEvent,\n} from \"@factory/core\""
+              "detail": "import {\n  discoverFactoryProject,\n  initializeFactoryProject,\n  loadEffectiveConfig,\n  cancelLatestFactoryRun,\n  cleanupFactoryRuns,\n  createGitWorktree,\n  inspectFactoryRun,\n  runConstitutionScan,\n  inspectGitIsolation,\n  listFactoryRuns,\n  readFactoryRunLogs,\n  readLatestFactoryRunLogs,\n  readLatestFactoryRunStatus,\n  readLatestFactoryRunSummary,\n  readLatestFactoryRunPlan,\n  resumeLatestFactoryRun,\n  runFactoryDoctor,\n  runPrototypeFactoryFlow,\n  showFactoryRun,\n  detectPiModelConfiguration,\n  type AgentExecutor,\n  type FactoryRunProgressEvent,\n} from \"@factory/core\""
             },
             {
               "kind": "file",
@@ -1690,11 +1724,6 @@
               "kind": "file",
               "path": "packages/core/src/config/paths.ts",
               "detail": "import path from \"node:path\""
-            },
-            {
-              "kind": "file",
-              "path": "packages/core/src/config/validate.ts",
-              "detail": "import type { EffectiveFactoryConfig } from \"@factory/schemas\""
             }
           ],
           "criticWarnings": []
@@ -1705,8 +1734,14 @@
       "id": 27,
       "title": "In-file organization",
       "status": "INFERRED",
+      "confidence": "LOW",
       "finding": "Files typically start with imports and expose named exports, suggesting conventional in-file organization.",
       "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "imports/exports present"
+        },
         {
           "kind": "file",
           "path": "packages/adapters/pi/src/extension.ts",
@@ -1731,20 +1766,19 @@
           "kind": "file",
           "path": "packages/core/src/config/loader.ts",
           "detail": "imports/exports present"
-        },
-        {
-          "kind": "file",
-          "path": "packages/core/src/config/merge.ts",
-          "detail": "imports/exports present"
         }
       ],
-      "confidence": "LOW",
       "claims": [
         {
+          "statement": "Files typically start with imports and expose named exports, suggesting conventional in-file organization.",
           "kind": "inferred",
           "confidence": "LOW",
-          "statement": "Files typically start with imports and expose named exports, suggesting conventional in-file organization.",
           "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "imports/exports present"
+            },
             {
               "kind": "file",
               "path": "packages/adapters/pi/src/extension.ts",
@@ -1769,11 +1803,6 @@
               "kind": "file",
               "path": "packages/core/src/config/loader.ts",
               "detail": "imports/exports present"
-            },
-            {
-              "kind": "file",
-              "path": "packages/core/src/config/merge.ts",
-              "detail": "imports/exports present"
             }
           ],
           "criticWarnings": []
@@ -1784,8 +1813,14 @@
       "id": 28,
       "title": "File size conventions",
       "status": "INFERRED",
+      "confidence": "LOW",
       "finding": "Repository appears to prefer multiple smaller source files over a single monolithic entrypoint, but explicit file size limits are not enforced.",
       "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "source file sample"
+        },
         {
           "kind": "file",
           "path": "packages/adapters/pi/src/extension.ts",
@@ -1810,20 +1845,19 @@
           "kind": "file",
           "path": "packages/core/src/config/defaults.ts",
           "detail": "source file sample"
-        },
-        {
-          "kind": "file",
-          "path": "packages/core/src/config/loader.ts",
-          "detail": "source file sample"
         }
       ],
-      "confidence": "LOW",
       "claims": [
         {
+          "statement": "Repository appears to prefer multiple smaller source files over a single monolithic entrypoint, but explicit file size limits are not enforced.",
           "kind": "inferred",
           "confidence": "LOW",
-          "statement": "Repository appears to prefer multiple smaller source files over a single monolithic entrypoint, but explicit file size limits are not enforced.",
           "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "source file sample"
+            },
             {
               "kind": "file",
               "path": "packages/adapters/pi/src/extension.ts",
@@ -1848,11 +1882,6 @@
               "kind": "file",
               "path": "packages/core/src/config/defaults.ts",
               "detail": "source file sample"
-            },
-            {
-              "kind": "file",
-              "path": "packages/core/src/config/loader.ts",
-              "detail": "source file sample"
             }
           ],
           "criticWarnings": []
@@ -1863,8 +1892,14 @@
       "id": 29,
       "title": "Function/method size conventions",
       "status": "UNCERTAIN",
+      "confidence": "LOW",
       "finding": "Functions are present, but deterministic function-size enforcement is not explicitly detectable from current heuristics.",
       "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "function sample"
+        },
         {
           "kind": "file",
           "path": "packages/adapters/pi/src/extension.ts",
@@ -1879,20 +1914,19 @@
           "kind": "file",
           "path": "packages/core/src/config/loader.ts",
           "detail": "function sample"
-        },
-        {
-          "kind": "file",
-          "path": "packages/core/src/config/merge.ts",
-          "detail": "function sample"
         }
       ],
-      "confidence": "LOW",
       "claims": [
         {
+          "statement": "Functions are present, but deterministic function-size enforcement is not explicitly detectable from current heuristics.",
           "kind": "unknown",
           "confidence": "LOW",
-          "statement": "Functions are present, but deterministic function-size enforcement is not explicitly detectable from current heuristics.",
           "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "function sample"
+            },
             {
               "kind": "file",
               "path": "packages/adapters/pi/src/extension.ts",
@@ -1906,11 +1940,6 @@
             {
               "kind": "file",
               "path": "packages/core/src/config/loader.ts",
-              "detail": "function sample"
-            },
-            {
-              "kind": "file",
-              "path": "packages/core/src/config/merge.ts",
               "detail": "function sample"
             }
           ],
@@ -2218,12 +2247,23 @@
       "id": 34,
       "title": "Layering/dependency direction",
       "status": "INFERRED",
+      "confidence": "MEDIUM",
       "finding": "Adapters and executors import core packages, suggesting inward dependency direction toward shared core logic.",
       "evidence": [
         {
           "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "imports @factory/core"
+        },
+        {
+          "kind": "file",
           "path": "packages/adapters/pi/src/gateway.ts",
           "detail": "imports @factory/core"
+        },
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "cross-package import @factory/core"
         },
         {
           "kind": "file",
@@ -2239,24 +2279,28 @@
           "kind": "file",
           "path": "packages/core/src/config/loader.ts",
           "detail": "cross-package import @factory/schemas"
-        },
-        {
-          "kind": "file",
-          "path": "packages/core/src/config/merge.ts",
-          "detail": "cross-package import @factory/schemas"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Adapters and executors import core packages, suggesting inward dependency direction toward shared core logic.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Adapters and executors import core packages, suggesting inward dependency direction toward shared core logic.",
           "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "imports @factory/core"
+            },
             {
               "kind": "file",
               "path": "packages/adapters/pi/src/gateway.ts",
               "detail": "imports @factory/core"
+            },
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "cross-package import @factory/core"
             },
             {
               "kind": "file",
@@ -2271,11 +2315,6 @@
             {
               "kind": "file",
               "path": "packages/core/src/config/loader.ts",
-              "detail": "cross-package import @factory/schemas"
-            },
-            {
-              "kind": "file",
-              "path": "packages/core/src/config/merge.ts",
               "detail": "cross-package import @factory/schemas"
             }
           ],
@@ -2494,8 +2533,14 @@
       "id": 38,
       "title": "Cross-module communication rules",
       "status": "INFERRED",
-      "finding": "Cross-module communication is primarily expressed through package imports such as @factory/core, @factory/schemas, @factory/schemas, @factory/schemas, @factory/schemas.",
+      "confidence": "MEDIUM",
+      "finding": "Cross-module communication is primarily expressed through package imports such as @factory/core, @factory/core, @factory/schemas, @factory/schemas, @factory/schemas.",
       "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "imports @factory/core"
+        },
         {
           "kind": "file",
           "path": "packages/adapters/pi/src/gateway.ts",
@@ -2530,20 +2575,19 @@
           "kind": "file",
           "path": "packages/core/src/project/discovery.ts",
           "detail": "imports @factory/schemas"
-        },
-        {
-          "kind": "file",
-          "path": "packages/core/src/runs/store.ts",
-          "detail": "imports @factory/schemas"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Cross-module communication is primarily expressed through package imports such as @factory/core, @factory/core, @factory/schemas, @factory/schemas, @factory/schemas.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Cross-module communication is primarily expressed through package imports such as @factory/core, @factory/schemas, @factory/schemas, @factory/schemas, @factory/schemas.",
           "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "imports @factory/core"
+            },
             {
               "kind": "file",
               "path": "packages/adapters/pi/src/gateway.ts",
@@ -2577,11 +2621,6 @@
             {
               "kind": "file",
               "path": "packages/core/src/project/discovery.ts",
-              "detail": "imports @factory/schemas"
-            },
-            {
-              "kind": "file",
-              "path": "packages/core/src/runs/store.ts",
               "detail": "imports @factory/schemas"
             }
           ],
@@ -3248,8 +3287,14 @@
       "id": 60,
       "title": "Graceful degradation/fallbacks",
       "status": "INFERRED",
-      "finding": "Fallback or graceful-degradation language detected in packages/core/src/git/worktree.ts, packages/core/src/runs/resume.ts, README.md.",
+      "confidence": "MEDIUM",
+      "finding": "Fallback or graceful-degradation language detected in packages/adapters/pi/src/approval.ts, packages/core/src/git/worktree.ts, packages/core/src/runs/resume.ts, packages/executors/pi/src/sdk-factory.ts, packages/executors/pi/src/types.ts.",
       "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "fallback"
+        },
         {
           "kind": "file",
           "path": "packages/core/src/git/worktree.ts",
@@ -3262,17 +3307,26 @@
         },
         {
           "kind": "file",
-          "path": "README.md",
+          "path": "packages/executors/pi/src/sdk-factory.ts",
+          "detail": "fallback"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/types.ts",
           "detail": "fallback"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Fallback or graceful-degradation language detected in packages/adapters/pi/src/approval.ts, packages/core/src/git/worktree.ts, packages/core/src/runs/resume.ts, packages/executors/pi/src/sdk-factory.ts, packages/executors/pi/src/types.ts.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Fallback or graceful-degradation language detected in packages/core/src/git/worktree.ts, packages/core/src/runs/resume.ts, README.md.",
           "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "fallback"
+            },
             {
               "kind": "file",
               "path": "packages/core/src/git/worktree.ts",
@@ -3285,7 +3339,12 @@
             },
             {
               "kind": "file",
-              "path": "README.md",
+              "path": "packages/executors/pi/src/sdk-factory.ts",
+              "detail": "fallback"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/types.ts",
               "detail": "fallback"
             }
           ],
@@ -3297,7 +3356,8 @@
       "id": 61,
       "title": "Health/readiness/liveness checks",
       "status": "INFERRED",
-      "finding": "Health, readiness, liveness, or diagnostic checks are referenced in packages/adapters/pi/src/gateway.ts, packages/core/src/doctor/check.ts, packages/core/src/index.ts, README.md.",
+      "confidence": "MEDIUM",
+      "finding": "Health, readiness, liveness, or diagnostic checks are referenced in packages/adapters/pi/src/gateway.ts, packages/core/src/doctor/check.ts, packages/core/src/index.ts, packages/executors/pi/src/executor.ts, packages/executors/pi/src/sdk-factory.ts.",
       "evidence": [
         {
           "kind": "file",
@@ -3316,16 +3376,30 @@
         },
         {
           "kind": "file",
+          "path": "packages/executors/pi/src/executor.ts",
+          "detail": "diagnostic"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/sdk-factory.ts",
+          "detail": "diagnostic"
+        },
+        {
+          "kind": "file",
+          "path": "packages/executors/pi/src/types.ts",
+          "detail": "Diagnostic"
+        },
+        {
+          "kind": "file",
           "path": "README.md",
           "detail": "doctor"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Health, readiness, liveness, or diagnostic checks are referenced in packages/adapters/pi/src/gateway.ts, packages/core/src/doctor/check.ts, packages/core/src/index.ts, packages/executors/pi/src/executor.ts, packages/executors/pi/src/sdk-factory.ts.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Health, readiness, liveness, or diagnostic checks are referenced in packages/adapters/pi/src/gateway.ts, packages/core/src/doctor/check.ts, packages/core/src/index.ts, README.md.",
           "evidence": [
             {
               "kind": "file",
@@ -3344,6 +3418,21 @@
             },
             {
               "kind": "file",
+              "path": "packages/executors/pi/src/executor.ts",
+              "detail": "diagnostic"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/sdk-factory.ts",
+              "detail": "diagnostic"
+            },
+            {
+              "kind": "file",
+              "path": "packages/executors/pi/src/types.ts",
+              "detail": "Diagnostic"
+            },
+            {
+              "kind": "file",
               "path": "README.md",
               "detail": "doctor"
             }
@@ -3355,45 +3444,51 @@
     {
       "id": 62,
       "title": "Idempotent operation handling",
-      "status": "INFERRED",
-      "finding": "Idempotency or replay-safe operation patterns detected in README.md.",
-      "evidence": [
-        {
-          "kind": "file",
-          "path": "README.md",
-          "detail": "resume event"
-        }
-      ],
-      "confidence": "MEDIUM",
+      "status": "NOT_DEFINED",
+      "finding": "No idempotent operation handling evidence detected.",
+      "evidence": [],
       "claims": [
         {
-          "kind": "inferred",
-          "confidence": "MEDIUM",
-          "statement": "Idempotency or replay-safe operation patterns detected in README.md.",
-          "evidence": [
-            {
-              "kind": "file",
-              "path": "README.md",
-              "detail": "resume event"
-            }
-          ],
+          "statement": "No idempotent operation handling evidence detected.",
+          "kind": "unknown",
+          "evidence": [],
           "criticWarnings": []
         }
+      ],
+      "driftWarnings": [
+        "Status changed from INFERRED to NOT_DEFINED based on current repository evidence."
       ]
     },
     {
       "id": 63,
       "title": "Authentication approach",
-      "status": "NOT_DEFINED",
-      "finding": "No authentication approach evidence detected.",
-      "evidence": [],
+      "status": "INFERRED",
+      "confidence": "MEDIUM",
+      "finding": "Authentication-related patterns detected in packages/adapters/pi/src/gateway.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/gateway.ts",
+          "detail": "auth"
+        }
+      ],
       "claims": [
         {
-          "kind": "unknown",
-          "statement": "No authentication approach evidence detected.",
-          "evidence": [],
+          "statement": "Authentication-related patterns detected in packages/adapters/pi/src/gateway.ts.",
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/gateway.ts",
+              "detail": "auth"
+            }
+          ],
           "criticWarnings": []
         }
+      ],
+      "driftWarnings": [
+        "Status changed from NOT_DEFINED to INFERRED based on current repository evidence."
       ]
     },
     {
@@ -3415,8 +3510,14 @@
       "id": 65,
       "title": "Input validation/sanitization",
       "status": "INFERRED",
-      "finding": "Validation or sanitization patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/paths.ts, packages/core/src/doctor/check.ts, packages/core/src/git/worktree.ts.",
+      "confidence": "MEDIUM",
+      "finding": "Validation or sanitization patterns detected in packages/adapters/pi/src/approval.ts, packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/paths.ts, packages/core/src/doctor/check.ts.",
       "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "sanitize"
+        },
         {
           "kind": "file",
           "path": "packages/adapters/pi/src/gateway.ts",
@@ -3451,20 +3552,19 @@
           "kind": "file",
           "path": "packages/core/src/runs/cancel.ts",
           "detail": "joi"
-        },
-        {
-          "kind": "file",
-          "path": "packages/core/src/runs/cleanup.ts",
-          "detail": "joi"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Validation or sanitization patterns detected in packages/adapters/pi/src/approval.ts, packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/paths.ts, packages/core/src/doctor/check.ts.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Validation or sanitization patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/paths.ts, packages/core/src/doctor/check.ts, packages/core/src/git/worktree.ts.",
           "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "sanitize"
+            },
             {
               "kind": "file",
               "path": "packages/adapters/pi/src/gateway.ts",
@@ -3499,11 +3599,6 @@
               "kind": "file",
               "path": "packages/core/src/runs/cancel.ts",
               "detail": "joi"
-            },
-            {
-              "kind": "file",
-              "path": "packages/core/src/runs/cleanup.ts",
-              "detail": "joi"
             }
           ],
           "criticWarnings": []
@@ -3513,16 +3608,43 @@
     {
       "id": 66,
       "title": "Output encoding/XSS controls",
-      "status": "NOT_DEFINED",
-      "finding": "No output encoding or XSS-control evidence detected.",
-      "evidence": [],
+      "status": "INFERRED",
+      "confidence": "MEDIUM",
+      "finding": "Output encoding or XSS-control evidence detected in packages/adapters/pi/src/approval.ts, packages/core/src/runtime/controller.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "sanitize"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runtime/controller.ts",
+          "detail": "sanitize"
+        }
+      ],
       "claims": [
         {
-          "kind": "unknown",
-          "statement": "No output encoding or XSS-control evidence detected.",
-          "evidence": [],
+          "statement": "Output encoding or XSS-control evidence detected in packages/adapters/pi/src/approval.ts, packages/core/src/runtime/controller.ts.",
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "sanitize"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/controller.ts",
+              "detail": "sanitize"
+            }
+          ],
           "criticWarnings": []
         }
+      ],
+      "driftWarnings": [
+        "Status changed from NOT_DEFINED to INFERRED based on current repository evidence."
       ]
     },
     {
@@ -3631,24 +3753,44 @@
       "id": 73,
       "title": "Test framework/tooling",
       "status": "DEFINED",
-      "confidence": "MEDIUM",
-      "finding": "Testing tooling is explicitly Node's built-in test runner: `tests/constitution.test.mjs` imports from `node:test`, and root `package.json` runs `node --test tests/**/*.test.mjs`.",
+      "confidence": "HIGH",
+      "finding": "Test tooling is explicitly the Node built-in test runner: root `package.json` uses `node --test tests/**/*.test.mjs`, and test files import `node:test` and `node:assert/strict`.",
       "evidence": [
         {
           "kind": "file",
           "path": "tests/constitution.test.mjs",
           "detail": "test framework evidence"
+        },
+        {
+          "kind": "file",
+          "path": "tests/pi-adapter.test.mjs",
+          "detail": "test framework evidence"
+        },
+        {
+          "kind": "file",
+          "path": "tests/runtime.test.mjs",
+          "detail": "test framework evidence"
         }
       ],
       "claims": [
         {
-          "statement": "Testing tooling is explicitly Node's built-in test runner: `tests/constitution.test.mjs` imports from `node:test`, and root `package.json` runs `node --test tests/**/*.test.mjs`.",
+          "statement": "Test tooling is explicitly the Node built-in test runner: root `package.json` uses `node --test tests/**/*.test.mjs`, and test files import `node:test` and `node:assert/strict`.",
           "kind": "observed",
-          "confidence": "MEDIUM",
+          "confidence": "HIGH",
           "evidence": [
             {
               "kind": "file",
               "path": "tests/constitution.test.mjs",
+              "detail": "test framework evidence"
+            },
+            {
+              "kind": "file",
+              "path": "tests/pi-adapter.test.mjs",
+              "detail": "test framework evidence"
+            },
+            {
+              "kind": "file",
+              "path": "tests/runtime.test.mjs",
               "detail": "test framework evidence"
             }
           ],
@@ -3660,24 +3802,44 @@
       "id": 74,
       "title": "Unit test conventions",
       "status": "INFERRED",
-      "finding": "Unit-style tests detected in tests/constitution.test.mjs.",
+      "confidence": "MEDIUM",
+      "finding": "Unit-style tests detected in tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.",
       "evidence": [
         {
           "kind": "file",
           "path": "tests/constitution.test.mjs",
           "detail": "unit-style test"
+        },
+        {
+          "kind": "file",
+          "path": "tests/pi-adapter.test.mjs",
+          "detail": "unit-style test"
+        },
+        {
+          "kind": "file",
+          "path": "tests/runtime.test.mjs",
+          "detail": "unit-style test"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Unit-style tests detected in tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Unit-style tests detected in tests/constitution.test.mjs.",
           "evidence": [
             {
               "kind": "file",
               "path": "tests/constitution.test.mjs",
+              "detail": "unit-style test"
+            },
+            {
+              "kind": "file",
+              "path": "tests/pi-adapter.test.mjs",
+              "detail": "unit-style test"
+            },
+            {
+              "kind": "file",
+              "path": "tests/runtime.test.mjs",
               "detail": "unit-style test"
             }
           ],
@@ -3719,24 +3881,44 @@
       "id": 77,
       "title": "Test naming/location conventions",
       "status": "DEFINED",
-      "finding": "Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs.",
+      "confidence": "HIGH",
+      "finding": "Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.",
       "evidence": [
         {
           "kind": "file",
           "path": "tests/constitution.test.mjs",
           "detail": "test naming/location"
+        },
+        {
+          "kind": "file",
+          "path": "tests/pi-adapter.test.mjs",
+          "detail": "test naming/location"
+        },
+        {
+          "kind": "file",
+          "path": "tests/runtime.test.mjs",
+          "detail": "test naming/location"
         }
       ],
-      "confidence": "HIGH",
       "claims": [
         {
+          "statement": "Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.",
           "kind": "observed",
           "confidence": "HIGH",
-          "statement": "Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs.",
           "evidence": [
             {
               "kind": "file",
               "path": "tests/constitution.test.mjs",
+              "detail": "test naming/location"
+            },
+            {
+              "kind": "file",
+              "path": "tests/pi-adapter.test.mjs",
+              "detail": "test naming/location"
+            },
+            {
+              "kind": "file",
+              "path": "tests/runtime.test.mjs",
               "detail": "test naming/location"
             }
           ],
@@ -3777,25 +3959,45 @@
       "id": 79,
       "title": "Test data/factory/fixture strategy",
       "status": "INFERRED",
-      "finding": "Fixture/factory/test-data patterns detected in tests/constitution.test.mjs.",
+      "confidence": "MEDIUM",
+      "finding": "Fixture/factory/test-data patterns detected in tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.",
       "evidence": [
         {
           "kind": "file",
           "path": "tests/constitution.test.mjs",
           "detail": "factory"
+        },
+        {
+          "kind": "file",
+          "path": "tests/pi-adapter.test.mjs",
+          "detail": "factory"
+        },
+        {
+          "kind": "file",
+          "path": "tests/runtime.test.mjs",
+          "detail": "Factory"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Fixture/factory/test-data patterns detected in tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Fixture/factory/test-data patterns detected in tests/constitution.test.mjs.",
           "evidence": [
             {
               "kind": "file",
               "path": "tests/constitution.test.mjs",
               "detail": "factory"
+            },
+            {
+              "kind": "file",
+              "path": "tests/pi-adapter.test.mjs",
+              "detail": "factory"
+            },
+            {
+              "kind": "file",
+              "path": "tests/runtime.test.mjs",
+              "detail": "Factory"
             }
           ],
           "criticWarnings": []
@@ -3840,9 +4042,6 @@
           ],
           "criticWarnings": []
         }
-      ],
-      "driftWarnings": [
-        "Finding changed for this impacted area during refresh."
       ]
     },
     {
@@ -3866,15 +4065,18 @@
       "id": 83,
       "title": "Linting rules/tooling",
       "status": "NOT_DEFINED",
-      "finding": "No ESLint, Prettier, Biome, or similar linting configuration or lint script is present in the provided repository evidence.",
+      "finding": "No linting rules/tooling detected.",
       "evidence": [],
       "claims": [
         {
-          "statement": "No ESLint, Prettier, Biome, or similar linting configuration or lint script is present in the provided repository evidence.",
+          "statement": "No linting rules/tooling detected.",
           "kind": "unknown",
           "evidence": [],
           "criticWarnings": []
         }
+      ],
+      "driftWarnings": [
+        "Finding changed for this impacted area during refresh."
       ]
     },
     {
@@ -3975,9 +4177,6 @@
           ],
           "criticWarnings": []
         }
-      ],
-      "driftWarnings": [
-        "Finding changed for this impacted area during refresh."
       ]
     },
     {
@@ -4105,16 +4304,33 @@
     {
       "id": 94,
       "title": "Logging format/conventions",
-      "status": "NOT_DEFINED",
-      "finding": "No logging format or convention evidence detected.",
-      "evidence": [],
+      "status": "INFERRED",
+      "confidence": "MEDIUM",
+      "finding": "Logging patterns detected in packages/adapters/pi/src/approval.ts.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "log("
+        }
+      ],
       "claims": [
         {
-          "kind": "unknown",
-          "statement": "No logging format or convention evidence detected.",
-          "evidence": [],
+          "statement": "Logging patterns detected in packages/adapters/pi/src/approval.ts.",
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "log("
+            }
+          ],
           "criticWarnings": []
         }
+      ],
+      "driftWarnings": [
+        "Status changed from NOT_DEFINED to INFERRED based on current repository evidence."
       ]
     },
     {
@@ -4280,21 +4496,31 @@
       "id": 100,
       "title": "Caching strategy",
       "status": "INFERRED",
-      "finding": "Caching-related patterns detected in packages/executors/pi/src/sdk-factory.ts.",
+      "confidence": "MEDIUM",
+      "finding": "Caching-related patterns detected in packages/adapters/pi/src/approval.ts, packages/executors/pi/src/sdk-factory.ts.",
       "evidence": [
+        {
+          "kind": "file",
+          "path": "packages/adapters/pi/src/approval.ts",
+          "detail": "cache"
+        },
         {
           "kind": "file",
           "path": "packages/executors/pi/src/sdk-factory.ts",
           "detail": "lRu"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Caching-related patterns detected in packages/adapters/pi/src/approval.ts, packages/executors/pi/src/sdk-factory.ts.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Caching-related patterns detected in packages/executors/pi/src/sdk-factory.ts.",
           "evidence": [
+            {
+              "kind": "file",
+              "path": "packages/adapters/pi/src/approval.ts",
+              "detail": "cache"
+            },
             {
               "kind": "file",
               "path": "packages/executors/pi/src/sdk-factory.ts",
@@ -4309,7 +4535,8 @@
       "id": 101,
       "title": "Async/background work",
       "status": "INFERRED",
-      "finding": "Async or background-work patterns detected in packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/schemas/src/config.ts.",
+      "confidence": "MEDIUM",
+      "finding": "Async or background-work patterns detected in packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/runtime/controller.ts, packages/schemas/src/config.ts.",
       "evidence": [
         {
           "kind": "file",
@@ -4323,16 +4550,20 @@
         },
         {
           "kind": "file",
+          "path": "packages/core/src/runtime/controller.ts",
+          "detail": "bull"
+        },
+        {
+          "kind": "file",
           "path": "packages/schemas/src/config.ts",
           "detail": "Worker"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Async or background-work patterns detected in packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/runtime/controller.ts, packages/schemas/src/config.ts.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Async or background-work patterns detected in packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/schemas/src/config.ts.",
           "evidence": [
             {
               "kind": "file",
@@ -4343,6 +4574,11 @@
               "kind": "file",
               "path": "packages/core/src/config/merge.ts",
               "detail": "Worker"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runtime/controller.ts",
+              "detail": "bull"
             },
             {
               "kind": "file",
@@ -4421,23 +4657,41 @@
     {
       "id": 104,
       "title": "Performance profiling/benchmarking",
-      "status": "NOT_DEFINED",
-      "finding": "No performance profiling or benchmarking evidence detected.",
-      "evidence": [],
+      "status": "INFERRED",
+      "confidence": "MEDIUM",
+      "finding": "Performance profiling or benchmarking patterns detected in README.md.",
+      "evidence": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "perf"
+        }
+      ],
       "claims": [
         {
-          "kind": "unknown",
-          "statement": "No performance profiling or benchmarking evidence detected.",
-          "evidence": [],
+          "statement": "Performance profiling or benchmarking patterns detected in README.md.",
+          "kind": "inferred",
+          "confidence": "MEDIUM",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "perf"
+            }
+          ],
           "criticWarnings": []
         }
+      ],
+      "driftWarnings": [
+        "Status changed from NOT_DEFINED to INFERRED based on current repository evidence."
       ]
     },
     {
       "id": 105,
       "title": "Scalability/concurrency conventions",
       "status": "INFERRED",
-      "finding": "Concurrency or scalability-oriented patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runtime/controller.ts.",
+      "confidence": "MEDIUM",
+      "finding": "Concurrency or scalability-oriented patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runs/logs-by-id.ts.",
       "evidence": [
         {
           "kind": "file",
@@ -4461,6 +4715,16 @@
         },
         {
           "kind": "file",
+          "path": "packages/core/src/runs/logs-by-id.ts",
+          "detail": "batch"
+        },
+        {
+          "kind": "file",
+          "path": "packages/core/src/runs/show.ts",
+          "detail": "batch"
+        },
+        {
+          "kind": "file",
           "path": "packages/core/src/runtime/controller.ts",
           "detail": "maxParallel"
         },
@@ -4468,19 +4732,13 @@
           "kind": "file",
           "path": "packages/core/src/setup/init.ts",
           "detail": "maxParallel"
-        },
-        {
-          "kind": "file",
-          "path": "packages/schemas/src/config.ts",
-          "detail": "maxParallel"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Concurrency or scalability-oriented patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runs/logs-by-id.ts.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Concurrency or scalability-oriented patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runtime/controller.ts.",
           "evidence": [
             {
               "kind": "file",
@@ -4504,17 +4762,22 @@
             },
             {
               "kind": "file",
+              "path": "packages/core/src/runs/logs-by-id.ts",
+              "detail": "batch"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/show.ts",
+              "detail": "batch"
+            },
+            {
+              "kind": "file",
               "path": "packages/core/src/runtime/controller.ts",
               "detail": "maxParallel"
             },
             {
               "kind": "file",
               "path": "packages/core/src/setup/init.ts",
-              "detail": "maxParallel"
-            },
-            {
-              "kind": "file",
-              "path": "packages/schemas/src/config.ts",
               "detail": "maxParallel"
             }
           ],
@@ -4526,55 +4789,55 @@
       "id": 106,
       "title": "Branch naming/workflow",
       "status": "INFERRED",
-      "finding": "Branch names suggest a task- or feature-oriented workflow, e.g. create-a-prototype-implementation-plan-1787389718933, create-a-prototype-implementation-plan-1787389899712, create-a-prototype-implementation-plan-1787390395486, create-a-prototype-implementation-plan-1787390432329, create-a-prototype-implementation-plan-1787390588229.",
+      "confidence": "MEDIUM",
+      "finding": "Branch names suggest a task- or feature-oriented workflow, e.g. add-a-factory-plan-command-that-shows-th-1787400231913-task-2, add-a-regression-test-for-constitution-r-1787399886195-task-2, create-a-prototype-implementation-plan-1787389718933, create-a-prototype-implementation-plan-1787389899712, create-a-prototype-implementation-plan-1787390395486.",
       "evidence": [
         {
-          "kind": "file",
+          "kind": "pattern",
+          "detail": "branch: add-a-factory-plan-command-that-shows-th-1787400231913-task-2"
+        },
+        {
+          "kind": "pattern",
+          "detail": "branch: add-a-regression-test-for-constitution-r-1787399886195-task-2"
+        },
+        {
+          "kind": "pattern",
           "detail": "branch: create-a-prototype-implementation-plan-1787389718933"
         },
         {
-          "kind": "file",
+          "kind": "pattern",
           "detail": "branch: create-a-prototype-implementation-plan-1787389899712"
         },
         {
-          "kind": "file",
+          "kind": "pattern",
           "detail": "branch: create-a-prototype-implementation-plan-1787390395486"
-        },
-        {
-          "kind": "file",
-          "detail": "branch: create-a-prototype-implementation-plan-1787390432329"
-        },
-        {
-          "kind": "file",
-          "detail": "branch: create-a-prototype-implementation-plan-1787390588229"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Branch names suggest a task- or feature-oriented workflow, e.g. add-a-factory-plan-command-that-shows-th-1787400231913-task-2, add-a-regression-test-for-constitution-r-1787399886195-task-2, create-a-prototype-implementation-plan-1787389718933, create-a-prototype-implementation-plan-1787389899712, create-a-prototype-implementation-plan-1787390395486.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Branch names suggest a task- or feature-oriented workflow, e.g. create-a-prototype-implementation-plan-1787389718933, create-a-prototype-implementation-plan-1787389899712, create-a-prototype-implementation-plan-1787390395486, create-a-prototype-implementation-plan-1787390432329, create-a-prototype-implementation-plan-1787390588229.",
           "evidence": [
             {
-              "kind": "file",
+              "kind": "pattern",
+              "detail": "branch: add-a-factory-plan-command-that-shows-th-1787400231913-task-2"
+            },
+            {
+              "kind": "pattern",
+              "detail": "branch: add-a-regression-test-for-constitution-r-1787399886195-task-2"
+            },
+            {
+              "kind": "pattern",
               "detail": "branch: create-a-prototype-implementation-plan-1787389718933"
             },
             {
-              "kind": "file",
+              "kind": "pattern",
               "detail": "branch: create-a-prototype-implementation-plan-1787389899712"
             },
             {
-              "kind": "file",
+              "kind": "pattern",
               "detail": "branch: create-a-prototype-implementation-plan-1787390395486"
-            },
-            {
-              "kind": "file",
-              "detail": "branch: create-a-prototype-implementation-plan-1787390432329"
-            },
-            {
-              "kind": "file",
-              "detail": "branch: create-a-prototype-implementation-plan-1787390588229"
             }
           ],
           "criticWarnings": []
@@ -4585,47 +4848,47 @@
       "id": 107,
       "title": "Commit message conventions",
       "status": "INFERRED",
-      "finding": "Recent commit subjects appear free-form, e.g. Deepen constitution evaluator coverage and add regression tests | Add hybrid constitution engine and context-driven runtime | Add worktree-aware runtime and builder executor flow | Add reviewer executor phase to prototype runtime.",
+      "confidence": "LOW",
+      "finding": "Recent commit subjects appear free-form, e.g. Refresh handoff docs for current runtime and constitution state | Polish Pi plan approval interaction | Improve resume semantics and plan feedback visibility | Refresh README for plan-first runtime and constitution flow.",
       "evidence": [
         {
-          "kind": "file",
-          "detail": "commit: Deepen constitution evaluator coverage and add regression tests"
+          "kind": "pattern",
+          "detail": "commit: Refresh handoff docs for current runtime and constitution state"
         },
         {
-          "kind": "file",
-          "detail": "commit: Add hybrid constitution engine and context-driven runtime"
+          "kind": "pattern",
+          "detail": "commit: Polish Pi plan approval interaction"
         },
         {
-          "kind": "file",
-          "detail": "commit: Add worktree-aware runtime and builder executor flow"
+          "kind": "pattern",
+          "detail": "commit: Improve resume semantics and plan feedback visibility"
         },
         {
-          "kind": "file",
-          "detail": "commit: Add reviewer executor phase to prototype runtime"
+          "kind": "pattern",
+          "detail": "commit: Refresh README for plan-first runtime and constitution flow"
         }
       ],
-      "confidence": "LOW",
       "claims": [
         {
+          "statement": "Recent commit subjects appear free-form, e.g. Refresh handoff docs for current runtime and constitution state | Polish Pi plan approval interaction | Improve resume semantics and plan feedback visibility | Refresh README for plan-first runtime and constitution flow.",
           "kind": "inferred",
           "confidence": "LOW",
-          "statement": "Recent commit subjects appear free-form, e.g. Deepen constitution evaluator coverage and add regression tests | Add hybrid constitution engine and context-driven runtime | Add worktree-aware runtime and builder executor flow | Add reviewer executor phase to prototype runtime.",
           "evidence": [
             {
-              "kind": "file",
-              "detail": "commit: Deepen constitution evaluator coverage and add regression tests"
+              "kind": "pattern",
+              "detail": "commit: Refresh handoff docs for current runtime and constitution state"
             },
             {
-              "kind": "file",
-              "detail": "commit: Add hybrid constitution engine and context-driven runtime"
+              "kind": "pattern",
+              "detail": "commit: Polish Pi plan approval interaction"
             },
             {
-              "kind": "file",
-              "detail": "commit: Add worktree-aware runtime and builder executor flow"
+              "kind": "pattern",
+              "detail": "commit: Improve resume semantics and plan feedback visibility"
             },
             {
-              "kind": "file",
-              "detail": "commit: Add reviewer executor phase to prototype runtime"
+              "kind": "pattern",
+              "detail": "commit: Refresh README for plan-first runtime and constitution flow"
             }
           ],
           "criticWarnings": []
@@ -4728,6 +4991,19 @@
           "criticWarnings": []
         },
         {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "approval"
+            }
+          ],
+          "criticWarnings": []
+        },
+        {
           "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
           "kind": "conflict",
           "confidence": "MEDIUM",
@@ -4779,6 +5055,13 @@
           "criticWarnings": []
         },
         {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
+          "evidence": [],
+          "criticWarnings": []
+        },
+        {
           "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
           "kind": "conflict",
           "confidence": "MEDIUM",
@@ -4799,6 +5082,13 @@
         {
           "kind": "unknown",
           "statement": "No CODEOWNERS evidence detected.",
+          "evidence": [],
+          "criticWarnings": []
+        },
+        {
+          "kind": "conflict",
+          "confidence": "MEDIUM",
+          "statement": "Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.",
           "evidence": [],
           "criticWarnings": []
         },
@@ -4897,30 +5187,19 @@
     {
       "id": 116,
       "title": "Rollback/recovery strategy",
-      "status": "INFERRED",
-      "finding": "Rollback or recovery guidance detected in README.md.",
-      "evidence": [
-        {
-          "kind": "file",
-          "path": "README.md",
-          "detail": "recover"
-        }
-      ],
-      "confidence": "MEDIUM",
+      "status": "NOT_DEFINED",
+      "finding": "No rollback or recovery strategy evidence detected.",
+      "evidence": [],
       "claims": [
         {
-          "kind": "inferred",
-          "confidence": "MEDIUM",
-          "statement": "Rollback or recovery guidance detected in README.md.",
-          "evidence": [
-            {
-              "kind": "file",
-              "path": "README.md",
-              "detail": "recover"
-            }
-          ],
+          "statement": "No rollback or recovery strategy evidence detected.",
+          "kind": "unknown",
+          "evidence": [],
           "criticWarnings": []
         }
+      ],
+      "driftWarnings": [
+        "Status changed from INFERRED to NOT_DEFINED based on current repository evidence."
       ]
     },
     {
@@ -4942,7 +5221,8 @@
       "id": 118,
       "title": "Audit/retention/access logging controls",
       "status": "INFERRED",
-      "finding": "Audit, retention, or access-logging evidence detected in README.md, packages/core/src/runs/cancel.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/resume.ts, packages/core/src/runs/store.ts.",
+      "confidence": "MEDIUM",
+      "finding": "Audit, retention, or access-logging evidence detected in README.md, packages/core/src/runs/cancel.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/resume.ts, packages/core/src/runs/show.ts.",
       "evidence": [
         {
           "kind": "file",
@@ -4966,6 +5246,11 @@
         },
         {
           "kind": "file",
+          "path": "packages/core/src/runs/show.ts",
+          "detail": "events.jsonl"
+        },
+        {
+          "kind": "file",
           "path": "packages/core/src/runs/store.ts",
           "detail": "events.jsonl"
         },
@@ -4980,12 +5265,11 @@
           "detail": "appendFactoryRunEvent"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Audit, retention, or access-logging evidence detected in README.md, packages/core/src/runs/cancel.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/resume.ts, packages/core/src/runs/show.ts.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Audit, retention, or access-logging evidence detected in README.md, packages/core/src/runs/cancel.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/resume.ts, packages/core/src/runs/store.ts.",
           "evidence": [
             {
               "kind": "file",
@@ -5006,6 +5290,11 @@
               "kind": "file",
               "path": "packages/core/src/runs/resume.ts",
               "detail": "appendFactoryRunEvent"
+            },
+            {
+              "kind": "file",
+              "path": "packages/core/src/runs/show.ts",
+              "detail": "events.jsonl"
             },
             {
               "kind": "file",
@@ -5031,8 +5320,14 @@
       "id": 119,
       "title": "Complexity/duplication/technical-debt controls",
       "status": "INFERRED",
-      "finding": "Technical-debt or cleanup signals appear in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runs/cleanup.ts.",
+      "confidence": "MEDIUM",
+      "finding": "Technical-debt or cleanup signals appear in README.md, packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts.",
       "evidence": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "detail": "cleanup"
+        },
         {
           "kind": "file",
           "path": "packages/adapters/pi/src/gateway.ts",
@@ -5069,13 +5364,17 @@
           "detail": "cleanup"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Technical-debt or cleanup signals appear in README.md, packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Technical-debt or cleanup signals appear in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runs/cleanup.ts.",
           "evidence": [
+            {
+              "kind": "file",
+              "path": "README.md",
+              "detail": "cleanup"
+            },
             {
               "kind": "file",
               "path": "packages/adapters/pi/src/gateway.ts",
@@ -5120,12 +5419,13 @@
       "id": 120,
       "title": "Simplicity/reuse/anti-overengineering conventions",
       "status": "INFERRED",
+      "confidence": "MEDIUM",
       "finding": "Simplicity, reuse, or minimalism language detected in README.md, packages/adapters/pi/src/gateway.ts, packages/core/src/runtime/artifacts.ts, packages/core/src/runtime/controller.ts, packages/core/src/runtime/index.ts.",
       "evidence": [
         {
           "kind": "file",
           "path": "README.md",
-          "detail": "minimal"
+          "detail": "reuse"
         },
         {
           "kind": "file",
@@ -5168,17 +5468,16 @@
           "detail": "shared core package"
         }
       ],
-      "confidence": "MEDIUM",
       "claims": [
         {
+          "statement": "Simplicity, reuse, or minimalism language detected in README.md, packages/adapters/pi/src/gateway.ts, packages/core/src/runtime/artifacts.ts, packages/core/src/runtime/controller.ts, packages/core/src/runtime/index.ts.",
           "kind": "inferred",
           "confidence": "MEDIUM",
-          "statement": "Simplicity, reuse, or minimalism language detected in README.md, packages/adapters/pi/src/gateway.ts, packages/core/src/runtime/artifacts.ts, packages/core/src/runtime/controller.ts, packages/core/src/runtime/index.ts.",
           "evidence": [
             {
               "kind": "file",
               "path": "README.md",
-              "detail": "minimal"
+              "detail": "reuse"
             },
             {
               "kind": "file",

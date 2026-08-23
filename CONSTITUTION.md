@@ -8,41 +8,37 @@
 - Docs roots: README.md
 - API files: 0
 - Data files: 0
-- Tests: 1
+- Tests: 3
 - CI: not detected
 - Deterministic areas evaluated: 120
 - Refresh mode: FAST
-- Changed files: 19
-- Impacted areas: 1, 2, 3, 4, 9, 10, 11, 20, 73, 81, 83, 85
+- Changed files: 47
+- Impacted areas: 1, 2, 3, 4, 5, 9, 10, 11, 20, 73, 81, 83, 85
 - Reused areas: none
 - Critic warnings: 0
 
 ## Interpretation
-Brief repository-constitution summary from repo evidence:
+Brief architecture/conventions summary:
 
-- **Layout / architecture:** This is a small **npm workspace monorepo** rooted at `package.json`, with TypeScript project references in `tsconfig.json` pointing at `packages/schemas`, `packages/core`, `packages/adapters/pi`, `packages/executors/fake`, and `packages/executors/pi`.
-- **Package roles:**  
-  - `packages/schemas/src` holds shared schema/types.  
-  - `packages/core/src` is the main domain package: config loading/merge/validation, constitution scanning, doctor, git/worktree support, setup, runs, and runtime control.  
-  - `packages/adapters/pi/src` contains the Pi adapter/extension-facing layer.  
-  - `packages/executors/fake/src` and `packages/executors/pi/src` provide executor implementations/harnesses.
-- **Source organization:** Each package follows `src/**/*.ts` with `rootDir: "src"` and `outDir: "dist"` in package `tsconfig.json` files. Root build/typecheck uses `tsc -b`, so static analysis is TypeScript composite-project based.
-- **Testing:** Tests live under `tests/`; naming is `*.test.mjs` at least at root (`tests/constitution.test.mjs`). The actual framework is **Node’s built-in test runner** (`node:test`), invoked via root script: `npm test` = `npm run build && node --test tests/**/*.test.mjs`. Tests import compiled output from `packages/core/dist/...`, so build-before-test is part of convention.
-- **Package/tooling conventions:** Package manager is clearly **npm** (`package-lock.json`, root scripts). Manifest conventions are standard per-package `package.json` plus per-package `tsconfig.json`.
-- **Module/dependency conventions:** Packages are ESM (`"type": "module"` everywhere). Internal package dependencies are explicit and directional: `core` depends on `schemas`; executors depend on `core`/`schemas`; Pi adapter depends on `core`, `schemas`, and Pi executor.
-- **Bootstrap/build:** Evidence shows local development is centered on `npm install`, `npm run build`, `npm run typecheck`, `npm test`, plus harness scripts `harness:pi-executor` and `harness:pi-runtime`.
+- `package.json` defines an npm workspace monorepo (`workspaces: ["packages/*"]`) with package roots in `packages/`.
+- `tsconfig.json` uses project references to `packages/schemas`, `packages/core`, `packages/adapters/pi`, `packages/executors/fake`, and `packages/executors/pi`.
+- Each package follows `src/` → `dist/` TypeScript compilation with composite builds, `module: "NodeNext"`, `target: "ES2022"`, and `strict: true` in package `tsconfig.json` files.
+- Dependency layering is package-based: `@factory/core` depends on `@factory/schemas`; `@factory/adapter-pi` depends on core/schemas/executor-pi; executors depend inward on core/schemas.
+- Root scripts are script-driven via npm: `build`, `typecheck`, `test`, plus Pi harness commands in `package.json`.
+- Tests live in `tests/*.test.mjs`, use Node’s built-in test runner (`node --test`) and `node:test` / `node:assert`, and exercise built artifacts from `packages/*/dist`.
+- README documents a plan-first runtime, deterministic run artifacts under `.factory/runs/<run-id>/`, and a constitution pipeline writing `.factory/constitution/facts.json` and `CONSTITUTION.md`.
 
-**Ambiguity explicitly noted:**
-- `README.md` describes project focus and runtime/setup behavior, but does **not** give a full step-by-step developer bootstrap guide.
-- No lint or format tool/config is present in the provided manifests/files, so **linting conventions are not defined** by evidence.
-- `packages/executors/pi/src` contains checked-in `.js`/`.d.ts` alongside `.ts`, which makes generated-file handling somewhat ambiguous from the available evidence.
+Ambiguity:
+- No repo-level CI config was provided.
+- No repo-level ESLint or Prettier config was found, even though runtime config supports verification/lint command slots.
+- Documentation structure beyond root markdown files and `README.md` is only partially explicit.
 
 ## Project Snapshot
 - Root: D:/projects/pi-factory
 - Languages: JavaScript, TypeScript
 - Package managers: npm
-- Tracked files: 120
-- Test files: 1
+- Tracked files: 126
+- Test files: 3
 - CI files: 0
 - Docs files: 1
 - Script/tool files: 0
@@ -60,15 +56,15 @@ Brief repository-constitution summary from repo evidence:
 
 ## 1. Repository layout
 - Status: DEFINED
-- Finding: Tracked repository with 120 files and source roots in packages.
+- Finding: Tracked repository with 126 files and source roots in packages.
 - Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: packages — source root
-- Claim: [observed] Tracked repository with 120 files and source roots in packages.
+- Claim: [observed] Tracked repository with 126 files and source roots in packages.
   - Claim evidence: packages — source root
 
 ## 2. Monorepo / single-project model
 - Status: DEFINED (HIGH)
-- Finding: Root `package.json` declares `workspaces: ["packages/*"]`, and root `tsconfig.json` references multiple package projects, so the repository model is explicitly a monorepo.
+- Finding: Repository uses a package-based npm workspace monorepo model, defined by `package.json` workspaces and reinforced by TypeScript project references in `tsconfig.json`.
 - Evidence: package.json — workspace/manifests
 - Evidence: packages/adapters/pi/package.json — workspace/manifests
 - Evidence: packages/adapters/pi/tsconfig.json — workspace/manifests
@@ -81,7 +77,7 @@ Brief repository-constitution summary from repo evidence:
 - Evidence: packages/schemas/package.json — workspace/manifests
 - Evidence: packages/schemas/tsconfig.json — workspace/manifests
 - Evidence: tsconfig.json — workspace/manifests
-- Claim: [observed/HIGH] Root `package.json` declares `workspaces: ["packages/*"]`, and root `tsconfig.json` references multiple package projects, so the repository model is explicitly a monorepo.
+- Claim: [observed/HIGH] Repository uses a package-based npm workspace monorepo model, defined by `package.json` workspaces and reinforced by TypeScript project references in `tsconfig.json`.
   - Claim evidence: package.json — workspace/manifests
   - Claim evidence: packages/adapters/pi/package.json — workspace/manifests
   - Claim evidence: packages/adapters/pi/tsconfig.json — workspace/manifests
@@ -98,17 +94,20 @@ Brief repository-constitution summary from repo evidence:
 ## 3. Source directory organization
 - Status: DEFINED
 - Finding: Detected source roots: packages.
-- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: packages — source organization
 - Claim: [observed] Detected source roots: packages.
   - Claim evidence: packages — source organization
 
 ## 4. Test directory organization
 - Status: DEFINED (HIGH)
-- Finding: Test organization is explicitly evidenced by root `tests/` and `tests/constitution.test.mjs`, with root `package.json` running `node --test tests/**/*.test.mjs`.
+- Finding: Tests are explicitly organized under the top-level `tests/` directory with `*.test.mjs` naming, and the root `test` script runs them via `node --test tests/**/*.test.mjs`.
 - Evidence: tests/constitution.test.mjs — test organization
-- Claim: [observed/HIGH] Test organization is explicitly evidenced by root `tests/` and `tests/constitution.test.mjs`, with root `package.json` running `node --test tests/**/*.test.mjs`.
+- Evidence: tests/pi-adapter.test.mjs — test organization
+- Evidence: tests/runtime.test.mjs — test organization
+- Claim: [observed/HIGH] Tests are explicitly organized under the top-level `tests/` directory with `*.test.mjs` naming, and the root `test` script runs them via `node --test tests/**/*.test.mjs`.
   - Claim evidence: tests/constitution.test.mjs — test organization
+  - Claim evidence: tests/pi-adapter.test.mjs — test organization
+  - Claim evidence: tests/runtime.test.mjs — test organization
 
 ## 5. Documentation organization
 - Status: DEFINED
@@ -125,7 +124,6 @@ Brief repository-constitution summary from repo evidence:
 ## 7. Generated/build directory handling
 - Status: NOT_DEFINED
 - Finding: No generated/build output handling evidence detected.
-- Drift warning: Status changed from INFERRED to NOT_DEFINED based on current repository evidence.
 - Claim: [unknown] No generated/build output handling evidence detected.
 
 ## 8. Asset/static file organization
@@ -136,7 +134,6 @@ Brief repository-constitution summary from repo evidence:
 ## 9. Package/dependency manager
 - Status: DEFINED
 - Finding: Detected package managers: npm.
-- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: package.json — package manager evidence
 - Evidence: packages/adapters/pi/package.json — package manager evidence
 - Evidence: packages/adapters/pi/tsconfig.json — package manager evidence
@@ -168,7 +165,6 @@ Brief repository-constitution summary from repo evidence:
 ## 10. Manifest files
 - Status: DEFINED
 - Finding: Detected manifests: package.json, packages/adapters/pi/package.json, packages/adapters/pi/tsconfig.json, packages/core/package.json, packages/core/tsconfig.json, packages/executors/fake/package.json, packages/executors/fake/tsconfig.json, packages/executors/pi/package.json, packages/executors/pi/tsconfig.json, packages/schemas/package.json, packages/schemas/tsconfig.json, tsconfig.json.
-- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: package.json — manifest file
 - Evidence: packages/adapters/pi/package.json — manifest file
 - Evidence: packages/adapters/pi/tsconfig.json — manifest file
@@ -198,7 +194,6 @@ Brief repository-constitution summary from repo evidence:
 ## 11. Lockfile strategy
 - Status: DEFINED
 - Finding: Detected lockfiles: package-lock.json.
-- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: package-lock.json — lockfile
 - Claim: [observed] Detected lockfiles: package-lock.json.
   - Claim evidence: package-lock.json — lockfile
@@ -239,7 +234,6 @@ Brief repository-constitution summary from repo evidence:
 ## 17. Secrets handling
 - Status: NOT_DEFINED
 - Finding: No secrets handling evidence detected.
-- Drift warning: Status changed from INFERRED to NOT_DEFINED based on current repository evidence.
 - Claim: [unknown] No secrets handling evidence detected.
 
 ## 18. Configuration hierarchy
@@ -269,7 +263,6 @@ Brief repository-constitution summary from repo evidence:
 ## 20. Local development bootstrap
 - Status: DEFINED
 - Finding: Repository bootstrap/developer commands are script-driven: build, typecheck, test, harness:pi-executor, harness:pi-runtime.
-- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: build: tsc -b
 - Evidence: typecheck: tsc -b --pretty false
 - Evidence: test: npm run build && node --test tests/**/*.test.mjs
@@ -289,41 +282,40 @@ Brief repository-constitution summary from repo evidence:
 
 ## 22. File naming conventions
 - Status: INFERRED (MEDIUM)
-- Finding: File names commonly use kebab-case patterns such as packages/core/src/runs/logs-by-id.ts, packages/executors/pi/src/fake-session-factory.js, packages/executors/pi/src/fake-session-factory.ts, packages/executors/pi/src/runtime-harness.js, packages/executors/pi/src/runtime-harness.ts.
+- Finding: File names commonly use kebab-case patterns such as packages/core/src/runs/logs-by-id.ts, packages/executors/pi/src/fake-session-factory.js, packages/executors/pi/src/fake-session-factory.ts.
 - Evidence: packages/core/src/runs/logs-by-id.ts — kebab-case file name
 - Evidence: packages/executors/pi/src/fake-session-factory.js — kebab-case file name
 - Evidence: packages/executors/pi/src/fake-session-factory.ts — kebab-case file name
-- Evidence: packages/executors/pi/src/runtime-harness.js — kebab-case file name
-- Claim: [inferred/MEDIUM] File names commonly use kebab-case patterns such as packages/core/src/runs/logs-by-id.ts, packages/executors/pi/src/fake-session-factory.js, packages/executors/pi/src/fake-session-factory.ts, packages/executors/pi/src/runtime-harness.js, packages/executors/pi/src/runtime-harness.ts.
+- Claim: [inferred/MEDIUM] File names commonly use kebab-case patterns such as packages/core/src/runs/logs-by-id.ts, packages/executors/pi/src/fake-session-factory.js, packages/executors/pi/src/fake-session-factory.ts.
   - Claim evidence: packages/core/src/runs/logs-by-id.ts — kebab-case file name
   - Claim evidence: packages/executors/pi/src/fake-session-factory.js — kebab-case file name
   - Claim evidence: packages/executors/pi/src/fake-session-factory.ts — kebab-case file name
-  - Claim evidence: packages/executors/pi/src/runtime-harness.js — kebab-case file name
 
 ## 23. Type/class/component naming
 - Status: INFERRED (MEDIUM)
 - Finding: Types, interfaces, or classes commonly use PascalCase identifiers.
+- Evidence: packages/adapters/pi/src/approval.ts — interface PlanApprovalPreviewInput
 - Evidence: packages/adapters/pi/src/types.ts — interface FactoryPiUi
 - Evidence: packages/core/src/config/loader.ts — interface LoadedFactoryConfig
 - Evidence: packages/core/src/constitution/areas.ts — interface ConstitutionAreaDefinition
-- Evidence: packages/core/src/constitution/evaluators/shared.ts — interface ConstitutionEvaluationContext
+- Evidence: packages/adapters/pi/src/approval.ts — class PlanApprovalDialog
 - Evidence: packages/executors/pi/src/executor.d.ts — class PiAgentExecutor
 - Evidence: packages/executors/pi/src/executor.js — class PiAgentExecutor
 - Evidence: packages/executors/pi/src/executor.ts — class PiAgentExecutor
-- Evidence: packages/executors/pi/src/fake-session-factory.js — class FakePiSession
 - Claim: [inferred/MEDIUM] Types, interfaces, or classes commonly use PascalCase identifiers.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — interface PlanApprovalPreviewInput
   - Claim evidence: packages/adapters/pi/src/types.ts — interface FactoryPiUi
   - Claim evidence: packages/core/src/config/loader.ts — interface LoadedFactoryConfig
   - Claim evidence: packages/core/src/constitution/areas.ts — interface ConstitutionAreaDefinition
-  - Claim evidence: packages/core/src/constitution/evaluators/shared.ts — interface ConstitutionEvaluationContext
+  - Claim evidence: packages/adapters/pi/src/approval.ts — class PlanApprovalDialog
   - Claim evidence: packages/executors/pi/src/executor.d.ts — class PiAgentExecutor
   - Claim evidence: packages/executors/pi/src/executor.js — class PiAgentExecutor
   - Claim evidence: packages/executors/pi/src/executor.ts — class PiAgentExecutor
-  - Claim evidence: packages/executors/pi/src/fake-session-factory.js — class FakePiSession
 
 ## 24. Variable/function naming
 - Status: INFERRED (MEDIUM)
 - Finding: Functions and local identifiers commonly use camelCase names.
+- Evidence: packages/adapters/pi/src/approval.ts — function buildPlanApprovalPreviewLines
 - Evidence: packages/adapters/pi/src/extension.ts — function registerFactoryPiExtension
 - Evidence: packages/adapters/pi/src/gateway.ts — function getFactoryCommandCompletions
 - Evidence: packages/core/src/config/loader.ts — function loadEffectiveConfig
@@ -331,8 +323,8 @@ Brief repository-constitution summary from repo evidence:
 - Evidence: packages/core/src/config/paths.ts — function buildProjectPaths
 - Evidence: packages/core/src/config/validate.ts — function validateEffectiveConfig
 - Evidence: packages/core/src/constitution/areas.ts — function naming
-- Evidence: packages/core/src/constitution/context.ts — function selectConstitutionContext
 - Claim: [inferred/MEDIUM] Functions and local identifiers commonly use camelCase names.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — function buildPlanApprovalPreviewLines
   - Claim evidence: packages/adapters/pi/src/extension.ts — function registerFactoryPiExtension
   - Claim evidence: packages/adapters/pi/src/gateway.ts — function getFactoryCommandCompletions
   - Claim evidence: packages/core/src/config/loader.ts — function loadEffectiveConfig
@@ -340,7 +332,6 @@ Brief repository-constitution summary from repo evidence:
   - Claim evidence: packages/core/src/config/paths.ts — function buildProjectPaths
   - Claim evidence: packages/core/src/config/validate.ts — function validateEffectiveConfig
   - Claim evidence: packages/core/src/constitution/areas.ts — function naming
-  - Claim evidence: packages/core/src/constitution/context.ts — function selectConstitutionContext
 
 ## 25. Constant naming
 - Status: INFERRED (LOW)
@@ -356,6 +347,7 @@ Brief repository-constitution summary from repo evidence:
 ## 26. Import/export conventions
 - Status: DEFINED (HIGH)
 - Finding: Modules consistently use ES module import/export syntax.
+- Evidence: packages/adapters/pi/src/approval.ts — import type { PlanApprovalDecision, PlanApprovalResult } from "@factory/core"
 - Evidence: packages/adapters/pi/src/extension.ts — import type { FactoryPiExtensionApiLike } from "./types.js"
 - Evidence: packages/adapters/pi/src/gateway.ts — import {
   discoverFactoryProject,
@@ -372,10 +364,12 @@ Brief repository-constitution summary from repo evidence:
   readLatestFactoryRunLogs,
   readLatestFactoryRunStatus,
   readLatestFactoryRunSummary,
+  readLatestFactoryRunPlan,
   resumeLatestFactoryRun,
   runFactoryDoctor,
   runPrototypeFactoryFlow,
   showFactoryRun,
+  detectPiModelConfiguration,
   type AgentExecutor,
   type FactoryRunProgressEvent,
 } from "@factory/core"
@@ -391,8 +385,8 @@ Brief repository-constitution summary from repo evidence:
   WorkflowConfig,
 } from "@factory/schemas"
 - Evidence: packages/core/src/config/paths.ts — import path from "node:path"
-- Evidence: packages/core/src/config/validate.ts — import type { EffectiveFactoryConfig } from "@factory/schemas"
 - Claim: [observed/HIGH] Modules consistently use ES module import/export syntax.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — import type { PlanApprovalDecision, PlanApprovalResult } from "@factory/core"
   - Claim evidence: packages/adapters/pi/src/extension.ts — import type { FactoryPiExtensionApiLike } from "./types.js"
   - Claim evidence: packages/adapters/pi/src/gateway.ts — import {
   discoverFactoryProject,
@@ -409,10 +403,12 @@ Brief repository-constitution summary from repo evidence:
   readLatestFactoryRunLogs,
   readLatestFactoryRunStatus,
   readLatestFactoryRunSummary,
+  readLatestFactoryRunPlan,
   resumeLatestFactoryRun,
   runFactoryDoctor,
   runPrototypeFactoryFlow,
   showFactoryRun,
+  detectPiModelConfiguration,
   type AgentExecutor,
   type FactoryRunProgressEvent,
 } from "@factory/core"
@@ -428,54 +424,53 @@ Brief repository-constitution summary from repo evidence:
   WorkflowConfig,
 } from "@factory/schemas"
   - Claim evidence: packages/core/src/config/paths.ts — import path from "node:path"
-  - Claim evidence: packages/core/src/config/validate.ts — import type { EffectiveFactoryConfig } from "@factory/schemas"
 
 ## 27. In-file organization
 - Status: INFERRED (LOW)
 - Finding: Files typically start with imports and expose named exports, suggesting conventional in-file organization.
+- Evidence: packages/adapters/pi/src/approval.ts — imports/exports present
 - Evidence: packages/adapters/pi/src/extension.ts — imports/exports present
 - Evidence: packages/adapters/pi/src/gateway.ts — imports/exports present
 - Evidence: packages/adapters/pi/src/types.ts — imports/exports present
 - Evidence: packages/core/src/config/defaults.ts — imports/exports present
 - Evidence: packages/core/src/config/loader.ts — imports/exports present
-- Evidence: packages/core/src/config/merge.ts — imports/exports present
 - Claim: [inferred/LOW] Files typically start with imports and expose named exports, suggesting conventional in-file organization.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — imports/exports present
   - Claim evidence: packages/adapters/pi/src/extension.ts — imports/exports present
   - Claim evidence: packages/adapters/pi/src/gateway.ts — imports/exports present
   - Claim evidence: packages/adapters/pi/src/types.ts — imports/exports present
   - Claim evidence: packages/core/src/config/defaults.ts — imports/exports present
   - Claim evidence: packages/core/src/config/loader.ts — imports/exports present
-  - Claim evidence: packages/core/src/config/merge.ts — imports/exports present
 
 ## 28. File size conventions
 - Status: INFERRED (LOW)
 - Finding: Repository appears to prefer multiple smaller source files over a single monolithic entrypoint, but explicit file size limits are not enforced.
+- Evidence: packages/adapters/pi/src/approval.ts — source file sample
 - Evidence: packages/adapters/pi/src/extension.ts — source file sample
 - Evidence: packages/adapters/pi/src/gateway.ts — source file sample
 - Evidence: packages/adapters/pi/src/index.ts — source file sample
 - Evidence: packages/adapters/pi/src/types.ts — source file sample
 - Evidence: packages/core/src/config/defaults.ts — source file sample
-- Evidence: packages/core/src/config/loader.ts — source file sample
 - Claim: [inferred/LOW] Repository appears to prefer multiple smaller source files over a single monolithic entrypoint, but explicit file size limits are not enforced.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — source file sample
   - Claim evidence: packages/adapters/pi/src/extension.ts — source file sample
   - Claim evidence: packages/adapters/pi/src/gateway.ts — source file sample
   - Claim evidence: packages/adapters/pi/src/index.ts — source file sample
   - Claim evidence: packages/adapters/pi/src/types.ts — source file sample
   - Claim evidence: packages/core/src/config/defaults.ts — source file sample
-  - Claim evidence: packages/core/src/config/loader.ts — source file sample
 
 ## 29. Function/method size conventions
 - Status: UNCERTAIN (LOW)
 - Finding: Functions are present, but deterministic function-size enforcement is not explicitly detectable from current heuristics.
+- Evidence: packages/adapters/pi/src/approval.ts — function sample
 - Evidence: packages/adapters/pi/src/extension.ts — function sample
 - Evidence: packages/adapters/pi/src/gateway.ts — function sample
 - Evidence: packages/core/src/config/loader.ts — function sample
-- Evidence: packages/core/src/config/merge.ts — function sample
 - Claim: [unknown/LOW] Functions are present, but deterministic function-size enforcement is not explicitly detectable from current heuristics.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — function sample
   - Claim evidence: packages/adapters/pi/src/extension.ts — function sample
   - Claim evidence: packages/adapters/pi/src/gateway.ts — function sample
   - Claim evidence: packages/core/src/config/loader.ts — function sample
-  - Claim evidence: packages/core/src/config/merge.ts — function sample
 
 ## 30. Comment/documentation conventions
 - Status: INFERRED (MEDIUM)
@@ -546,17 +541,19 @@ Brief repository-constitution summary from repo evidence:
 ## 34. Layering/dependency direction
 - Status: INFERRED (MEDIUM)
 - Finding: Adapters and executors import core packages, suggesting inward dependency direction toward shared core logic.
+- Evidence: packages/adapters/pi/src/approval.ts — imports @factory/core
 - Evidence: packages/adapters/pi/src/gateway.ts — imports @factory/core
+- Evidence: packages/adapters/pi/src/approval.ts — cross-package import @factory/core
 - Evidence: packages/adapters/pi/src/gateway.ts — cross-package import @factory/core
 - Evidence: packages/core/src/config/defaults.ts — cross-package import @factory/schemas
 - Evidence: packages/core/src/config/loader.ts — cross-package import @factory/schemas
-- Evidence: packages/core/src/config/merge.ts — cross-package import @factory/schemas
 - Claim: [inferred/MEDIUM] Adapters and executors import core packages, suggesting inward dependency direction toward shared core logic.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — imports @factory/core
   - Claim evidence: packages/adapters/pi/src/gateway.ts — imports @factory/core
+  - Claim evidence: packages/adapters/pi/src/approval.ts — cross-package import @factory/core
   - Claim evidence: packages/adapters/pi/src/gateway.ts — cross-package import @factory/core
   - Claim evidence: packages/core/src/config/defaults.ts — cross-package import @factory/schemas
   - Claim evidence: packages/core/src/config/loader.ts — cross-package import @factory/schemas
-  - Claim evidence: packages/core/src/config/merge.ts — cross-package import @factory/schemas
 
 ## 35. Feature/domain organization
 - Status: INFERRED (MEDIUM)
@@ -605,7 +602,8 @@ Brief repository-constitution summary from repo evidence:
 
 ## 38. Cross-module communication rules
 - Status: INFERRED (MEDIUM)
-- Finding: Cross-module communication is primarily expressed through package imports such as @factory/core, @factory/schemas, @factory/schemas, @factory/schemas, @factory/schemas.
+- Finding: Cross-module communication is primarily expressed through package imports such as @factory/core, @factory/core, @factory/schemas, @factory/schemas, @factory/schemas.
+- Evidence: packages/adapters/pi/src/approval.ts — imports @factory/core
 - Evidence: packages/adapters/pi/src/gateway.ts — imports @factory/core
 - Evidence: packages/core/src/config/defaults.ts — imports @factory/schemas
 - Evidence: packages/core/src/config/loader.ts — imports @factory/schemas
@@ -613,8 +611,8 @@ Brief repository-constitution summary from repo evidence:
 - Evidence: packages/core/src/config/paths.ts — imports @factory/schemas
 - Evidence: packages/core/src/config/validate.ts — imports @factory/schemas
 - Evidence: packages/core/src/project/discovery.ts — imports @factory/schemas
-- Evidence: packages/core/src/runs/store.ts — imports @factory/schemas
-- Claim: [inferred/MEDIUM] Cross-module communication is primarily expressed through package imports such as @factory/core, @factory/schemas, @factory/schemas, @factory/schemas, @factory/schemas.
+- Claim: [inferred/MEDIUM] Cross-module communication is primarily expressed through package imports such as @factory/core, @factory/core, @factory/schemas, @factory/schemas, @factory/schemas.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — imports @factory/core
   - Claim evidence: packages/adapters/pi/src/gateway.ts — imports @factory/core
   - Claim evidence: packages/core/src/config/defaults.ts — imports @factory/schemas
   - Claim evidence: packages/core/src/config/loader.ts — imports @factory/schemas
@@ -622,7 +620,6 @@ Brief repository-constitution summary from repo evidence:
   - Claim evidence: packages/core/src/config/paths.ts — imports @factory/schemas
   - Claim evidence: packages/core/src/config/validate.ts — imports @factory/schemas
   - Claim evidence: packages/core/src/project/discovery.ts — imports @factory/schemas
-  - Claim evidence: packages/core/src/runs/store.ts — imports @factory/schemas
 
 ## 39. Architectural boundary enforcement
 - Status: INFERRED (MEDIUM)
@@ -797,39 +794,51 @@ Brief repository-constitution summary from repo evidence:
 
 ## 60. Graceful degradation/fallbacks
 - Status: INFERRED (MEDIUM)
-- Finding: Fallback or graceful-degradation language detected in packages/core/src/git/worktree.ts, packages/core/src/runs/resume.ts, README.md.
+- Finding: Fallback or graceful-degradation language detected in packages/adapters/pi/src/approval.ts, packages/core/src/git/worktree.ts, packages/core/src/runs/resume.ts, packages/executors/pi/src/sdk-factory.ts, packages/executors/pi/src/types.ts.
+- Evidence: packages/adapters/pi/src/approval.ts — fallback
 - Evidence: packages/core/src/git/worktree.ts — working in place
 - Evidence: packages/core/src/runs/resume.ts — fallback
-- Evidence: README.md — fallback
-- Claim: [inferred/MEDIUM] Fallback or graceful-degradation language detected in packages/core/src/git/worktree.ts, packages/core/src/runs/resume.ts, README.md.
+- Evidence: packages/executors/pi/src/sdk-factory.ts — fallback
+- Evidence: packages/executors/pi/src/types.ts — fallback
+- Claim: [inferred/MEDIUM] Fallback or graceful-degradation language detected in packages/adapters/pi/src/approval.ts, packages/core/src/git/worktree.ts, packages/core/src/runs/resume.ts, packages/executors/pi/src/sdk-factory.ts, packages/executors/pi/src/types.ts.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — fallback
   - Claim evidence: packages/core/src/git/worktree.ts — working in place
   - Claim evidence: packages/core/src/runs/resume.ts — fallback
-  - Claim evidence: README.md — fallback
+  - Claim evidence: packages/executors/pi/src/sdk-factory.ts — fallback
+  - Claim evidence: packages/executors/pi/src/types.ts — fallback
 
 ## 61. Health/readiness/liveness checks
 - Status: INFERRED (MEDIUM)
-- Finding: Health, readiness, liveness, or diagnostic checks are referenced in packages/adapters/pi/src/gateway.ts, packages/core/src/doctor/check.ts, packages/core/src/index.ts, README.md.
+- Finding: Health, readiness, liveness, or diagnostic checks are referenced in packages/adapters/pi/src/gateway.ts, packages/core/src/doctor/check.ts, packages/core/src/index.ts, packages/executors/pi/src/executor.ts, packages/executors/pi/src/sdk-factory.ts.
 - Evidence: packages/adapters/pi/src/gateway.ts — Doctor
 - Evidence: packages/core/src/doctor/check.ts — Doctor
 - Evidence: packages/core/src/index.ts — doctor
+- Evidence: packages/executors/pi/src/executor.ts — diagnostic
+- Evidence: packages/executors/pi/src/sdk-factory.ts — diagnostic
+- Evidence: packages/executors/pi/src/types.ts — Diagnostic
 - Evidence: README.md — doctor
-- Claim: [inferred/MEDIUM] Health, readiness, liveness, or diagnostic checks are referenced in packages/adapters/pi/src/gateway.ts, packages/core/src/doctor/check.ts, packages/core/src/index.ts, README.md.
+- Claim: [inferred/MEDIUM] Health, readiness, liveness, or diagnostic checks are referenced in packages/adapters/pi/src/gateway.ts, packages/core/src/doctor/check.ts, packages/core/src/index.ts, packages/executors/pi/src/executor.ts, packages/executors/pi/src/sdk-factory.ts.
   - Claim evidence: packages/adapters/pi/src/gateway.ts — Doctor
   - Claim evidence: packages/core/src/doctor/check.ts — Doctor
   - Claim evidence: packages/core/src/index.ts — doctor
+  - Claim evidence: packages/executors/pi/src/executor.ts — diagnostic
+  - Claim evidence: packages/executors/pi/src/sdk-factory.ts — diagnostic
+  - Claim evidence: packages/executors/pi/src/types.ts — Diagnostic
   - Claim evidence: README.md — doctor
 
 ## 62. Idempotent operation handling
-- Status: INFERRED (MEDIUM)
-- Finding: Idempotency or replay-safe operation patterns detected in README.md.
-- Evidence: README.md — resume event
-- Claim: [inferred/MEDIUM] Idempotency or replay-safe operation patterns detected in README.md.
-  - Claim evidence: README.md — resume event
+- Status: NOT_DEFINED
+- Finding: No idempotent operation handling evidence detected.
+- Drift warning: Status changed from INFERRED to NOT_DEFINED based on current repository evidence.
+- Claim: [unknown] No idempotent operation handling evidence detected.
 
 ## 63. Authentication approach
-- Status: NOT_DEFINED
-- Finding: No authentication approach evidence detected.
-- Claim: [unknown] No authentication approach evidence detected.
+- Status: INFERRED (MEDIUM)
+- Finding: Authentication-related patterns detected in packages/adapters/pi/src/gateway.ts.
+- Drift warning: Status changed from NOT_DEFINED to INFERRED based on current repository evidence.
+- Evidence: packages/adapters/pi/src/gateway.ts — auth
+- Claim: [inferred/MEDIUM] Authentication-related patterns detected in packages/adapters/pi/src/gateway.ts.
+  - Claim evidence: packages/adapters/pi/src/gateway.ts — auth
 
 ## 64. Authorization/permission model
 - Status: NOT_DEFINED
@@ -838,7 +847,8 @@ Brief repository-constitution summary from repo evidence:
 
 ## 65. Input validation/sanitization
 - Status: INFERRED (MEDIUM)
-- Finding: Validation or sanitization patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/paths.ts, packages/core/src/doctor/check.ts, packages/core/src/git/worktree.ts.
+- Finding: Validation or sanitization patterns detected in packages/adapters/pi/src/approval.ts, packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/paths.ts, packages/core/src/doctor/check.ts.
+- Evidence: packages/adapters/pi/src/approval.ts — sanitize
 - Evidence: packages/adapters/pi/src/gateway.ts — joi
 - Evidence: packages/core/src/config/loader.ts — joi
 - Evidence: packages/core/src/config/paths.ts — joi
@@ -846,8 +856,8 @@ Brief repository-constitution summary from repo evidence:
 - Evidence: packages/core/src/git/worktree.ts — joi
 - Evidence: packages/core/src/project/discovery.ts — joi
 - Evidence: packages/core/src/runs/cancel.ts — joi
-- Evidence: packages/core/src/runs/cleanup.ts — joi
-- Claim: [inferred/MEDIUM] Validation or sanitization patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/paths.ts, packages/core/src/doctor/check.ts, packages/core/src/git/worktree.ts.
+- Claim: [inferred/MEDIUM] Validation or sanitization patterns detected in packages/adapters/pi/src/approval.ts, packages/adapters/pi/src/gateway.ts, packages/core/src/config/loader.ts, packages/core/src/config/paths.ts, packages/core/src/doctor/check.ts.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — sanitize
   - Claim evidence: packages/adapters/pi/src/gateway.ts — joi
   - Claim evidence: packages/core/src/config/loader.ts — joi
   - Claim evidence: packages/core/src/config/paths.ts — joi
@@ -855,12 +865,16 @@ Brief repository-constitution summary from repo evidence:
   - Claim evidence: packages/core/src/git/worktree.ts — joi
   - Claim evidence: packages/core/src/project/discovery.ts — joi
   - Claim evidence: packages/core/src/runs/cancel.ts — joi
-  - Claim evidence: packages/core/src/runs/cleanup.ts — joi
 
 ## 66. Output encoding/XSS controls
-- Status: NOT_DEFINED
-- Finding: No output encoding or XSS-control evidence detected.
-- Claim: [unknown] No output encoding or XSS-control evidence detected.
+- Status: INFERRED (MEDIUM)
+- Finding: Output encoding or XSS-control evidence detected in packages/adapters/pi/src/approval.ts, packages/core/src/runtime/controller.ts.
+- Drift warning: Status changed from NOT_DEFINED to INFERRED based on current repository evidence.
+- Evidence: packages/adapters/pi/src/approval.ts — sanitize
+- Evidence: packages/core/src/runtime/controller.ts — sanitize
+- Claim: [inferred/MEDIUM] Output encoding or XSS-control evidence detected in packages/adapters/pi/src/approval.ts, packages/core/src/runtime/controller.ts.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — sanitize
+  - Claim evidence: packages/core/src/runtime/controller.ts — sanitize
 
 ## 67. CSRF/CORS/browser security controls
 - Status: NOT_DEFINED
@@ -895,18 +909,26 @@ Brief repository-constitution summary from repo evidence:
 - Claim: [unknown] No security-header or network trust-boundary evidence detected.
 
 ## 73. Test framework/tooling
-- Status: DEFINED (MEDIUM)
-- Finding: Testing tooling is explicitly Node's built-in test runner: `tests/constitution.test.mjs` imports from `node:test`, and root `package.json` runs `node --test tests/**/*.test.mjs`.
+- Status: DEFINED (HIGH)
+- Finding: Test tooling is explicitly the Node built-in test runner: root `package.json` uses `node --test tests/**/*.test.mjs`, and test files import `node:test` and `node:assert/strict`.
 - Evidence: tests/constitution.test.mjs — test framework evidence
-- Claim: [observed/MEDIUM] Testing tooling is explicitly Node's built-in test runner: `tests/constitution.test.mjs` imports from `node:test`, and root `package.json` runs `node --test tests/**/*.test.mjs`.
+- Evidence: tests/pi-adapter.test.mjs — test framework evidence
+- Evidence: tests/runtime.test.mjs — test framework evidence
+- Claim: [observed/HIGH] Test tooling is explicitly the Node built-in test runner: root `package.json` uses `node --test tests/**/*.test.mjs`, and test files import `node:test` and `node:assert/strict`.
   - Claim evidence: tests/constitution.test.mjs — test framework evidence
+  - Claim evidence: tests/pi-adapter.test.mjs — test framework evidence
+  - Claim evidence: tests/runtime.test.mjs — test framework evidence
 
 ## 74. Unit test conventions
 - Status: INFERRED (MEDIUM)
-- Finding: Unit-style tests detected in tests/constitution.test.mjs.
+- Finding: Unit-style tests detected in tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.
 - Evidence: tests/constitution.test.mjs — unit-style test
-- Claim: [inferred/MEDIUM] Unit-style tests detected in tests/constitution.test.mjs.
+- Evidence: tests/pi-adapter.test.mjs — unit-style test
+- Evidence: tests/runtime.test.mjs — unit-style test
+- Claim: [inferred/MEDIUM] Unit-style tests detected in tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.
   - Claim evidence: tests/constitution.test.mjs — unit-style test
+  - Claim evidence: tests/pi-adapter.test.mjs — unit-style test
+  - Claim evidence: tests/runtime.test.mjs — unit-style test
 
 ## 75. Integration test conventions
 - Status: NOT_DEFINED
@@ -920,10 +942,14 @@ Brief repository-constitution summary from repo evidence:
 
 ## 77. Test naming/location conventions
 - Status: DEFINED (HIGH)
-- Finding: Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs.
+- Finding: Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.
 - Evidence: tests/constitution.test.mjs — test naming/location
-- Claim: [observed/HIGH] Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs.
+- Evidence: tests/pi-adapter.test.mjs — test naming/location
+- Evidence: tests/runtime.test.mjs — test naming/location
+- Claim: [observed/HIGH] Tests are organized using detected naming/location patterns such as tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.
   - Claim evidence: tests/constitution.test.mjs — test naming/location
+  - Claim evidence: tests/pi-adapter.test.mjs — test naming/location
+  - Claim evidence: tests/runtime.test.mjs — test naming/location
 
 ## 78. Mock/fake/test-double strategy
 - Status: INFERRED (MEDIUM)
@@ -934,10 +960,14 @@ Brief repository-constitution summary from repo evidence:
 
 ## 79. Test data/factory/fixture strategy
 - Status: INFERRED (MEDIUM)
-- Finding: Fixture/factory/test-data patterns detected in tests/constitution.test.mjs.
+- Finding: Fixture/factory/test-data patterns detected in tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.
 - Evidence: tests/constitution.test.mjs — factory
-- Claim: [inferred/MEDIUM] Fixture/factory/test-data patterns detected in tests/constitution.test.mjs.
+- Evidence: tests/pi-adapter.test.mjs — factory
+- Evidence: tests/runtime.test.mjs — Factory
+- Claim: [inferred/MEDIUM] Fixture/factory/test-data patterns detected in tests/constitution.test.mjs, tests/pi-adapter.test.mjs, tests/runtime.test.mjs.
   - Claim evidence: tests/constitution.test.mjs — factory
+  - Claim evidence: tests/pi-adapter.test.mjs — factory
+  - Claim evidence: tests/runtime.test.mjs — Factory
 
 ## 80. Coverage/flaky-test/quality gates
 - Status: NOT_DEFINED
@@ -947,7 +977,6 @@ Brief repository-constitution summary from repo evidence:
 ## 81. Build commands/tooling
 - Status: DEFINED
 - Finding: Build command detected: tsc -b.
-- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: build: tsc -b
 - Claim: [observed] Build command detected: tsc -b.
   - Claim evidence: build: tsc -b
@@ -960,8 +989,9 @@ Brief repository-constitution summary from repo evidence:
 
 ## 83. Linting rules/tooling
 - Status: NOT_DEFINED
-- Finding: No ESLint, Prettier, Biome, or similar linting configuration or lint script is present in the provided repository evidence.
-- Claim: [unknown] No ESLint, Prettier, Biome, or similar linting configuration or lint script is present in the provided repository evidence.
+- Finding: No linting rules/tooling detected.
+- Drift warning: Finding changed for this impacted area during refresh.
+- Claim: [unknown] No linting rules/tooling detected.
 
 ## 84. Formatting rules/tooling
 - Status: NOT_DEFINED
@@ -971,7 +1001,6 @@ Brief repository-constitution summary from repo evidence:
 ## 85. Type checking/static analysis
 - Status: DEFINED
 - Finding: Type checking/static analysis evidence detected with command tsc -b --pretty false.
-- Drift warning: Finding changed for this impacted area during refresh.
 - Evidence: packages/adapters/pi/tsconfig.json — typecheck config
 - Evidence: packages/core/tsconfig.json — typecheck config
 - Evidence: packages/executors/fake/tsconfig.json — typecheck config
@@ -1030,9 +1059,12 @@ Brief repository-constitution summary from repo evidence:
 - Claim: [unknown] No deployment automation configuration detected.
 
 ## 94. Logging format/conventions
-- Status: NOT_DEFINED
-- Finding: No logging format or convention evidence detected.
-- Claim: [unknown] No logging format or convention evidence detected.
+- Status: INFERRED (MEDIUM)
+- Finding: Logging patterns detected in packages/adapters/pi/src/approval.ts.
+- Drift warning: Status changed from NOT_DEFINED to INFERRED based on current repository evidence.
+- Evidence: packages/adapters/pi/src/approval.ts — log(
+- Claim: [inferred/MEDIUM] Logging patterns detected in packages/adapters/pi/src/approval.ts.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — log(
 
 ## 95. Log levels and production logging
 - Status: INFERRED (MEDIUM)
@@ -1077,20 +1109,24 @@ Brief repository-constitution summary from repo evidence:
 
 ## 100. Caching strategy
 - Status: INFERRED (MEDIUM)
-- Finding: Caching-related patterns detected in packages/executors/pi/src/sdk-factory.ts.
+- Finding: Caching-related patterns detected in packages/adapters/pi/src/approval.ts, packages/executors/pi/src/sdk-factory.ts.
+- Evidence: packages/adapters/pi/src/approval.ts — cache
 - Evidence: packages/executors/pi/src/sdk-factory.ts — lRu
-- Claim: [inferred/MEDIUM] Caching-related patterns detected in packages/executors/pi/src/sdk-factory.ts.
+- Claim: [inferred/MEDIUM] Caching-related patterns detected in packages/adapters/pi/src/approval.ts, packages/executors/pi/src/sdk-factory.ts.
+  - Claim evidence: packages/adapters/pi/src/approval.ts — cache
   - Claim evidence: packages/executors/pi/src/sdk-factory.ts — lRu
 
 ## 101. Async/background work
 - Status: INFERRED (MEDIUM)
-- Finding: Async or background-work patterns detected in packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/schemas/src/config.ts.
+- Finding: Async or background-work patterns detected in packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/runtime/controller.ts, packages/schemas/src/config.ts.
 - Evidence: packages/core/src/config/defaults.ts — Worker
 - Evidence: packages/core/src/config/merge.ts — Worker
+- Evidence: packages/core/src/runtime/controller.ts — bull
 - Evidence: packages/schemas/src/config.ts — Worker
-- Claim: [inferred/MEDIUM] Async or background-work patterns detected in packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/schemas/src/config.ts.
+- Claim: [inferred/MEDIUM] Async or background-work patterns detected in packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/runtime/controller.ts, packages/schemas/src/config.ts.
   - Claim evidence: packages/core/src/config/defaults.ts — Worker
   - Claim evidence: packages/core/src/config/merge.ts — Worker
+  - Claim evidence: packages/core/src/runtime/controller.ts — bull
   - Claim evidence: packages/schemas/src/config.ts — Worker
 
 ## 102. Payload/upload size controls
@@ -1110,56 +1146,61 @@ Brief repository-constitution summary from repo evidence:
 - Claim: [unknown] No connection or resource pooling evidence detected.
 
 ## 104. Performance profiling/benchmarking
-- Status: NOT_DEFINED
-- Finding: No performance profiling or benchmarking evidence detected.
-- Claim: [unknown] No performance profiling or benchmarking evidence detected.
+- Status: INFERRED (MEDIUM)
+- Finding: Performance profiling or benchmarking patterns detected in README.md.
+- Drift warning: Status changed from NOT_DEFINED to INFERRED based on current repository evidence.
+- Evidence: README.md — perf
+- Claim: [inferred/MEDIUM] Performance profiling or benchmarking patterns detected in README.md.
+  - Claim evidence: README.md — perf
 
 ## 105. Scalability/concurrency conventions
 - Status: INFERRED (MEDIUM)
-- Finding: Concurrency or scalability-oriented patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runtime/controller.ts.
+- Finding: Concurrency or scalability-oriented patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runs/logs-by-id.ts.
 - Evidence: packages/adapters/pi/src/gateway.ts — parallel
 - Evidence: packages/core/src/config/defaults.ts — maxParallel
 - Evidence: packages/core/src/config/merge.ts — maxParallel
 - Evidence: packages/core/src/config/validate.ts — maxParallel
+- Evidence: packages/core/src/runs/logs-by-id.ts — batch
+- Evidence: packages/core/src/runs/show.ts — batch
 - Evidence: packages/core/src/runtime/controller.ts — maxParallel
 - Evidence: packages/core/src/setup/init.ts — maxParallel
-- Evidence: packages/schemas/src/config.ts — maxParallel
-- Claim: [inferred/MEDIUM] Concurrency or scalability-oriented patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runtime/controller.ts.
+- Claim: [inferred/MEDIUM] Concurrency or scalability-oriented patterns detected in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runs/logs-by-id.ts.
   - Claim evidence: packages/adapters/pi/src/gateway.ts — parallel
   - Claim evidence: packages/core/src/config/defaults.ts — maxParallel
   - Claim evidence: packages/core/src/config/merge.ts — maxParallel
   - Claim evidence: packages/core/src/config/validate.ts — maxParallel
+  - Claim evidence: packages/core/src/runs/logs-by-id.ts — batch
+  - Claim evidence: packages/core/src/runs/show.ts — batch
   - Claim evidence: packages/core/src/runtime/controller.ts — maxParallel
   - Claim evidence: packages/core/src/setup/init.ts — maxParallel
-  - Claim evidence: packages/schemas/src/config.ts — maxParallel
 
 ## 106. Branch naming/workflow
 - Status: INFERRED (MEDIUM)
-- Finding: Branch names suggest a task- or feature-oriented workflow, e.g. create-a-prototype-implementation-plan-1787389718933, create-a-prototype-implementation-plan-1787389899712, create-a-prototype-implementation-plan-1787390395486, create-a-prototype-implementation-plan-1787390432329, create-a-prototype-implementation-plan-1787390588229.
+- Finding: Branch names suggest a task- or feature-oriented workflow, e.g. add-a-factory-plan-command-that-shows-th-1787400231913-task-2, add-a-regression-test-for-constitution-r-1787399886195-task-2, create-a-prototype-implementation-plan-1787389718933, create-a-prototype-implementation-plan-1787389899712, create-a-prototype-implementation-plan-1787390395486.
+- Evidence: branch: add-a-factory-plan-command-that-shows-th-1787400231913-task-2
+- Evidence: branch: add-a-regression-test-for-constitution-r-1787399886195-task-2
 - Evidence: branch: create-a-prototype-implementation-plan-1787389718933
 - Evidence: branch: create-a-prototype-implementation-plan-1787389899712
 - Evidence: branch: create-a-prototype-implementation-plan-1787390395486
-- Evidence: branch: create-a-prototype-implementation-plan-1787390432329
-- Evidence: branch: create-a-prototype-implementation-plan-1787390588229
-- Claim: [inferred/MEDIUM] Branch names suggest a task- or feature-oriented workflow, e.g. create-a-prototype-implementation-plan-1787389718933, create-a-prototype-implementation-plan-1787389899712, create-a-prototype-implementation-plan-1787390395486, create-a-prototype-implementation-plan-1787390432329, create-a-prototype-implementation-plan-1787390588229.
+- Claim: [inferred/MEDIUM] Branch names suggest a task- or feature-oriented workflow, e.g. add-a-factory-plan-command-that-shows-th-1787400231913-task-2, add-a-regression-test-for-constitution-r-1787399886195-task-2, create-a-prototype-implementation-plan-1787389718933, create-a-prototype-implementation-plan-1787389899712, create-a-prototype-implementation-plan-1787390395486.
+  - Claim evidence: branch: add-a-factory-plan-command-that-shows-th-1787400231913-task-2
+  - Claim evidence: branch: add-a-regression-test-for-constitution-r-1787399886195-task-2
   - Claim evidence: branch: create-a-prototype-implementation-plan-1787389718933
   - Claim evidence: branch: create-a-prototype-implementation-plan-1787389899712
   - Claim evidence: branch: create-a-prototype-implementation-plan-1787390395486
-  - Claim evidence: branch: create-a-prototype-implementation-plan-1787390432329
-  - Claim evidence: branch: create-a-prototype-implementation-plan-1787390588229
 
 ## 107. Commit message conventions
 - Status: INFERRED (LOW)
-- Finding: Recent commit subjects appear free-form, e.g. Deepen constitution evaluator coverage and add regression tests | Add hybrid constitution engine and context-driven runtime | Add worktree-aware runtime and builder executor flow | Add reviewer executor phase to prototype runtime.
-- Evidence: commit: Deepen constitution evaluator coverage and add regression tests
-- Evidence: commit: Add hybrid constitution engine and context-driven runtime
-- Evidence: commit: Add worktree-aware runtime and builder executor flow
-- Evidence: commit: Add reviewer executor phase to prototype runtime
-- Claim: [inferred/LOW] Recent commit subjects appear free-form, e.g. Deepen constitution evaluator coverage and add regression tests | Add hybrid constitution engine and context-driven runtime | Add worktree-aware runtime and builder executor flow | Add reviewer executor phase to prototype runtime.
-  - Claim evidence: commit: Deepen constitution evaluator coverage and add regression tests
-  - Claim evidence: commit: Add hybrid constitution engine and context-driven runtime
-  - Claim evidence: commit: Add worktree-aware runtime and builder executor flow
-  - Claim evidence: commit: Add reviewer executor phase to prototype runtime
+- Finding: Recent commit subjects appear free-form, e.g. Refresh handoff docs for current runtime and constitution state | Polish Pi plan approval interaction | Improve resume semantics and plan feedback visibility | Refresh README for plan-first runtime and constitution flow.
+- Evidence: commit: Refresh handoff docs for current runtime and constitution state
+- Evidence: commit: Polish Pi plan approval interaction
+- Evidence: commit: Improve resume semantics and plan feedback visibility
+- Evidence: commit: Refresh README for plan-first runtime and constitution flow
+- Claim: [inferred/LOW] Recent commit subjects appear free-form, e.g. Refresh handoff docs for current runtime and constitution state | Polish Pi plan approval interaction | Improve resume semantics and plan feedback visibility | Refresh README for plan-first runtime and constitution flow.
+  - Claim evidence: commit: Refresh handoff docs for current runtime and constitution state
+  - Claim evidence: commit: Polish Pi plan approval interaction
+  - Claim evidence: commit: Improve resume semantics and plan feedback visibility
+  - Claim evidence: commit: Refresh README for plan-first runtime and constitution flow
 
 ## 108. Pull request conventions
 - Status: INFERRED (MEDIUM)
@@ -1183,6 +1224,8 @@ Brief repository-constitution summary from repo evidence:
   - Claim evidence: README.md — approval
 - Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
   - Claim evidence: README.md — approval
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
+  - Claim evidence: README.md — approval
 
 ## 110. Protected branch/force-push rules
 - Status: NOT_DEFINED
@@ -1193,12 +1236,14 @@ Brief repository-constitution summary from repo evidence:
 - Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 - Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 - Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 
 ## 111. Code ownership rules
 - Status: NOT_DEFINED
 - Finding: No CODEOWNERS evidence detected.
 - Critic warning: Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 - Claim: [unknown] No CODEOWNERS evidence detected.
+- Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 - Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 - Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
 - Claim: [conflict/MEDIUM] Review/approval expectations exist, but branch protection and code ownership enforcement are not evident.
@@ -1225,11 +1270,10 @@ Brief repository-constitution summary from repo evidence:
 - Claim: [unknown] No feature flag or release-control strategy evidence detected.
 
 ## 116. Rollback/recovery strategy
-- Status: INFERRED (MEDIUM)
-- Finding: Rollback or recovery guidance detected in README.md.
-- Evidence: README.md — recover
-- Claim: [inferred/MEDIUM] Rollback or recovery guidance detected in README.md.
-  - Claim evidence: README.md — recover
+- Status: NOT_DEFINED
+- Finding: No rollback or recovery strategy evidence detected.
+- Drift warning: Status changed from INFERRED to NOT_DEFINED based on current repository evidence.
+- Claim: [unknown] No rollback or recovery strategy evidence detected.
 
 ## 117. Sensitive/PII data handling
 - Status: NOT_DEFINED
@@ -1238,26 +1282,29 @@ Brief repository-constitution summary from repo evidence:
 
 ## 118. Audit/retention/access logging controls
 - Status: INFERRED (MEDIUM)
-- Finding: Audit, retention, or access-logging evidence detected in README.md, packages/core/src/runs/cancel.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/resume.ts, packages/core/src/runs/store.ts.
+- Finding: Audit, retention, or access-logging evidence detected in README.md, packages/core/src/runs/cancel.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/resume.ts, packages/core/src/runs/show.ts.
 - Evidence: README.md — events.jsonl
 - Evidence: packages/core/src/runs/cancel.ts — appendFactoryRunEvent
 - Evidence: packages/core/src/runs/logs-by-id.ts — events.jsonl
 - Evidence: packages/core/src/runs/resume.ts — appendFactoryRunEvent
+- Evidence: packages/core/src/runs/show.ts — events.jsonl
 - Evidence: packages/core/src/runs/store.ts — events.jsonl
 - Evidence: packages/core/src/runtime/controller.ts — appendFactoryRunEvent
 - Evidence: packages/core/src/setup/init.ts — appendFactoryRunEvent
-- Claim: [inferred/MEDIUM] Audit, retention, or access-logging evidence detected in README.md, packages/core/src/runs/cancel.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/resume.ts, packages/core/src/runs/store.ts.
+- Claim: [inferred/MEDIUM] Audit, retention, or access-logging evidence detected in README.md, packages/core/src/runs/cancel.ts, packages/core/src/runs/logs-by-id.ts, packages/core/src/runs/resume.ts, packages/core/src/runs/show.ts.
   - Claim evidence: README.md — events.jsonl
   - Claim evidence: packages/core/src/runs/cancel.ts — appendFactoryRunEvent
   - Claim evidence: packages/core/src/runs/logs-by-id.ts — events.jsonl
   - Claim evidence: packages/core/src/runs/resume.ts — appendFactoryRunEvent
+  - Claim evidence: packages/core/src/runs/show.ts — events.jsonl
   - Claim evidence: packages/core/src/runs/store.ts — events.jsonl
   - Claim evidence: packages/core/src/runtime/controller.ts — appendFactoryRunEvent
   - Claim evidence: packages/core/src/setup/init.ts — appendFactoryRunEvent
 
 ## 119. Complexity/duplication/technical-debt controls
 - Status: INFERRED (MEDIUM)
-- Finding: Technical-debt or cleanup signals appear in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runs/cleanup.ts.
+- Finding: Technical-debt or cleanup signals appear in README.md, packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts.
+- Evidence: README.md — cleanup
 - Evidence: packages/adapters/pi/src/gateway.ts — cleanup
 - Evidence: packages/core/src/config/defaults.ts — cleanup
 - Evidence: packages/core/src/config/merge.ts — cleanup
@@ -1265,7 +1312,8 @@ Brief repository-constitution summary from repo evidence:
 - Evidence: packages/core/src/runs/cleanup.ts — Cleanup
 - Evidence: packages/core/src/runs/index.ts — cleanup
 - Evidence: packages/schemas/src/config.ts — cleanup
-- Claim: [inferred/MEDIUM] Technical-debt or cleanup signals appear in packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts, packages/core/src/runs/cleanup.ts.
+- Claim: [inferred/MEDIUM] Technical-debt or cleanup signals appear in README.md, packages/adapters/pi/src/gateway.ts, packages/core/src/config/defaults.ts, packages/core/src/config/merge.ts, packages/core/src/config/validate.ts.
+  - Claim evidence: README.md — cleanup
   - Claim evidence: packages/adapters/pi/src/gateway.ts — cleanup
   - Claim evidence: packages/core/src/config/defaults.ts — cleanup
   - Claim evidence: packages/core/src/config/merge.ts — cleanup
@@ -1277,7 +1325,7 @@ Brief repository-constitution summary from repo evidence:
 ## 120. Simplicity/reuse/anti-overengineering conventions
 - Status: INFERRED (MEDIUM)
 - Finding: Simplicity, reuse, or minimalism language detected in README.md, packages/adapters/pi/src/gateway.ts, packages/core/src/runtime/artifacts.ts, packages/core/src/runtime/controller.ts, packages/core/src/runtime/index.ts.
-- Evidence: README.md — minimal
+- Evidence: README.md — reuse
 - Evidence: packages/adapters/pi/src/gateway.ts — Prototype
 - Evidence: packages/core/src/runtime/artifacts.ts — Prototype
 - Evidence: packages/core/src/runtime/controller.ts — Prototype
@@ -1287,7 +1335,7 @@ Brief repository-constitution summary from repo evidence:
 - Evidence: packages/executors/pi/src/harness.ts — prototype
 - Evidence: packages/core — shared core package
 - Claim: [inferred/MEDIUM] Simplicity, reuse, or minimalism language detected in README.md, packages/adapters/pi/src/gateway.ts, packages/core/src/runtime/artifacts.ts, packages/core/src/runtime/controller.ts, packages/core/src/runtime/index.ts.
-  - Claim evidence: README.md — minimal
+  - Claim evidence: README.md — reuse
   - Claim evidence: packages/adapters/pi/src/gateway.ts — Prototype
   - Claim evidence: packages/core/src/runtime/artifacts.ts — Prototype
   - Claim evidence: packages/core/src/runtime/controller.ts — Prototype

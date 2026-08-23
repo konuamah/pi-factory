@@ -2,18 +2,38 @@ export interface FactoryPiUi {
   notify(message: string, level?: "info" | "warning" | "error"): void;
   setWidget(
     id: string,
-    widget:
-      | string[]
-      | ((...args: unknown[]) => unknown)
-      | undefined,
+    widget: string[] | undefined,
+    options?: { placement?: "aboveEditor" | "belowEditor" },
+  ): void;
+  setWidget(
+    id: string,
+    widget: ((tui: { requestRender(): void }, theme: unknown) => {
+      render(width: number): string[];
+      handleInput?(data: string): void;
+      invalidate(): void;
+      dispose?(): void;
+    }) | undefined,
     options?: { placement?: "aboveEditor" | "belowEditor" },
   ): void;
   confirm?(title: string, message: string): Promise<boolean>;
   select?(
     title: string,
-    options: Array<{ label: string; value: string; description?: string }>,
+    options: string[],
   ): Promise<string | undefined>;
   input?(title: string, placeholder?: string): Promise<string | undefined>;
+  custom?<T>(
+    factory: (
+      tui: { requestRender(): void },
+      theme: unknown,
+      keybindings: unknown,
+      done: (result: T) => void,
+    ) => {
+      render(width: number): string[];
+      handleInput?(data: string): void;
+      invalidate(): void;
+    },
+    options?: { overlay?: boolean; overlayOptions?: Record<string, unknown> },
+  ): Promise<T>;
 }
 
 export interface FactoryPiCommandContext {

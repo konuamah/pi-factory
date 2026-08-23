@@ -13,6 +13,7 @@ function makePreview() {
     taskCount: 8,
     workflowStages: ['plan', 'build', 'verify'],
     summary: 'Goal: Add a demo feature\nKeep scope narrow\nAvoid risky changes',
+    planText: 'Feature Plan\n- Improve the target area\n- Keep changes minimal\nWAITING_FOR_APPROVAL',
     tasks: [
       { stage: 'plan', title: 'Clarify scope' },
       { stage: 'build', title: 'Implement change' },
@@ -28,10 +29,56 @@ function makePreview() {
 test('plan approval preview includes decision guidance and truncation summary', () => {
   const lines = buildPlanApprovalPreviewLines(makePreview());
   assert.ok(lines.includes('Decision options'));
+  assert.ok(lines.includes('Feature plan'));
+  assert.ok(lines.includes('- Improve the target area'));
   assert.ok(lines.includes('- Approve: continue to implementation'));
   assert.ok(lines.includes('- Request revisions: pause before implementation'));
   assert.ok(lines.includes('- Reject: cancel this run'));
   assert.ok(lines.some((line) => /and 2 more/.test(line)));
+});
+
+test('custom approval dialog can approve directly', async () => {
+  const decision = await requestPlanApprovalDecision(
+    {
+      notify() {},
+      setWidget() {},
+      custom: async (factory) => {
+        let result;
+        const component = factory({ requestRender() {} }, undefined, undefined, (value) => {
+          result = value;
+        });
+        component.handleInput?.('a');
+        return result;
+      },
+    },
+    makePreview(),
+  );
+
+  assert.equal(decision.decision, 'approve');
+});
+
+test('custom approval dialog can request revisions with feedback', async () => {
+  const decision = await requestPlanApprovalDecision(
+    {
+      notify() {},
+      setWidget() {},
+      custom: async (factory) => {
+        let result;
+        const component = factory({ requestRender() {} }, undefined, undefined, (value) => {
+          result = value;
+        });
+        component.handleInput?.('r');
+        return result;
+      },
+      input: async () => ' tighten scope ',
+    },
+    makePreview(),
+  );
+
+  assert.deepEqual(decision, {
+    decision: 'revise',
+    feedback: 'tighten scope',
+  });
 });
 
 test('dismissed select request becomes a revision request instead of implicit approval', async () => {
@@ -53,7 +100,7 @@ test('select rejection captures trimmed feedback', async () => {
     {
       notify() {},
       setWidget() {},
-      select: async () => 'reject',
+      select: async () => 'Reject — Cancel the run before implementation',
       input: async () => '  needs clearer scope  ',
     },
     makePreview(),

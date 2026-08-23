@@ -1,3 +1,7 @@
+import path from "node:path";
+import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import { promisify } from "node:util";
 import {
   discoverFactoryProject,
   initializeFactoryProject,
@@ -18,12 +22,19 @@ import {
   runFactoryDoctor,
   runPrototypeFactoryFlow,
   showFactoryRun,
+  detectPiModelConfiguration,
+  appendFactoryRunEvent,
+  updateFactoryRunState,
   type AgentExecutor,
   type FactoryRunProgressEvent,
 } from "@factory/core";
+import * as piExecutors from "../../../executors/pi/dist/index.js";
 import { buildPlanApprovalPreviewLines, requestPlanApprovalDecision } from "./approval.js";
+import { promptFactorySetupChoices } from "./setup-wizard.js";
+import { mountFactoryStreamingWidget } from "./streaming-panel.js";
 import type { FactoryPiAutocompleteItem, FactoryPiCommandContext } from "./types.js";
 
+const execFileAsync = promisify(execFile);
 const FACTORY_WIDGET_ID = "factory-status";
 const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "plan", "resume", "cancel", "worktree", "cleanup", "constitution"];
 
@@ -70,79 +81,92 @@ export async function handleFactoryCommand(
 ): Promise<void> {
   const args = (rawArgs ?? "").trim();
 
-  if (!args) {
-    renderLines(ctx, [
-      "Factory",
-      "",
-      "/factory setup   initialize project-local Factory files",
-      "/factory status [run-id] inspect config and latest or specific run state",
-      "/factory doctor  validate repo and config readiness",
-      "/factory logs [run-id] inspect latest or specific run state, events, and artifacts",
-      "/factory list    list known run ids",
-      "/factory show <run-id> show merged run details",
-      "/factory plan    show latest run plan summary",
-      "/factory resume  mark the latest interrupted run resumed",
-      "/factory cancel  mark the latest run cancelled",
-      "/factory worktree <branch> create or detect isolated workspace",
-      "/factory cleanup [retain-count] prune old runs/worktrees/branches",
-      "/factory constitution scan repository constitution via facts + AI interpretation",
-      "/factory <goal>  run a minimal end-to-end prototype flow",
-    ]);
-    ctx.ui.notify("Factory command ready", "info");
-    return;
-  }
+  try {
+    if (!args) {
+      renderLines(ctx, [
+        "Factory",
+        "",
+        "/factory setup   initialize project-local Factory files",
+        "/factory status [run-id] inspect config and latest or specific run state",
+        "/factory doctor  validate repo and config readiness",
+        "/factory logs [run-id] inspect latest or specific run state, events, and artifacts",
+        "/factory list    list known run ids",
+        "/factory show <run-id> show merged run details",
+        "/factory plan    show latest run plan summary",
+        "/factory resume  mark the latest interrupted run resumed",
+        "/factory cancel  mark the latest run cancelled",
+        "/factory worktree <branch> create or detect isolated workspace",
+        "/factory cleanup [retain-count] prune old runs/worktrees/branches",
+        "/factory constitution scan repository constitution via facts + AI interpretation",
+        "/factory <goal>  run a minimal end-to-end prototype flow",
+      ]);
+      ctx.ui.notify("Factory command ready", "info");
+      return;
+    }
 
-  const [subcommand, ...rest] = args.split(/\s+/);
+    const [subcommand, ...rest] = args.split(/\s+/);
 
-  switch (subcommand) {
-    case "setup":
-      await handleSetup(rest, ctx);
-      return;
-    case "status":
-      await handleStatus(ctx, rest[0]);
-      return;
-    case "doctor":
-      await handleDoctor(ctx);
-      return;
-    case "logs":
-      await handleLogs(ctx, rest[0]);
-      return;
-    case "list":
-      await handleList(ctx);
-      return;
-    case "show":
-      await handleShow(rest[0], ctx);
-      return;
-    case "plan":
-      await handlePlan(ctx);
-      return;
-    case "resume":
-      await handleResume(ctx);
-      return;
-    case "cancel":
-      await handleCancel(ctx);
-      return;
-    case "worktree":
-      await handleWorktree(rest[0], ctx);
-      return;
-    case "cleanup":
-      await handleCleanup(rest[0], ctx);
-      return;
-    case "constitution":
-      await handleConstitution(rest, ctx);
-      return;
-    default:
-      await handlePrototypeGoal(args, ctx);
+    switch (subcommand) {
+      case "setup":
+        await handleSetup(rest, ctx);
+        return;
+      case "status":
+        await handleStatus(ctx, rest[0]);
+        return;
+      case "doctor":
+        await handleDoctor(ctx);
+        return;
+      case "logs":
+        await handleLogs(ctx, rest[0]);
+        return;
+      case "list":
+        await handleList(ctx);
+        return;
+      case "show":
+        await handleShow(rest[0], ctx);
+        return;
+      case "plan":
+        await handlePlan(ctx);
+        return;
+      case "resume":
+        await handleResume(ctx);
+        return;
+      case "cancel":
+        await handleCancel(ctx);
+        return;
+      case "worktree":
+        await handleWorktree(rest[0], ctx);
+        return;
+      case "cleanup":
+        await handleCleanup(rest[0], ctx);
+        return;
+      case "constitution":
+        await handleConstitution(rest, ctx);
+        return;
+      default:
+        await handlePrototypeGoal(args, ctx);
+    }
+  } catch (error) {
+    await handleFactoryCommandError(error, ctx);
   }
 }
 
 async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promise<void> {
+  renderIntro(ctx, [
+    "Factory setup will prepare project-local configuration for this repository.",
+    "I’ll check whether Factory is already initialized, ask about workflow and model preferences, and then write or update the setup files.",
+  ]);
+
   const force = rest.includes("--force");
+  const project = await discoverFactoryProject(ctx.cwd);
+  const hasExistingSetup = Boolean(project.paths.constitutionPath || project.paths.workflowPath || project.paths.projectConfigPath);
 
   if (!force && ctx.ui.confirm) {
     const ok = await ctx.ui.confirm(
-      "Initialize Factory?",
-      "Create project-local CONSTITUTION.md, factory.yaml, and .factory/config.yaml?",
+      hasExistingSetup ? "Edit existing Factory setup?" : "Initialize Factory?",
+      hasExistingSetup
+        ? "Factory files already exist. Re-run setup prompts and update workflow/config files?"
+        : "Create project-local CONSTITUTION.md, factory.yaml, and .factory/config.yaml?",
     );
     if (!ok) {
       ctx.ui.notify("Factory setup cancelled", "info");
@@ -150,8 +174,55 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
     }
   }
 
-  const result = await initializeFactoryProject({ cwd: ctx.cwd, force });
+  const setupChoices = await promptFactorySetupChoices(
+    ctx.ui,
+    await detectPiModelConfiguration(ctx.cwd),
+  );
+  const result = await initializeFactoryProject({
+    cwd: ctx.cwd,
+    force,
+    setup: {
+      ...setupChoices,
+      reconfigure: hasExistingSetup && !force,
+    },
+  });
   const loaded = await loadEffectiveConfig({ cwd: result.root });
+
+  let constitutionSummaryLines: string[] = [];
+  if (result.piModelConfiguration.hasAuth && result.piModelConfiguration.hasModelSelection && ctx.ui.confirm) {
+    const generateNow = await ctx.ui.confirm(
+      "Generate constitution now?",
+      "Factory setup is complete. Generate a repository-specific CONSTITUTION.md now using the Pi constitution pipeline?",
+    );
+    if (generateNow) {
+      try {
+        renderLines(ctx, [
+          "Factory setup",
+          `root: ${result.root}`,
+          "phase: constitution-refresh",
+          "message: Generating repository constitution",
+        ]);
+        const executor = await createRequiredConstitutionExecutor();
+        const constitutionResult = await runConstitutionScan({
+          cwd: result.root,
+          constitutionExecutor: executor,
+        });
+        constitutionSummaryLines = [
+          "",
+          `constitution finalized: ${constitutionResult.finalized ? "yes" : "no"}`,
+          `constitution strategy: ${constitutionResult.refreshStrategy}`,
+          `constitution interpreter: ${constitutionResult.interpreter.status}`,
+          `constitution path: ${constitutionResult.constitutionPath}`,
+          `constitution facts: ${constitutionResult.factsPath}`,
+        ];
+      } catch (error) {
+        constitutionSummaryLines = [
+          "",
+          `constitution generation error: ${error instanceof Error ? error.message : String(error)}`,
+        ];
+      }
+    }
+  }
 
   renderLines(ctx, [
     "Factory setup complete",
@@ -165,6 +236,28 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
     `base branch: ${loaded.effectiveConfig.git.baseBranch}`,
     `parallel agents: ${loaded.effectiveConfig.runtime.maxParallelAgents}`,
     `approval: ${loaded.effectiveConfig.approval.finalMerge}`,
+    `workflow preset: ${setupChoices.workflowPreset}`,
+    `factory role models: ${Object.keys(setupChoices.modelAssignments).length}`,
+    "",
+    `pi agent dir: ${result.piModelConfiguration.agentDir}`,
+    `pi model selection configured: ${result.piModelConfiguration.hasModelSelection ? "yes" : "no"}`,
+    `pi auth configured: ${result.piModelConfiguration.hasAuth ? "yes" : "no"}`,
+    `pi default model: ${result.piModelConfiguration.defaultProvider && result.piModelConfiguration.defaultModel ? `${result.piModelConfiguration.defaultProvider}/${result.piModelConfiguration.defaultModel}` : "none"}`,
+    `pi enabled model patterns: ${result.piModelConfiguration.enabledModels.length}`,
+    `pi auth providers: ${result.piModelConfiguration.authProviders.length}`,
+    `pi custom models: ${result.piModelConfiguration.customModelCount}`,
+    ...(!result.piModelConfiguration.hasModelSelection
+      ? [
+          "  hint: configure a Pi default model in ~/.pi/agent/settings.json or .pi/settings.json",
+          "  hint: use /login and /model in Pi if you have not selected a provider/model yet",
+        ]
+      : []),
+    ...(!result.piModelConfiguration.hasAuth
+      ? [
+          "  hint: use /login before generating a constitution or running model-backed Factory flows",
+        ]
+      : []),
+    ...constitutionSummaryLines,
     "",
     `setup run id: ${result.runId}`,
     `setup run dir: ${result.runDir}`,
@@ -236,6 +329,11 @@ async function handleStatus(ctx: FactoryPiCommandContext, runId?: string): Promi
 }
 
 async function handleDoctor(ctx: FactoryPiCommandContext): Promise<void> {
+  renderIntro(ctx, [
+    "Factory doctor is checking whether this repository is ready for Factory runs.",
+    "I’ll verify config, repository files, and git/worktree readiness now.",
+  ]);
+
   const result = await runFactoryDoctor(ctx.cwd);
 
   renderLines(ctx, [
@@ -248,6 +346,13 @@ async function handleDoctor(ctx: FactoryPiCommandContext): Promise<void> {
 }
 
 async function handleLogs(ctx: FactoryPiCommandContext, runId?: string): Promise<void> {
+  renderIntro(ctx, [
+    runId
+      ? `Factory is loading logs for run ${runId}.`
+      : "Factory is loading the latest run logs.",
+    "I’ll show the run state, artifact paths, and recent events.",
+  ]);
+
   const project = await discoverFactoryProject(ctx.cwd);
   const logs = runId
     ? await readFactoryRunLogs(project.paths.runsDir, runId, { limit: 12 })
@@ -277,6 +382,8 @@ async function handleLogs(ctx: FactoryPiCommandContext, runId?: string): Promise
     `plan decision: ${logs.planDecision ?? "none"}`,
     `plan feedback: ${logs.planFeedback ?? "none"}`,
     `implementation started: ${typeof logs.implementationStarted === "boolean" ? (logs.implementationStarted ? "yes" : "no") : "unknown"}`,
+    ...buildGuidanceDiagnosticLines(logs.guidance),
+    ...buildIntegrationFailureLines(logs.integrationFailure),
     "",
     "Recent events",
     ...logs.events,
@@ -286,6 +393,11 @@ async function handleLogs(ctx: FactoryPiCommandContext, runId?: string): Promise
 }
 
 async function handleList(ctx: FactoryPiCommandContext): Promise<void> {
+  renderIntro(ctx, [
+    "Factory is listing known runs for this repository.",
+    "I’ll show run ids with their status, phase, and goal.",
+  ]);
+
   const project = await discoverFactoryProject(ctx.cwd);
   const runs = await listFactoryRuns(project.paths.runsDir);
 
@@ -324,6 +436,11 @@ async function handleShow(runId: string | undefined, ctx: FactoryPiCommandContex
     ctx.ui.notify("Provide a run id", "warning");
     return;
   }
+
+  renderIntro(ctx, [
+    `Factory is loading the full run view for ${runId}.`,
+    "I’ll merge state, summary, plan, verification, and plan feedback into one view.",
+  ]);
 
   const project = await discoverFactoryProject(ctx.cwd);
   const result = await showFactoryRun(project.paths.runsDir, runId);
@@ -389,12 +506,19 @@ async function handleShow(runId: string | undefined, ctx: FactoryPiCommandContex
     `repair statuses: ${repairStatuses || "none"}`,
     `reviewer execution: ${reviewerStatus}`,
     `verification commands: ${verificationCommands}`,
+    ...buildGuidanceDiagnosticLines(result.guidance),
+    ...buildIntegrationFailureLines(result.integrationFailure),
   ]);
 
   ctx.ui.notify("Factory run loaded", "info");
 }
 
 async function handlePlan(ctx: FactoryPiCommandContext): Promise<void> {
+  renderIntro(ctx, [
+    "Factory is loading the latest run plan.",
+    "I’ll show the goal, workflow stages, summary, and planned tasks.",
+  ]);
+
   const project = await discoverFactoryProject(ctx.cwd);
   const result = await readLatestFactoryRunPlan(project.paths.runsDir);
 
@@ -431,7 +555,8 @@ async function handlePlan(ctx: FactoryPiCommandContext): Promise<void> {
     `phase: ${result.phase ?? "none"}`,
     `workflow: ${result.workflowStages?.map((stage) => stage.name).join(" -> ") ?? "none"}`,
     `tasks: ${result.tasks.length}`,
-    ...(result.summary ? ["", "Summary", result.summary] : []),
+    ...(result.planText ? ["", "Feature plan", ...result.planText.split(/\r?\n/).filter(Boolean).slice(0, 20)] : []),
+    ...(result.summary ? ["", "Runtime summary", result.summary] : []),
     "",
     "Task list",
     ...result.tasks.slice(0, 12).map((task) => `- ${task.id ?? "?"} [${task.stage ?? "unknown"}] ${task.title ?? "untitled"} (${task.status ?? "unknown"})`),
@@ -441,6 +566,11 @@ async function handlePlan(ctx: FactoryPiCommandContext): Promise<void> {
 }
 
 async function handleResume(ctx: FactoryPiCommandContext): Promise<void> {
+  renderIntro(ctx, [
+    "Factory is checking whether the latest run can be resumed safely.",
+    "I’ll inspect the run state, recovery signals, and suggested next phase before updating anything.",
+  ]);
+
   const project = await discoverFactoryProject(ctx.cwd);
   const result = await resumeLatestFactoryRun(project.paths.runsDir);
 
@@ -466,11 +596,43 @@ async function handleResume(ctx: FactoryPiCommandContext): Promise<void> {
 }
 
 async function handleConstitution(_args: string[], ctx: FactoryPiCommandContext): Promise<void> {
-  const executor = await createRequiredConstitutionExecutor();
+  renderIntro(ctx, [
+    "Factory is refreshing the repository constitution now.",
+    "I’ll scan observable facts, run the constitution interpreter, and then update CONSTITUTION.md with the latest result.",
+  ]);
+
+  renderLines(ctx, [
+    "Factory constitution",
+    `cwd: ${ctx.cwd}`,
+    "phase: constitution-refresh",
+    "message: Refreshing repository constitution",
+  ]);
+
+  const panel = mountFactoryStreamingWidget(ctx.ui, FACTORY_WIDGET_ID, {
+    title: "Factory constitution",
+    goal: ctx.cwd,
+    phase: "constitution-refresh",
+    role: "constitution-interpreter",
+    status: "starting",
+    lines: ["Refreshing repository constitution"],
+    footer: "Live Factory stream. Use arrow keys to scroll.",
+  });
+  panel.setPhase("constitution-refresh");
+  panel.setStatus("running");
+  panel.append("Scanning repository facts...");
+  const executor = await createRequiredConstitutionExecutor((executionId, event) => {
+    panel.setRole(executionId.includes("planner") ? "planner" : "constitution-interpreter");
+    panel.setStatus("streaming");
+    if (event.text) {
+      panel.append(event.text);
+    }
+  });
   const result = await runConstitutionScan({
     cwd: ctx.cwd,
     constitutionExecutor: executor,
   });
+  panel.setStatus("completed");
+  panel.append("Constitution refresh completed.");
 
   renderLines(ctx, [
     "Factory constitution",
@@ -499,6 +661,11 @@ async function handleConstitution(_args: string[], ctx: FactoryPiCommandContext)
 }
 
 async function handleCleanup(retainArg: string | undefined, ctx: FactoryPiCommandContext): Promise<void> {
+  renderIntro(ctx, [
+    "Factory cleanup is preparing to prune old run state and git isolation artifacts.",
+    "I’ll keep the most recent runs and remove older runs, worktrees, and branches according to policy.",
+  ]);
+
   const retainRuns = retainArg ? Number.parseInt(retainArg, 10) : undefined;
   const result = await cleanupFactoryRuns({
     cwd: ctx.cwd,
@@ -528,6 +695,11 @@ async function handleCleanup(retainArg: string | undefined, ctx: FactoryPiComman
 }
 
 async function handleCancel(ctx: FactoryPiCommandContext): Promise<void> {
+  renderIntro(ctx, [
+    "Factory is checking whether the latest run can be cancelled.",
+    "I’ll mark the run cancelled if it is still in a cancellable state.",
+  ]);
+
   const project = await discoverFactoryProject(ctx.cwd);
   const result = await cancelLatestFactoryRun(project.paths.runsDir);
 
@@ -554,6 +726,11 @@ async function handleWorktree(branchName: string | undefined, ctx: FactoryPiComm
     ctx.ui.notify("Provide a branch name", "warning");
     return;
   }
+
+  renderIntro(ctx, [
+    `Factory is preparing a git worktree for branch ${branchName}.`,
+    "I’ll inspect the current checkout, resolve the preferred worktree location, and create or reuse isolation as needed.",
+  ]);
 
   const isolation = await inspectGitIsolation(ctx.cwd);
   const loaded = await loadEffectiveConfig({ cwd: ctx.cwd });
@@ -610,29 +787,90 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     `goal: ${trimmedGoal}`,
   ];
 
-  const executorBundle = await createOptionalExecutorBundle(parsed.executorMode);
-  const constitutionExecutor = await createRequiredConstitutionExecutor();
+  const effectiveExecutorMode = await resolveExecutorMode(parsed.executorMode, ctx.cwd);
+  if (parsed.executorMode !== effectiveExecutorMode) {
+    ctx.ui.notify(
+      effectiveExecutorMode === "sdk"
+        ? "Factory is using the Pi SDK executor by default"
+        : "Factory is running without an AI executor",
+      effectiveExecutorMode === "sdk" ? "info" : "warning",
+    );
+  }
 
-  renderLines(ctx, [
-    ...progressLines,
-    "phase: constitution-refresh",
-    "message: Refreshing repository constitution",
-  ]);
-
-  const constitutionResult = await runConstitutionScan({
-    cwd: ctx.cwd,
-    constitutionExecutor: constitutionExecutor,
+  const panel = mountFactoryStreamingWidget(ctx.ui, FACTORY_WIDGET_ID, {
+    title: "Factory run",
+    goal: trimmedGoal,
+    phase: "constitution-refresh",
+    role: "constitution-interpreter",
+    status: "starting",
+    lines: ["Press d to skip constitution scan, or Enter to continue."],
+    footer: "Press d to skip constitution scan, or Enter to continue. Use arrow keys to scroll.",
   });
 
-  renderLines(ctx, [
-    ...progressLines,
-    `constitution mode: ${constitutionResult.mode}`,
-    `constitution finalized: ${constitutionResult.finalized ? "yes" : "no"}`,
-    `constitution strategy: ${constitutionResult.refreshStrategy}`,
-    `constitution refresh: ${constitutionResult.refresh.mode}`,
-    `constitution changed files: ${constitutionResult.refresh.changedFiles.length}`,
-    "phase: planning",
-  ]);
+  const skipConstitution = await waitForConstitutionSkip(panel);
+  panel.setKeyHandler(undefined);
+
+  let constitutionSummary: {
+    mode: string;
+    finalized: boolean;
+    refreshStrategy: string;
+    refresh: { mode: string; changedFiles: string[] };
+  };
+
+  if (skipConstitution) {
+    panel.setStatus("skipped");
+    panel.append("Constitution scan skipped by user.");
+    constitutionSummary = {
+      mode: "skipped",
+      finalized: false,
+      refreshStrategy: "skipped",
+      refresh: { mode: "skipped", changedFiles: [] },
+    };
+  } else {
+    panel.setPhase("constitution-refresh");
+    panel.setStatus("running");
+    panel.append("Scanning repository facts...");
+
+    const constitutionExecutor = await createRequiredConstitutionExecutor((executionId, event) => {
+      panel.setRole(executionId.includes("planner") ? "planner" : "constitution-interpreter");
+      panel.setStatus("streaming");
+      if (event.text) {
+        panel.append(event.text);
+      }
+    });
+
+    const constitutionResult = await runConstitutionScan({
+      cwd: ctx.cwd,
+      constitutionExecutor,
+    });
+
+    panel.setStatus("completed");
+    panel.append("Constitution refresh completed.");
+    panel.append(`Constitution strategy: ${constitutionResult.refreshStrategy}`);
+    panel.append(`Changed files: ${constitutionResult.refresh.changedFiles.length}`);
+    constitutionSummary = constitutionResult;
+  }
+  panel.setPhase("planning");
+  panel.setRole(effectiveExecutorMode && effectiveExecutorMode !== "off" ? "planner" : undefined);
+  panel.setStatus("starting");
+  panel.append("Preparing Factory runtime...");
+  panel.setFooter("Live Factory stream. Use arrow keys to scroll.");
+
+  const executorBundle = await createOptionalExecutorBundle(effectiveExecutorMode, (executionId, event) => {
+    panel.setStatus("streaming");
+    if (executionId.includes("planner")) {
+      panel.setRole("planner");
+    } else if (executionId.includes("builder")) {
+      panel.setRole("builder");
+    } else if (executionId.includes("repair")) {
+      panel.setRole("repair");
+    } else if (executionId.includes("reviewer")) {
+      panel.setRole("reviewer");
+    }
+    if (event.text) {
+      panel.append(event.text);
+    }
+  });
 
   const result = await runPrototypeFactoryFlow({
     cwd: ctx.cwd,
@@ -643,11 +881,15 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     repairExecutor: executorBundle?.repairExecutor,
     reviewerExecutor: executorBundle?.reviewerExecutor,
     onProgress: async (event) => {
-      updateProgressWidget(ctx, progressLines, event);
+      panel.setPhase(event.phase);
+      panel.setStatus(event.status.toLowerCase());
+      panel.append(`${event.phase}: ${event.message}`);
     },
-    requestPlanApproval: async ({ runId, goal, planPath, taskCount, workflowStages, summary, tasks }) => {
-      const preview = { runId, goal, planPath, taskCount, workflowStages, summary, tasks };
-      renderLines(ctx, buildPlanApprovalPreviewLines(preview));
+    requestPlanApproval: async ({ runId, goal, planPath, taskCount, workflowStages, summary, planText, tasks }) => {
+      const preview = { runId, goal, planPath, taskCount, workflowStages, summary, planText, tasks };
+      panel.setPhase("plan-approval");
+      panel.setStatus("waiting-for-approval");
+      panel.setLines(buildPlanApprovalPreviewLines(preview));
       const decision = await requestPlanApprovalDecision(ctx.ui, preview);
       ctx.ui.notify(
         decision.decision === "approve"
@@ -670,15 +912,17 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     },
   });
 
+  const latestShown = await showFactoryRun(path.join((await discoverFactoryProject(ctx.cwd)).paths.runsDir), result.runId);
+
   renderLines(ctx, [
     result.approved ? "Factory prototype run complete" : "Factory prototype run cancelled",
     `goal: ${trimmedGoal}`,
-    `executor mode: ${parsed.executorMode ?? "off"}`,
-    `constitution mode: ${constitutionResult.mode}`,
-    `constitution finalized: ${constitutionResult.finalized ? "yes" : "no"}`,
-    `constitution strategy: ${constitutionResult.refreshStrategy}`,
-    `constitution refresh: ${constitutionResult.refresh.mode}`,
-    `constitution changed files: ${constitutionResult.refresh.changedFiles.length}`,
+    `executor mode: ${effectiveExecutorMode ?? "off"}`,
+    `constitution mode: ${constitutionSummary.mode}`,
+    `constitution finalized: ${constitutionSummary.finalized ? "yes" : "no"}`,
+    `constitution strategy: ${constitutionSummary.refreshStrategy}`,
+    `constitution refresh: ${constitutionSummary.refresh.mode}`,
+    `constitution changed files: ${constitutionSummary.refresh.changedFiles.length}`,
     `run id: ${result.runId}`,
     `run dir: ${result.runDir}`,
     `execution cwd: ${result.executionCwd}`,
@@ -693,36 +937,406 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     `summary path: ${result.summaryPath}`,
     `approved: ${result.approved ? "yes" : "no"}`,
     `phases: ${result.phases.join(" -> ")}`,
+    ...(latestShown.integrationFailure
+      ? [
+          `integration failure: ${latestShown.integrationFailure.reason ?? "unknown"}`,
+          `integration conflicts: ${latestShown.integrationFailure.conflictingFiles.join(", ") || "none"}`,
+          `merge in progress: ${latestShown.integrationFailure.mergeInProgress ? "yes" : "no"}`,
+        ]
+      : []),
   ]);
 
   ctx.ui.notify(result.approved ? "Factory prototype run complete" : "Factory prototype run cancelled", result.approved ? "info" : "warning");
+}
+
+async function handleFactoryCommandError(error: unknown, ctx: FactoryPiCommandContext): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (isGitMergeConflictError(message)) {
+    const merge = await loadLatestMergeConflictContext(ctx.cwd);
+
+    renderLines(ctx, [
+      "Factory merge conflict",
+      `run id: ${merge?.runId ?? "unknown"}`,
+      `run dir: ${merge?.runDir ?? "unknown"}`,
+      `merge cwd: ${merge?.mergeCwd ?? "unknown"}`,
+      "",
+      "Factory hit a git merge conflict.",
+      "Choose whether to auto fix with AI or stop.",
+    ]);
+
+    const choice = ctx.ui.select
+      ? await ctx.ui.select("Factory merge conflict", [
+          "Auto fix — use AI to resolve the merge conflict",
+          "Stop — leave the run halted",
+        ])
+      : undefined;
+
+    if (choice?.startsWith("Auto fix")) {
+      await autoFixLatestMergeConflict(ctx, merge);
+      return;
+    }
+
+    ctx.ui.notify("Factory run stopped because of a git merge conflict.", "error");
+    return;
+  }
+
+  renderLines(ctx, [
+    "Factory error",
+    message,
+  ]);
+  ctx.ui.notify(message, "error");
+}
+
+interface LatestMergeConflictContext {
+  runId?: string;
+  runDir?: string;
+  mergeCwd?: string;
+  baseBranch?: string;
+  candidateBranch?: string;
+}
+
+async function loadLatestMergeConflictContext(cwd: string): Promise<LatestMergeConflictContext | undefined> {
+  const project = await discoverFactoryProject(cwd).catch(() => undefined);
+  const latest = project ? await readLatestFactoryRunStatus(project.paths.runsDir).catch(() => undefined) : undefined;
+  const runDir = latest?.runDir;
+  if (!runDir) {
+    return undefined;
+  }
+
+  let mergeCwd: string | undefined;
+  let baseBranch: string | undefined;
+  let candidateBranch: string | undefined;
+
+  try {
+    const raw = await fs.readFile(path.join(runDir, "final-merge.json"), "utf8");
+    const parsed = JSON.parse(raw) as {
+      mergeCwd?: string;
+      mergeBaseBranch?: string;
+      candidateBranch?: string;
+    };
+    mergeCwd = parsed.mergeCwd;
+    baseBranch = parsed.mergeBaseBranch;
+    candidateBranch = parsed.candidateBranch;
+  } catch {}
+
+  if (!mergeCwd) {
+    try {
+      const raw = await fs.readFile(path.join(runDir, "integration.json"), "utf8");
+      const parsed = JSON.parse(raw) as {
+        executionCwd?: string;
+      };
+      mergeCwd = parsed.executionCwd;
+    } catch {}
+  }
+
+  const candidates = [mergeCwd, cwd].filter((value): value is string => Boolean(value));
+  for (const candidate of candidates) {
+    const status = await readMergeConflictStatus(candidate).catch(() => undefined);
+    if (status?.hasConflicts || status?.mergeInProgress) {
+      mergeCwd = candidate;
+      break;
+    }
+  }
+
+  return {
+    runId: latest?.state?.runId,
+    runDir,
+    mergeCwd,
+    baseBranch,
+    candidateBranch,
+  };
+}
+
+async function autoFixLatestMergeConflict(
+  ctx: FactoryPiCommandContext,
+  merge: LatestMergeConflictContext | undefined,
+): Promise<void> {
+  if (!merge?.mergeCwd) {
+    renderLines(ctx, [
+      "Factory merge conflict",
+      "Auto fix is unavailable because the merge workspace could not be located.",
+    ]);
+    ctx.ui.notify("Factory could not locate the merge workspace for auto fix.", "error");
+    return;
+  }
+
+  renderLines(ctx, [
+    "Factory auto-fix",
+    `run id: ${merge.runId ?? "unknown"}`,
+    `merge cwd: ${merge.mergeCwd}`,
+    "phase: conflict-resolution",
+    "status: starting",
+  ]);
+
+  const preStatus = await readMergeConflictStatus(merge.mergeCwd).catch(() => ({ hasConflicts: false, mergeInProgress: false }));
+  if (!preStatus.hasConflicts && !preStatus.mergeInProgress) {
+    renderLines(ctx, [
+      "Factory merge conflict",
+      `merge cwd: ${merge.mergeCwd}`,
+      "Auto fix is unavailable because no in-progress merge was found there.",
+    ]);
+    ctx.ui.notify("Factory could not find an in-progress merge for auto fix.", "error");
+    return;
+  }
+
+  const executor = await createRequiredConstitutionExecutor();
+  const prompt = [
+    "A git merge is in progress and has conflicts.",
+    "Resolve the merge conflict in this repository safely.",
+    "Instructions:",
+    "1. Inspect the repo state with git status and identify all conflicted files.",
+    "2. Resolve the conflicts using the available tools.",
+    "3. Stage the resolved files.",
+    "4. If the merge is ready to complete, finish it with a normal merge commit.",
+    "5. Do not discard user changes and do not run git merge --abort unless absolutely necessary.",
+    "6. At the end, leave a short summary of what was resolved.",
+  ].join("\n");
+
+  const execution = await executor.execute({
+    executionId: `merge-fix-${merge.runId ?? Date.now()}`,
+    cwd: merge.mergeCwd,
+    prompt,
+    tools: ["read", "write", "edit", "bash"],
+    metadata: {
+      purpose: "factory-merge-conflict-auto-fix",
+      runId: merge.runId,
+      candidateBranch: merge.candidateBranch,
+      baseBranch: merge.baseBranch,
+    },
+  });
+
+  await finalizeMergeIfReady(merge.mergeCwd);
+  const status = await readMergeConflictStatus(merge.mergeCwd);
+
+  renderLines(ctx, [
+    status.hasConflicts ? "Factory auto-fix incomplete" : "Factory auto-fix complete",
+    `run id: ${merge.runId ?? "unknown"}`,
+    `merge cwd: ${merge.mergeCwd}`,
+    `executor status: ${execution.status}`,
+    `conflicts remaining: ${status.hasConflicts ? "yes" : "no"}`,
+    `merge in progress: ${status.mergeInProgress ? "yes" : "no"}`,
+    ...(execution.outputText ? ["", ...execution.outputText.split(/\r?\n/).filter(Boolean).slice(-8)] : []),
+  ]);
+
+  if (status.hasConflicts || execution.status !== "completed") {
+    ctx.ui.notify("Factory could not fully auto-fix the merge conflict. Review git status.", "warning");
+    return;
+  }
+
+  await continueLatestRunAfterAutoFix(ctx, merge, status);
+}
+
+async function finalizeMergeIfReady(cwd: string): Promise<void> {
+  const status = await readMergeConflictStatus(cwd);
+  if (status.hasConflicts || !status.mergeInProgress) {
+    return;
+  }
+
+  try {
+    await execFileAsync("git", ["commit", "--no-edit"], { cwd, windowsHide: true });
+  } catch {
+    // Leave the repo as-is if git still refuses to complete the merge.
+  }
+}
+
+async function continueLatestRunAfterAutoFix(
+  ctx: FactoryPiCommandContext,
+  merge: LatestMergeConflictContext,
+  status: { hasConflicts: boolean; mergeInProgress: boolean },
+): Promise<void> {
+  const project = await discoverFactoryProject(ctx.cwd).catch(() => undefined);
+  const latest = project ? await readLatestFactoryRunStatus(project.paths.runsDir).catch(() => undefined) : undefined;
+
+  if (!project || !latest?.statePath || !latest?.state) {
+    ctx.ui.notify("Factory auto-fixed the merge conflict.", "info");
+    return;
+  }
+
+  const eventsPath = path.join(latest.runDir ?? "", "events.jsonl");
+  await appendFactoryRunEvent(eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "merge.auto_fix_completed",
+    data: {
+      runId: latest.state.runId,
+      mergeCwd: merge.mergeCwd,
+      conflictsRemaining: status.hasConflicts,
+      mergeInProgress: status.mergeInProgress,
+    },
+  }).catch(() => undefined);
+
+  if (latest.state.phase?.includes("merge") && !status.hasConflicts && !status.mergeInProgress) {
+    await updateFactoryRunState({
+      statePath: latest.statePath,
+      patch: { status: "COMPLETED", phase: "complete" },
+    });
+    await appendFactoryRunEvent(eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "run.completed",
+      data: {
+        goal: "Auto-completed after AI merge conflict fix",
+        autoFixed: true,
+      },
+    }).catch(() => undefined);
+
+    renderLines(ctx, [
+      "Factory auto-fix complete",
+      `run id: ${latest.state.runId ?? merge.runId ?? "unknown"}`,
+      `merge cwd: ${merge.mergeCwd ?? "unknown"}`,
+      "run status: completed",
+      "continue action: final merge finished automatically",
+    ]);
+    ctx.ui.notify("Factory auto-fixed the conflict and completed the run.", "info");
+    return;
+  }
+
+  const resumed = await resumeLatestFactoryRun(project.paths.runsDir).catch(() => undefined);
+  renderLines(ctx, [
+    "Factory auto-fix complete",
+    `run id: ${latest.state.runId ?? merge.runId ?? "unknown"}`,
+    `merge cwd: ${merge.mergeCwd ?? "unknown"}`,
+    `run status: ${resumed?.state?.status ?? latest.state.status ?? "unknown"}`,
+    `next phase: ${resumed?.state?.phase ?? latest.state.phase ?? "unknown"}`,
+    `continue action: ${resumed?.resumed ? "run resumed" : "manual follow-up may still be needed"}`,
+  ]);
+  ctx.ui.notify(
+    resumed?.resumed
+      ? "Factory auto-fixed the conflict and resumed the latest run state."
+      : "Factory auto-fixed the conflict.",
+    resumed?.resumed ? "info" : "warning",
+  );
+}
+
+async function readMergeConflictStatus(cwd: string): Promise<{ hasConflicts: boolean; mergeInProgress: boolean }> {
+  let hasConflicts = false;
+  let mergeInProgress = false;
+
+  try {
+    const { stdout } = await execFileAsync("git", ["diff", "--name-only", "--diff-filter=U"], { cwd, windowsHide: true });
+    hasConflicts = stdout.trim().length > 0;
+  } catch {
+    hasConflicts = true;
+  }
+
+  try {
+    await execFileAsync("git", ["rev-parse", "-q", "--verify", "MERGE_HEAD"], { cwd, windowsHide: true });
+    mergeInProgress = true;
+  } catch {
+    mergeInProgress = false;
+  }
+
+  return { hasConflicts, mergeInProgress };
+}
+
+function isGitMergeConflictError(message: string): boolean {
+  return /git merge/i.test(message) && /(unmerged files|resolve.*conflict|unresolved conflict|Automatic merge failed)/i.test(message);
+}
+
+function buildGuidanceDiagnosticLines(guidance:
+  | {
+      plannerInstructionFiles: string[];
+      builderInstructionFiles: string[];
+      repairInstructionFiles: string[];
+      reviewerInstructionFiles: string[];
+      plannerHasConstitution: boolean;
+      builderHasConstitution: boolean;
+      repairHasConstitution: boolean;
+      reviewerHasConstitution: boolean;
+      plannerUsedConstitution: boolean;
+      builderUsedConstitution: boolean;
+      repairUsedConstitution: boolean;
+      reviewerUsedConstitution: boolean;
+      plannerGuidanceChars: number;
+      builderGuidanceChars: number;
+      repairGuidanceChars: number;
+      reviewerGuidanceChars: number;
+    }
+  | undefined,
+): string[] {
+  if (!guidance) {
+    return [];
+  }
+
+  return [
+    `planner guidance files: ${guidance.plannerInstructionFiles.join(", ") || "none"}`,
+    `builder guidance files: ${guidance.builderInstructionFiles.join(", ") || "none"}`,
+    `repair guidance files: ${guidance.repairInstructionFiles.join(", ") || "none"}`,
+    `reviewer guidance files: ${guidance.reviewerInstructionFiles.join(", ") || "none"}`,
+    `planner constitution used: ${guidance.plannerUsedConstitution ? "yes" : "no"}`,
+    `builder constitution used: ${guidance.builderUsedConstitution ? "yes" : "no"}`,
+    `repair constitution used: ${guidance.repairUsedConstitution ? "yes" : "no"}`,
+    `reviewer constitution used: ${guidance.reviewerUsedConstitution ? "yes" : "no"}`,
+    `planner guidance chars: ${guidance.plannerGuidanceChars}`,
+    `builder guidance chars: ${guidance.builderGuidanceChars}`,
+    `repair guidance chars: ${guidance.repairGuidanceChars}`,
+    `reviewer guidance chars: ${guidance.reviewerGuidanceChars}`,
+  ];
+}
+
+function buildIntegrationFailureLines(
+  integrationFailure:
+    | {
+        reason?: string;
+        conflictingFiles: string[];
+        mergeInProgress: boolean;
+      }
+    | undefined,
+): string[] {
+  if (!integrationFailure) {
+    return [];
+  }
+
+  return [
+    `integration failure: ${integrationFailure.reason ?? "unknown"}`,
+    `integration conflicts: ${integrationFailure.conflictingFiles.join(", ") || "none"}`,
+    `merge in progress: ${integrationFailure.mergeInProgress ? "yes" : "no"}`,
+  ];
 }
 
 function renderLines(ctx: FactoryPiCommandContext, lines: string[]): void {
   ctx.ui.setWidget(FACTORY_WIDGET_ID, lines);
 }
 
-function updateProgressWidget(
-  ctx: FactoryPiCommandContext,
-  staticLines: string[],
-  event: FactoryRunProgressEvent,
-): void {
-  renderLines(ctx, [
-    ...staticLines,
-    `run id: ${event.runId}`,
-    `status: ${event.status}`,
-    `phase: ${event.phase}`,
-    `message: ${event.message}`,
-  ]);
+function renderIntro(ctx: FactoryPiCommandContext, lines: string[]): void {
+  renderLines(ctx, ["Factory", "", ...lines]);
+}
+
+async function waitForConstitutionSkip(panel: { setKeyHandler(handler: ((data: string) => boolean | void) | undefined): void; append(text: string): void; setStatus(value: string): void; }): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      panel.setKeyHandler(undefined);
+      resolve(value);
+    };
+
+    panel.setKeyHandler((data) => {
+      if (data.toLowerCase?.() === "d") {
+        panel.setStatus("skipped");
+        panel.append("Skip requested: constitution scan will be skipped.");
+        finish(true);
+        return true;
+      }
+      if (data === "\r" || data === "\n") {
+        panel.append("Continuing with constitution scan.");
+        finish(false);
+        return true;
+      }
+      return false;
+    });
+  });
 }
 
 function parseGoalRequest(raw: string): {
   goal: string;
-  executorMode?: "fake" | "sdk";
+  executorMode?: "fake" | "sdk" | "off";
 } {
   const parts = raw.trim().split(/\s+/).filter(Boolean);
   const remaining: string[] = [];
-  let executorMode: "fake" | "sdk" | undefined;
+  let executorMode: "fake" | "sdk" | "off" | undefined;
 
   for (const part of parts) {
     if (part === "--executor=fake") {
@@ -733,12 +1347,16 @@ function parseGoalRequest(raw: string): {
       executorMode = "sdk";
       continue;
     }
+    if (part === "--executor=off") {
+      executorMode = "off";
+      continue;
+    }
     remaining.push(part);
   }
 
   if (!executorMode) {
     const envMode = process.env.FACTORY_PI_EXECUTOR_MODE;
-    if (envMode === "fake" || envMode === "sdk") {
+    if (envMode === "fake" || envMode === "sdk" || envMode === "off") {
       executorMode = envMode;
     }
   }
@@ -749,19 +1367,18 @@ function parseGoalRequest(raw: string): {
   };
 }
 
-async function createRequiredConstitutionExecutor(): Promise<AgentExecutor> {
-  const executors = (await loadExecutorModule()) as {
-    PiAgentExecutor: new (input: { sessionFactory: unknown }) => AgentExecutor;
-    createPiSdkSessionFactory: (input: { packageName?: string }) => unknown;
-  };
-  const sessionFactory = executors.createPiSdkSessionFactory({
+async function createRequiredConstitutionExecutor(
+  onEvent?: (executionId: string, event: { type: string; text?: string; data?: Record<string, unknown> }) => void,
+): Promise<AgentExecutor> {
+  const sessionFactory = piExecutors.createPiSdkSessionFactory({
     packageName: process.env.FACTORY_PI_SDK_PACKAGE,
   });
-  return new executors.PiAgentExecutor({ sessionFactory });
+  return new piExecutors.PiAgentExecutor({ sessionFactory, onEvent });
 }
 
 async function createOptionalExecutorBundle(
-  mode: "fake" | "sdk" | undefined,
+  mode: "fake" | "sdk" | "off" | undefined,
+  onEvent?: (executionId: string, event: { type: string; text?: string; data?: Record<string, unknown> }) => void,
 ): Promise<
   | {
       plannerExecutor: AgentExecutor;
@@ -771,38 +1388,38 @@ async function createOptionalExecutorBundle(
     }
   | undefined
 > {
-  if (!mode) {
+  if (!mode || mode === "off") {
     return undefined;
   }
 
-  const executors = (await loadExecutorModule()) as {
-    PiAgentExecutor: new (input: { sessionFactory: unknown }) => AgentExecutor;
-    createFakePiSessionFactory: () => unknown;
-    createPiSdkSessionFactory: (input: { packageName?: string }) => unknown;
-  };
   const sessionFactory =
     mode === "sdk"
-      ? executors.createPiSdkSessionFactory({
+      ? piExecutors.createPiSdkSessionFactory({
           packageName: process.env.FACTORY_PI_SDK_PACKAGE,
         })
-      : executors.createFakePiSessionFactory();
+      : piExecutors.createFakePiSessionFactory();
 
   return {
-    plannerExecutor: new executors.PiAgentExecutor({ sessionFactory }),
-    builderExecutor: new executors.PiAgentExecutor({ sessionFactory }),
-    repairExecutor: new executors.PiAgentExecutor({ sessionFactory }),
-    reviewerExecutor: new executors.PiAgentExecutor({ sessionFactory }),
+    plannerExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
+    builderExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
+    repairExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
+    reviewerExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
   };
 }
 
-async function loadExecutorModule(): Promise<unknown> {
-  const importer = new Function("specifier", "return import(specifier);") as (
-    specifier: string,
-  ) => Promise<unknown>;
-
-  try {
-    return await importer("@factory/executor-pi");
-  } catch {
-    return importer("../../../executors/pi/dist/index.js");
+async function resolveExecutorMode(
+  requested: "fake" | "sdk" | "off" | undefined,
+  cwd: string,
+): Promise<"fake" | "sdk" | "off" | undefined> {
+  if (requested) {
+    return requested;
   }
+
+  const pi = await detectPiModelConfiguration(cwd).catch(() => undefined);
+  if (pi?.hasAuth) {
+    return "sdk";
+  }
+
+  return undefined;
 }
+

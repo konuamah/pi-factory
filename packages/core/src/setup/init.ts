@@ -1,12 +1,21 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { ModelRole, ModelSelection } from "@factory/schemas";
 import { discoverFactoryProject } from "../project/discovery.js";
 import { createFactoryRun, appendFactoryRunEvent, updateFactoryRunState } from "../runs/store.js";
 import { loadEffectiveConfig } from "../config/loader.js";
+import { detectPiModelConfiguration, type PiModelConfigurationStatus } from "./pi-models.js";
+
+export type FactoryWorkflowPreset = "balanced" | "fast" | "safe";
 
 export interface InitializeFactoryProjectOptions {
   cwd: string;
   force?: boolean;
+  setup?: {
+    workflowPreset?: FactoryWorkflowPreset;
+    modelAssignments?: Partial<Record<ModelRole, ModelSelection>>;
+    reconfigure?: boolean;
+  };
 }
 
 export interface InitializeFactoryProjectResult {
@@ -15,6 +24,7 @@ export interface InitializeFactoryProjectResult {
   skipped: string[];
   runId: string;
   runDir: string;
+  piModelConfiguration: PiModelConfigurationStatus;
 }
 
 export async function initializeFactoryProject(
@@ -38,21 +48,22 @@ export async function initializeFactoryProject(
 
   await ensureFile({
     filePath: path.join(root, "factory.yaml"),
-    content: defaultWorkflowTemplate(),
-    force: options.force,
+    content: defaultWorkflowTemplate(options.setup?.workflowPreset),
+    force: options.force || options.setup?.reconfigure,
     created,
     skipped,
   });
 
   await ensureFile({
     filePath: path.join(root, ".factory", "config.yaml"),
-    content: defaultProjectConfigTemplate(),
-    force: options.force,
+    content: defaultProjectConfigTemplate(options.setup?.modelAssignments),
+    force: options.force || options.setup?.reconfigure,
     created,
     skipped,
   });
 
   const loaded = await loadEffectiveConfig({ cwd: root });
+  const piModelConfiguration = await detectPiModelConfiguration(root);
   const run = await createFactoryRun({
     runsDir: path.join(root, ".factory", "runs"),
     initialPhase: "setup",
@@ -65,6 +76,15 @@ export async function initializeFactoryProject(
     data: {
       created,
       skipped,
+      piModelConfiguration: {
+        hasModelSelection: piModelConfiguration.hasModelSelection,
+        hasAuth: piModelConfiguration.hasAuth,
+        defaultProvider: piModelConfiguration.defaultProvider,
+        defaultModel: piModelConfiguration.defaultModel,
+        enabledModels: piModelConfiguration.enabledModels.length,
+        authProviders: piModelConfiguration.authProviders.length,
+        customModelCount: piModelConfiguration.customModelCount,
+      },
     },
   });
 
@@ -84,7 +104,7 @@ export async function initializeFactoryProject(
     },
   });
 
-  return { root, created, skipped, runId: run.runId, runDir: run.runDir };
+  return { root, created, skipped, runId: run.runId, runDir: run.runDir, piModelConfiguration };
 }
 
 async function ensureFile(input: {
@@ -119,10 +139,40 @@ function defaultConstitutionTemplate(): string {
   return `# CONSTITUTION\n\n## Purpose\nDescribe how this repository actually works.\n\n## Architecture\n- Add authoritative architecture notes here.\n\n## Commands\n- setup:\n- lint:\n- typecheck:\n- test:\n- build:\n\n## Conventions\n- Add coding and review conventions here.\n`;
 }
 
-function defaultWorkflowTemplate(): string {
+function defaultWorkflowTemplate(preset: FactoryWorkflowPreset = "balanced"): string {
+  if (preset === "fast") {
+    return `stages:\n  - name: plan\n  - name: build\n    dependsOn: [plan]\n  - name: approval\n    dependsOn: [build]\n  - name: merge\n    dependsOn: [approval]\n`;
+  }
+
+  if (preset === "safe") {
+    return `stages:\n  - name: plan\n  - name: build\n    dependsOn: [plan]\n  - name: verify\n    dependsOn: [build]\n  - name: approval\n    dependsOn: [verify]\n  - name: merge\n    dependsOn: [approval]\n`;
+  }
+
   return `stages:\n  - name: plan\n  - name: build\n    dependsOn: [plan]\n  - name: verify\n    dependsOn: [build]\n  - name: approval\n    dependsOn: [verify]\n  - name: merge\n    dependsOn: [approval]\n`;
 }
 
-function defaultProjectConfigTemplate(): string {
-  return `project:\n  baseBranch: main\n\ncommands:\n  setup: pnpm install\n  lint: pnpm lint\n  typecheck: pnpm typecheck\n  test: pnpm test\n  build: pnpm build\n\nruntime:\n  maxParallelAgents: 4\n\nrepair:\n  enabled: true\n  maxAttempts: 3\n\napproval:\n  finalMerge: required\n`;
+function defaultProjectConfigTemplate(modelAssignments?: Partial<Record<ModelRole, ModelSelection>>): string {
+  const modelBlock = renderModelAssignments(modelAssignments);
+  return `project:\n  baseBranch: main\n\ncommands:\n  setup: pnpm install\n  lint: pnpm lint\n  typecheck: pnpm typecheck\n  test: pnpm test\n  build: pnpm build\n${modelBlock}\nruntime:\n  maxParallelAgents: 4\n\nrepair:\n  enabled: true\n  maxAttempts: 3\n\napproval:\n  finalMerge: required\n`;
+}
+
+function renderModelAssignments(modelAssignments?: Partial<Record<ModelRole, ModelSelection>>): string {
+  const orderedRoles: ModelRole[] = ["planner", "builder", "reviewer", "repair"];
+  const lines = orderedRoles.flatMap((role) => {
+    const selection = modelAssignments?.[role];
+    if (!selection?.model) {
+      return [];
+    }
+    return [
+      `  ${role}:`,
+      ...(selection.provider ? [`    provider: ${selection.provider}`] : []),
+      `    model: ${selection.model}`,
+    ];
+  });
+
+  if (lines.length === 0) {
+    return "\n";
+  }
+
+  return `\nmodels:\n${lines.join("\n")}\n\n`;
 }

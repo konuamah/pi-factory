@@ -1,35 +1,65 @@
 {
-  "scannedAt": "2026-08-22T11:38:44.966Z",
+  "scannedAt": "2026-08-22T14:00:07.965Z",
   "mode": "single-pipeline",
-  "scanSha": "5c91081bdf92e38d7db7fe4b8db812add1abe21f",
+  "refreshStrategy": "full-interpretation",
+  "scanSha": "975743dac447821b2d5a5ec890023431e7b756ae",
   "previousScanSha": "5c91081bdf92e38d7db7fe4b8db812add1abe21f",
   "refreshMode": "FAST",
   "changedFiles": [
     ".factory/constitution/facts.json",
     ".factory/constitution/metadata.json",
     "CONSTITUTION.md",
+    "NEXT_ITEMS.md",
     "NUL",
+    "README.md",
+    "constitution_120_areas_handoff.md",
     "package-lock.json",
     "package.json",
+    "packages/adapters/pi/src/approval.ts",
     "packages/adapters/pi/src/gateway.ts",
+    "packages/adapters/pi/src/index.ts",
+    "packages/adapters/pi/src/setup-wizard.ts",
+    "packages/adapters/pi/src/streaming-panel.ts",
+    "packages/adapters/pi/src/types.ts",
     "packages/core/src/constitution/context.ts",
     "packages/core/src/constitution/evaluators/dependencies.ts",
     "packages/core/src/constitution/evaluators/foundation.ts",
     "packages/core/src/constitution/evaluators/shared.ts",
+    "packages/core/src/constitution/refresh.ts",
     "packages/core/src/constitution/render.ts",
     "packages/core/src/constitution/scan.ts",
     "packages/core/src/constitution/types.ts",
+    "packages/core/src/runs/index.ts",
+    "packages/core/src/runs/logs-by-id.ts",
+    "packages/core/src/runs/plan.ts",
+    "packages/core/src/runs/resume.ts",
+    "packages/core/src/runs/show.ts",
+    "packages/core/src/runtime/artifacts.ts",
+    "packages/core/src/runtime/controller.ts",
+    "packages/core/src/runtime/harness.ts",
+    "packages/core/src/runtime/planner.ts",
+    "packages/core/src/setup/index.ts",
+    "packages/core/src/setup/init.ts",
+    "packages/core/src/setup/pi-models.ts",
     "packages/executors/pi/src/executor.ts",
     "packages/executors/pi/src/fake-session-factory.ts",
+    "packages/executors/pi/src/runtime-harness.ts",
     "packages/executors/pi/src/sdk-factory.ts",
     "packages/executors/pi/src/types.ts",
-    "tests/constitution.test.mjs"
+    "tests/constitution.test.mjs",
+    "tests/gateway-ui.test.mjs",
+    "tests/pi-adapter.test.mjs",
+    "tests/pi-executor.test.mjs",
+    "tests/runtime.test.mjs",
+    "tests/setup-ui.test.mjs",
+    "tests/setup.test.mjs"
   ],
   "impactedAreaIds": [
     1,
     2,
     3,
     4,
+    5,
     9,
     10,
     11,
@@ -39,18 +69,18 @@
     83,
     85
   ],
-  "trackedFiles": 120,
+  "trackedFiles": 126,
   "interpreter": {
     "required": true,
     "status": "completed",
-    "outputText": "Brief repository-constitution summary from repo evidence:\n\n- **Layout / architecture:** This is a small **npm workspace monorepo** rooted at `package.json`, with TypeScript project references in `tsconfig.json` pointing at `packages/schemas`, `packages/core`, `packages/adapters/pi`, `packages/executors/fake`, and `packages/executors/pi`.\n- **Package roles:**  \n  - `packages/schemas/src` holds shared schema/types.  \n  - `packages/core/src` is the main domain package: config loading/merge/validation, constitution scanning, doctor, git/worktree support, setup, runs, and runtime control.  \n  - `packages/adapters/pi/src` contains the Pi adapter/extension-facing layer.  \n  - `packages/executors/fake/src` and `packages/executors/pi/src` provide executor implementations/harnesses.\n- **Source organization:** Each package follows `src/**/*.ts` with `rootDir: \"src\"` and `outDir: \"dist\"` in package `tsconfig.json` files. Root build/typecheck uses `tsc -b`, so static analysis is TypeScript composite-project based.\n- **Testing:** Tests live under `tests/`; naming is `*.test.mjs` at least at root (`tests/constitution.test.mjs`). The actual framework is **Node’s built-in test runner** (`node:test`), invoked via root script: `npm test` = `npm run build && node --test tests/**/*.test.mjs`. Tests import compiled output from `packages/core/dist/...`, so build-before-test is part of convention.\n- **Package/tooling conventions:** Package manager is clearly **npm** (`package-lock.json`, root scripts). Manifest conventions are standard per-package `package.json` plus per-package `tsconfig.json`.\n- **Module/dependency conventions:** Packages are ESM (`\"type\": \"module\"` everywhere). Internal package dependencies are explicit and directional: `core` depends on `schemas`; executors depend on `core`/`schemas`; Pi adapter depends on `core`, `schemas`, and Pi executor.\n- **Bootstrap/build:** Evidence shows local development is centered on `npm install`, `npm run build`, `npm run typecheck`, `npm test`, plus harness scripts `harness:pi-executor` and `harness:pi-runtime`.\n\n**Ambiguity explicitly noted:**\n- `README.md` describes project focus and runtime/setup behavior, but does **not** give a full step-by-step developer bootstrap guide.\n- No lint or format tool/config is present in the provided manifests/files, so **linting conventions are not defined** by evidence.\n- `packages/executors/pi/src` contains checked-in `.js`/`.d.ts` alongside `.ts`, which makes generated-file handling somewhat ambiguous from the available evidence.",
+    "outputText": "Brief architecture/conventions summary:\n\n- `package.json` defines an npm workspace monorepo (`workspaces: [\"packages/*\"]`) with package roots in `packages/`.\n- `tsconfig.json` uses project references to `packages/schemas`, `packages/core`, `packages/adapters/pi`, `packages/executors/fake`, and `packages/executors/pi`.\n- Each package follows `src/` → `dist/` TypeScript compilation with composite builds, `module: \"NodeNext\"`, `target: \"ES2022\"`, and `strict: true` in package `tsconfig.json` files.\n- Dependency layering is package-based: `@factory/core` depends on `@factory/schemas`; `@factory/adapter-pi` depends on core/schemas/executor-pi; executors depend inward on core/schemas.\n- Root scripts are script-driven via npm: `build`, `typecheck`, `test`, plus Pi harness commands in `package.json`.\n- Tests live in `tests/*.test.mjs`, use Node’s built-in test runner (`node --test`) and `node:test` / `node:assert`, and exercise built artifacts from `packages/*/dist`.\n- README documents a plan-first runtime, deterministic run artifacts under `.factory/runs/<run-id>/`, and a constitution pipeline writing `.factory/constitution/facts.json` and `CONSTITUTION.md`.\n\nAmbiguity:\n- No repo-level CI config was provided.\n- No repo-level ESLint or Prettier config was found, even though runtime config supports verification/lint command slots.\n- Documentation structure beyond root markdown files and `README.md` is only partially explicit.",
     "proposedAreas": [
       {
         "id": 2,
         "title": "Monorepo / single-project model",
         "status": "DEFINED",
         "confidence": "HIGH",
-        "finding": "Root `package.json` declares `workspaces: [\"packages/*\"]`, and root `tsconfig.json` references multiple package projects, so the repository model is explicitly a monorepo.",
+        "finding": "Repository uses a package-based npm workspace monorepo model, defined by `package.json` workspaces and reinforced by TypeScript project references in `tsconfig.json`.",
         "evidence": [
           {
             "kind": "file",
@@ -188,23 +218,43 @@
         "title": "Test directory organization",
         "status": "DEFINED",
         "confidence": "HIGH",
-        "finding": "Test organization is explicitly evidenced by root `tests/` and `tests/constitution.test.mjs`, with root `package.json` running `node --test tests/**/*.test.mjs`.",
+        "finding": "Tests are explicitly organized under the top-level `tests/` directory with `*.test.mjs` naming, and the root `test` script runs them via `node --test tests/**/*.test.mjs`.",
         "evidence": [
           {
             "kind": "file",
             "path": "tests/constitution.test.mjs",
             "detail": "test organization"
+          },
+          {
+            "kind": "file",
+            "path": "tests/pi-adapter.test.mjs",
+            "detail": "test organization"
+          },
+          {
+            "kind": "file",
+            "path": "tests/runtime.test.mjs",
+            "detail": "test organization"
           }
         ],
         "claims": [
           {
-            "statement": "Detected 1 test files and directories.",
+            "statement": "Detected 3 test files and directories.",
             "kind": "inferred",
             "confidence": "HIGH",
             "evidence": [
               {
                 "kind": "file",
                 "path": "tests/constitution.test.mjs",
+                "detail": "test organization"
+              },
+              {
+                "kind": "file",
+                "path": "tests/pi-adapter.test.mjs",
+                "detail": "test organization"
+              },
+              {
+                "kind": "file",
+                "path": "tests/runtime.test.mjs",
                 "detail": "test organization"
               }
             ]
@@ -215,12 +265,22 @@
         "id": 73,
         "title": "Test framework/tooling",
         "status": "DEFINED",
-        "confidence": "MEDIUM",
-        "finding": "Testing tooling is explicitly Node's built-in test runner: `tests/constitution.test.mjs` imports from `node:test`, and root `package.json` runs `node --test tests/**/*.test.mjs`.",
+        "confidence": "HIGH",
+        "finding": "Test tooling is explicitly the Node built-in test runner: root `package.json` uses `node --test tests/**/*.test.mjs`, and test files import `node:test` and `node:assert/strict`.",
         "evidence": [
           {
             "kind": "file",
             "path": "tests/constitution.test.mjs",
+            "detail": "test framework evidence"
+          },
+          {
+            "kind": "file",
+            "path": "tests/pi-adapter.test.mjs",
+            "detail": "test framework evidence"
+          },
+          {
+            "kind": "file",
+            "path": "tests/runtime.test.mjs",
             "detail": "test framework evidence"
           }
         ],
@@ -234,28 +294,25 @@
                 "kind": "file",
                 "path": "tests/constitution.test.mjs",
                 "detail": "test framework evidence"
+              },
+              {
+                "kind": "file",
+                "path": "tests/pi-adapter.test.mjs",
+                "detail": "test framework evidence"
+              },
+              {
+                "kind": "file",
+                "path": "tests/runtime.test.mjs",
+                "detail": "test framework evidence"
               }
             ]
-          }
-        ]
-      },
-      {
-        "id": 83,
-        "title": "Linting rules/tooling",
-        "status": "NOT_DEFINED",
-        "finding": "No ESLint, Prettier, Biome, or similar linting configuration or lint script is present in the provided repository evidence.",
-        "evidence": [],
-        "claims": [
-          {
-            "statement": "No linting rules/tooling detected.",
-            "kind": "unknown",
-            "evidence": []
           }
         ]
       }
     ]
   },
   "finalized": true,
+  "preservedFinalizedConstitution": false,
   "factsPath": "D:\\projects\\pi-factory\\.factory\\constitution\\facts.json",
   "constitutionPath": "D:\\projects\\pi-factory\\CONSTITUTION.md",
   "criticWarnings": 4

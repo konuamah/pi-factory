@@ -26,9 +26,19 @@ export class PiAgentExecutor implements AgentExecutor {
 
     const state: PiExecutorState = {
       executionId: input.executionId,
-      events: [],
+      events: (created.diagnostics ?? []).map((diagnostic) => ({
+        type: diagnostic.type,
+        data: diagnostic.data,
+      })),
       outputChunks: [],
     };
+
+    for (const diagnostic of created.diagnostics ?? []) {
+      void this.options.onEvent?.(input.executionId, {
+        type: diagnostic.type,
+        data: diagnostic.data,
+      });
+    }
 
     this.activeSessions.set(input.executionId, created.session);
     const unsubscribe = created.session.subscribe((event) => {

@@ -15,6 +15,7 @@ export interface PrototypeTaskArtifact {
 export interface PrototypePlanArtifact {
   goal: string;
   summary: string;
+  planText?: string;
   workflowStages: Array<{
     name: string;
     dependsOn: string[];

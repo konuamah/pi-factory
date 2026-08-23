@@ -253,7 +253,7 @@ export async function runFactoryController(
     message: `Guidance selected: planner files=${plannerGuidance.instructionFiles.length}, constitution=${plannerGuidance.usedConstitution ? "used" : "skipped"}, approx chars=${plannerGuidance.approxChars}`,
   });
 
-  const runTaskType = resolveRunTaskType(input, loaded.effectiveConfig);
+  const runTaskType = await resolveRunTaskTypeWithPaths(input, loaded.effectiveConfig, projectRoot);
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "task.type_resolved",
@@ -1859,6 +1859,45 @@ function resolveRunTaskType(input: RunFactoryControllerInput, config: EffectiveF
     return classifier;
   }
   return { id: "general", source: "default", confidence: 0.2, reasons: ["No task type matched."] };
+}
+
+async function resolveRunTaskTypeWithPaths(
+  input: RunFactoryControllerInput,
+  config: EffectiveFactoryConfig,
+  projectRoot: string,
+): Promise<TaskTypeSelection> {
+  const classifier = resolveRunTaskType(input, config);
+  if (input.taskType) {
+    return classifier;
+  }
+
+  const changedFiles = await gitChangedFiles(projectRoot);
+  if (changedFiles.length > 0) {
+    const pathMatch = taskTypeMatchPaths(config.taskTypes ?? {}, changedFiles);
+    if (pathMatch) {
+      return {
+        id: pathMatch,
+        source: "classifier",
+        confidence: 0.9,
+        reasons: [`Changed files matched path hints: ${changedFiles.slice(0, 3).join(", ")}`],
+      };
+    }
+  }
+  return classifier;
+}
+
+async function gitChangedFiles(cwd: string): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd, windowsHide: true });
+    return stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.slice(3).trim())
+      .filter((file) => file && file !== "NUL");
+  } catch {
+    return [];
+  }
 }
 
 function resolveNodeRole(task: PlannerTask): ModelRole {

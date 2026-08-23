@@ -94,6 +94,16 @@ test('applyFactorySetup writes files and validateFactorySetup returns READY', as
   });
 });
 
+test('proposed setup uses the detected package manager for commands', async () => {
+  await withRepo({ 'package.json': JSON.stringify({ name: 'app', type: 'module', scripts: { test: 'node --test', build: 'node build.js' } }, null, 2), 'package-lock.json': '' }, async (root) => {
+    const plan = await planFactorySetup({ cwd: root, answers: { 'workflow-preset': 'balanced' } });
+    const config = plan.proposed.files.find((f) => f.path.includes('.factory') && f.path.endsWith(`config.yaml`));
+    assert.ok(config);
+    assert.match(config.content, /setup: npm install/);
+    assert.match(config.content, /test: node --test/);
+  });
+});
+
 test('planFactorySetup preserves user-owned config in RECONCILE mode', async () => {
   await withRepo({ 'package.json': JSON.stringify({ name: 'app', type: 'module', scripts: { test: 'vitest run' } }, null, 2) }, async (root) => {
     // Simulate existing setup with a custom test command (user-owned).
@@ -108,6 +118,8 @@ test('planFactorySetup preserves user-owned config in RECONCILE mode', async () 
     assert.equal(plan.mode, 'RECONCILE'); // factory.yaml + .factory/config.yaml exist
     const configProposed = plan.proposed.files.find((f) => f.path.includes('.factory') && f.path.endsWith(`config.yaml`));
     assert.ok(configProposed);
+    // The user-owned test command must be preserved in the proposed config.
+    assert.match(configProposed.content, /test: \.\/scripts\/test-ci\.sh/);
     // Existing factory.yaml is user-presence; config is created fresh here.
   });
 });

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import { inspectRepositoryForSetup } from "./profile.js";
 import { recommendFromProfile } from "./recommend.js";
 import { loadEffectiveConfig } from "../config/loader.js";
@@ -116,17 +117,21 @@ async function buildProposedSetup(
     action: profile.factory.files.workflow ? "update" : "create",
   });
 
-  // .factory/config.yaml
+  // .factory/config.yaml — reconcile with existing config, preserving user-owned values.
   const pi = await detectPiModelConfiguration(root).catch(() => undefined);
-  const testCommand = (findValue("verification:test") as string) ?? "pnpm test";
-  const lintCommand = (findValue("verification:lint") as string) ?? "pnpm lint";
-  const typecheckCommand = (findValue("verification:typecheck") as string) ?? "pnpm typecheck";
-  const buildCommand = (findValue("verification:build") as string) ?? "pnpm build";
+  const pm = profile.packageManagers[0] ?? "pnpm";
+  const existing = profile.factory.files.projectConfig ? await readExistingConfig(path.join(root, ".factory", "config.yaml")) : undefined;
+  const testCommand = pick(existing?.commands?.test, findValue("verification:test"), `${pm} test`);
+  const lintCommand = pick(existing?.commands?.lint, findValue("verification:lint"), `${pm} lint`);
+  const typecheckCommand = pick(existing?.commands?.typecheck, findValue("verification:typecheck"), `${pm} typecheck`);
+  const buildCommand = pick(existing?.commands?.build, findValue("verification:build"), `${pm} build`);
   const configContent = buildProjectConfig({
     testCommand,
     lintCommand,
     typecheckCommand,
     buildCommand,
+    pm,
+    existing,
     pi,
   });
   const configPath = path.join(root, ".factory", "config.yaml");
@@ -150,36 +155,72 @@ async function buildProposedSetup(
   return { files };
 }
 
+interface ExistingConfigShape {
+  project?: { baseBranch?: string };
+  commands?: { setup?: string; lint?: string; typecheck?: string; test?: string; build?: string };
+  models?: Record<string, unknown>;
+  runtime?: { maxParallelAgents?: number };
+  repair?: { enabled?: boolean; maxAttempts?: number };
+  approval?: { finalMerge?: string };
+}
+
 function buildProjectConfig(input: {
   testCommand: string;
   lintCommand: string;
   typecheckCommand: string;
   buildCommand: string;
+  pm: string;
+  existing?: ExistingConfigShape;
   pi?: Awaited<ReturnType<typeof detectPiModelConfiguration>>;
 }): string {
   const modelBlock = renderModelBlock(input.pi);
+  const maxParallelAgents = input.existing?.runtime?.maxParallelAgents ?? 4;
+  const repairEnabled = input.existing?.repair?.enabled ?? true;
+  const maxAttempts = input.existing?.repair?.maxAttempts ?? 3;
+  const finalMerge = input.existing?.approval?.finalMerge ?? "required";
+  const baseBranch = input.existing?.project?.baseBranch ?? "main";
+  const setupCommand = input.existing?.commands?.setup ?? `${input.pm} install`;
+
   return [
     "project:",
-    "  baseBranch: main",
+    `  baseBranch: ${baseBranch}`,
     "",
     "commands:",
-    `  setup: pnpm install`,
+    `  setup: ${setupCommand}`,
     `  lint: ${input.lintCommand}`,
     `  typecheck: ${input.typecheckCommand}`,
     `  test: ${input.testCommand}`,
     `  build: ${input.buildCommand}`,
     modelBlock,
     "runtime:",
-    "  maxParallelAgents: 4",
+    `  maxParallelAgents: ${maxParallelAgents}`,
     "",
     "repair:",
-    "  enabled: true",
-    "  maxAttempts: 3",
+    `  enabled: ${repairEnabled}`,
+    `  maxAttempts: ${maxAttempts}`,
     "",
     "approval:",
-    "  finalMerge: required",
+    `  finalMerge: ${finalMerge}`,
     "",
   ].join("\n");
+}
+
+async function readExistingConfig(filePath: string): Promise<ExistingConfigShape | undefined> {
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    return parseYaml(raw) as ExistingConfigShape;
+  } catch {
+    return undefined;
+  }
+}
+
+function pick(...values: Array<string | unknown | undefined>): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return "";
 }
 
 function renderModelBlock(pi?: Awaited<ReturnType<typeof detectPiModelConfiguration>>): string {

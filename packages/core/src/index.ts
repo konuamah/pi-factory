@@ -15,4 +15,5 @@ export * from "./learnings/store.js";
 export * from "./models/index.js";
 export * from "./skills/index.js";
 export * from "./setup/index.js";
+export * from "./verification/index.js";
 export * from "./workflows/index.js";

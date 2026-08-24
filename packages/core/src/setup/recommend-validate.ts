@@ -4,17 +4,33 @@ export function validateSetupRecommendation(
   rec: FactorySetupRecommendation,
   ctx: FactorySetupContext,
 ): FactorySetupRecommendation {
-  // Allowlist sets
   const allowedModels = new Set(ctx.availableModels.map((m) => `${m.provider ?? ""}:${m.model}`));
   const allowedCaps = new Set(ctx.availableCapabilities);
   const allowedSkills = new Set(ctx.availableSkills.map((s) => s.id));
   const allowedPresets = new Set(["balanced", "fast", "safe"]);
   const discoveredVals = new Set(Object.values(ctx.discoveredCommands).filter(Boolean) as string[]);
 
-  // Workflow preset
+  if (!rec.projectUnderstanding?.summary?.trim()) throw new Error("projectUnderstanding.summary is required");
+
   if (rec.workflow) {
-    if (!allowedPresets.has(rec.workflow.value.preset)) {
-      throw new Error(`workflow preset must be one of balanced|fast|safe`);
+    const v = rec.workflow.value as { kind?: string; preset?: string; workflow?: unknown };
+    if (v.kind === "custom") {
+      const wf = (v as { workflow: import("@factory/schemas").WorkflowDefinition }).workflow;
+      if (!wf?.stages || wf.stages.length < 2 || wf.stages.length > 10) throw new Error("custom workflow must have 2-10 stages");
+      if (wf.stages.some((s) => !s.name?.trim())) throw new Error("workflow stage missing name");
+      if (wf.stages.some((s) => s.role && !["planner","builder","reviewer","repair"].includes(s.role))) throw new Error("workflow stage has unknown role");
+      if (hasCycle(wf.stages)) throw new Error("workflow DAG has a cycle");
+      for (const st of wf.stages) if (st.requiredCapabilities?.some((c) => !allowedCaps.has(c as unknown as import("@factory/schemas").Capability))) throw new Error(`workflow stage requires unknown capability`);
+      // model overrides must be allowlisted
+      for (const st of wf.stages) if (st.model?.model) {
+        const key = `${st.model.provider ?? ""}:${st.model.model}`;
+        if (!allowedModels.has(key) && !["opus","sonnet"].includes(st.model.model)) throw new Error(`workflow stage model not allowlisted: ${key}`);
+      }
+    } else if (v.kind === "preset" || v.preset) {
+      const preset = (v as { preset: string }).preset;
+      if (!allowedPresets.has(preset)) throw new Error(`workflow preset must be one of balanced|fast|safe`);
+    } else {
+      throw new Error("workflow value must be {kind:preset,preset} or {kind:custom,workflow}");
     }
   }
 
@@ -105,7 +121,26 @@ export function validateSetupRecommendation(
     throw new Error(`constitution must be GENERATE|REFRESH|KEEP`);
   }
 
+  if (rec.skills?.ids) for (const id of rec.skills.ids) if (!allowedSkills.has(id)) throw new Error(`skill not allowlisted: ${id}`);
+
+  for (const q of rec.questions ?? []) if (!q.question?.trim() || !q.options?.length) throw new Error(`question ${q.id} missing question/options`);
+
   // Cross-check: AI_SUGGESTED commands must not be auto-applied later — caller must enforce requiresConfirmation gate
 
   return rec;
+}
+
+function hasCycle(stages: Array<{ name: string; dependsOn?: string[] }>): boolean {
+  const byName = new Map(stages.map((s) => [s.name, s]));
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (name: string): boolean => {
+    if (visited.has(name)) return false;
+    if (visiting.has(name)) return true;
+    visiting.add(name);
+    const node = byName.get(name);
+    if (node?.dependsOn) for (const dep of node.dependsOn) if (visit(dep)) return true;
+    visiting.delete(name); visited.add(name); return false;
+  };
+  return stages.some((s) => visit(s.name));
 }

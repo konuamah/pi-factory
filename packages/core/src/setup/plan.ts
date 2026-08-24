@@ -120,9 +120,16 @@ async function buildProposedSetup(
   const findValue = (id: string): unknown => recommendations.find((r) => r.id === id)?.proposedValue;
 
   // Recommendation takes precedence over heuristic, but answers still win (user customization).
-  const effectivePreset = rec?.workflow?.value.preset ?? undefined;
-  const workflowPreset = (answers?.["workflow-preset"] as string) ?? effectivePreset ?? String(findValue("workflow:preset") ?? "balanced");
-  const workflowContent = defaultWorkflowTemplate(workflowPreset as "balanced" | "fast" | "safe");
+  let workflowContent: string;
+  const customRec = rec?.workflow?.value as { kind?: string; preset?: string; workflow?: import("@factory/schemas").WorkflowDefinition } | undefined;
+  const isCustom = customRec?.kind === "custom" && customRec.workflow;
+  if (isCustom && !answers?.["workflow-preset"]) {
+    workflowContent = renderCustomWorkflowYaml(customRec.workflow as import("@factory/schemas").WorkflowDefinition);
+  } else {
+    const effectivePreset = customRec?.kind === "preset" ? customRec.preset : undefined;
+    const workflowPreset = (answers?.["workflow-preset"] as string) ?? effectivePreset ?? String(findValue("workflow:preset") ?? "balanced");
+    workflowContent = defaultWorkflowTemplate(workflowPreset as "balanced" | "fast" | "safe");
+  }
   const workflowPath = path.join(root, "factory.yaml");
   files.push({
     path: workflowPath,
@@ -326,6 +333,23 @@ function renderGitBlock(rec?: FactorySetupRecommendation, existing?: ExistingCon
   if (lines.length <= 2) return "";
   lines.push("");
   return lines.join("\n");
+}
+
+function renderCustomWorkflowYaml(wf: import("@factory/schemas").WorkflowDefinition): string {
+  const lines: string[] = [`defaultWorkflowId: ${wf.id}`, "workflows:", `  - id: ${wf.id}`, `    name: ${JSON.stringify(wf.name)}`];
+  if (wf.description) lines.push(`    description: ${JSON.stringify(wf.description)}`);
+  lines.push("    stages:");
+  for (const st of wf.stages) {
+    lines.push(`      - name: ${st.name}`);
+    if (st.type) lines.push(`        type: ${st.type}`);
+    if (st.role) lines.push(`        role: ${st.role}`);
+    if (st.dependsOn?.length) lines.push(`        dependsOn: [${st.dependsOn.join(", ")}]`);
+    if (st.commands?.length) lines.push(`        commands: [${st.commands.map((c) => JSON.stringify(c)).join(", ")}]`);
+    if (st.requiresApproval) lines.push(`        requiresApproval: true`);
+    if (st.requiredCapabilities?.length) lines.push(`        requiredCapabilities: [${st.requiredCapabilities.join(", ")}]`);
+    if (st.model) lines.push(`        model: ${JSON.stringify(st.model)}`);
+  }
+  return lines.join("\n") + "\n";
 }
 
 function inputForce(answers?: Record<string, string>): boolean {

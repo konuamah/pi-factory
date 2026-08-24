@@ -50,6 +50,7 @@ import { promptFactorySetupChoices } from "./setup-wizard.js";
 import { mountFactoryStreamingWidget } from "./streaming-panel.js";
 import type { FactoryPiAutocompleteItem, FactoryPiCommandContext } from "./types.js";
 
+
 const execFileAsync = promisify(execFile);
 const FACTORY_WIDGET_ID = "factory-status";
 const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "plan", "resume", "cancel", "worktree", "workflow", "capabilities", "models", "cleanup", "constitution", "dashboard"];
@@ -218,74 +219,72 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
   const setupContext = await (buildFactorySetupContext as (cwd: string) => Promise<import("@factory/schemas").FactorySetupContext>)(ctx.cwd);
   panel.append(`Found: ${setupContext.repository.languages.join(", ") || "none"} · ${setupContext.repository.packageManagers.join(", ") || "none"} · ${Object.values(setupContext.discoveredCommands).filter(Boolean).length} commands`);
 
-  // Step 2: built-in factory-setup skill -> LLM recommendation (validated) with streaming
-  let recommendation: import("@factory/schemas").FactorySetupRecommendation | undefined;
-  try {
-    const { recommendViaFactorySetupSkill } = await import("@factory/core");
-    const executor = await createOptionalSetupExecutor(ctx, (text) => panel.append(text)).catch(() => undefined);
-    if (executor) {
-      panel.setPhase("setup-recommendation");
-      panel.setRole("factory-setup");
-      panel.setStatus("streaming");
-      panel.append("Calling factory-setup skill via Pi SDK...");
-    }
-    recommendation = await (recommendViaFactorySetupSkill as unknown as (
-      i: { cwd: string; context: unknown; executor?: unknown; onEvent?: (t: string) => void } ) => Promise<import("@factory/schemas").FactorySetupRecommendation>
-    )({ cwd: ctx.cwd, context: setupContext, executor, onEvent: (t: string) => panel.append(t) });
-    panel.setStatus(executor ? "completed" : "completed (deterministic fallback)");
-  } catch {
-    panel.append("Recommendation fell back to deterministic heuristics.");
+  // Step 2: built-in factory-setup skill -> LLM recommendation (fail-loud, no fallback)
+  const { recommendViaFactorySetupSkill } = await import("@factory/core");
+  const executor = await createOptionalSetupExecutor(ctx, (text) => panel.append(text));
+  if (!executor) {
+    const isDestructive = hasExistingSetup && !force;
+    const msg = isDestructive
+      ? "FACTORY_SETUP_REQUIRES_PI_EXECUTOR: Existing setup detected and no Pi executor with auth. Re-run /factory setup with auth or use --force for destructive reset."
+      : "FACTORY_SETUP_REQUIRES_PI_EXECUTOR: No Pi executor with auth — configure ~/.pi/agent/settings.json + auth.json and run /factory setup from Pi with auth. No fallback recommendation will be used (fail-loud).";
+    panel.append(msg);
+    throw new Error(msg);
   }
+  panel.setPhase("setup-recommendation");
+  panel.setRole("factory-setup");
+  panel.setStatus("streaming");
+  panel.append("Calling factory-setup skill via Pi SDK (fail-loud, no fallback)...");
+  const recommendation = await (recommendViaFactorySetupSkill as unknown as (
+    i: { cwd: string; context: unknown; executor: unknown; onEvent?: (t: string) => void } ) => Promise<import("@factory/schemas").FactorySetupRecommendation>
+  )({ cwd: ctx.cwd, context: setupContext, executor, onEvent: (t: string) => panel.append(t) });
+  panel.setStatus("completed");
 
-  if (!recommendation) {
-    // Fallback to legacy profile-based plan
-    const plan = await planFactorySetup({ cwd: ctx.cwd, force });
-    return runLegacySetupFlow(plan, ctx, force, project);
-  }
-
-  // Step 3: simple-English TUI summary with provenance
-  const summaryLines = renderSetupSummary(setupContext, recommendation);
-  renderLines(ctx, summaryLines);
-
-  type SetupAction = "use" | "customize" | "details" | "cancel";
-  let action: SetupAction = "use";
+  // Step 3: Steward walk — project understanding + review of every area before writing
+  // Uses buildStewardSlides from @factory/core; falls back to simple choice when no interactive UI.
+  const { buildStewardSlides } = await import("@factory/core");
+  const slides = (buildStewardSlides as unknown as (c: unknown, r: unknown) => Array<{ id: string; title: string; simpleTitle: string; lines: string[]; kind: string }>)(setupContext, recommendation!);
+  // Slide 1 correction gate
+  const pu = (recommendation as { projectUnderstanding: { summary: string; highlights: string[] } }).projectUnderstanding;
+  renderLines(ctx, [pu.summary, "", ...pu.highlights.map((h) => `• ${h}`), "", "Does this look right?"]);
   if (ctx.ui.select) {
-    const choice = await ctx.ui.select("Factory setup", [
-      "Use recommended setup",
-      "Customize",
-      "Show details",
-      "Cancel",
-    ]);
-    if (!choice) action = "cancel";
-    else if (choice.startsWith("Customize")) action = "customize";
-    else if (choice.startsWith("Show details")) action = "details";
-    else if (choice.startsWith("Cancel")) action = "cancel";
-    else action = "use";
-  } else if (ctx.ui.confirm) {
-    const ok = await ctx.ui.confirm("Use recommended setup?", summaryLines.join("\n"));
-    action = ok ? "use" : "cancel";
-  }
-
-  if (action === "cancel") { ctx.ui.notify("Factory setup cancelled", "info"); return; }
-
-  if (action === "details") {
-    renderLines(ctx, [...summaryLines, "", ...renderSetupDetails(setupContext, recommendation)]);
-    if (ctx.ui.select) {
-      const c2 = await ctx.ui.select("Factory setup", ["Use recommended setup", "Customize", "Cancel"]);
-      if (!c2 || c2.startsWith("Cancel")) { ctx.ui.notify("Factory setup cancelled", "info"); return; }
-      action = c2.startsWith("Customize") ? "customize" : "use";
+    const corr = await ctx.ui.select("Project understanding", ["Looks right", "Correct something"]);
+    if (!corr) { ctx.ui.notify("Factory setup cancelled", "info"); return; }
+    if (corr.startsWith("Correct")) {
+      const fixed = await ctx.ui.input?.("What should be corrected?", "e.g. This is not a monorepo, it's a docs site");
+      if (fixed?.trim()) (recommendation as unknown as Record<string, unknown>)["_correction"] = fixed.trim();
     }
   }
-
-  // Step 4: Customize loop (section-based, not forced)
+  // Walk remaining slides; user must explicitly confirm each or jump to final
+  let stewardCancelled = false;
   const answers: Record<string, string> = {};
-  if (action === "customize") {
-    const custom = await runSetupCustomize(setupContext, recommendation, answers, ctx);
-    if (!custom) { ctx.ui.notify("Factory setup cancelled", "info"); return; }
-    // Merge user customizations into recommendation (handled via answers in plan)
-    Object.assign(answers, custom.answers);
-    // Apply direct recommendation customizations
-    if (custom.recommendation) recommendation = custom.recommendation;
+  for (const slide of slides.slice(1)) {
+    renderLines(ctx, [slide.simpleTitle, `(${slide.title} — ${slide.kind})`, "", ...slide.lines]);
+    if (!ctx.ui.select) continue; // non-interactive: auto-accept recommendation
+    const opts = ["Use this", "Customize", "Show details"];
+    const choice = await ctx.ui.select(slide.title, opts);
+    if (!choice) { stewardCancelled = true; break; }
+    if (choice === "Show details") {
+      renderLines(ctx, ["Details — raw key:", `id: ${slide.id}`, ...slide.lines]);
+      const c2 = await ctx.ui.select(slide.title, ["Use this", "Customize"]);
+      if (!c2 || c2.startsWith("Customize")) {
+        const edit = await ctx.ui.input?.(`Modify ${slide.title}`, slide.lines.join("\n").slice(0, 120));
+        if (edit?.trim()) answers[`custom:${slide.id}`] = edit.trim();
+      }
+    } else if (choice === "Customize") {
+      const edit = await ctx.ui.input?.(`Modify ${slide.title}`, slide.lines.join("\n").slice(0, 120));
+      if (edit?.trim()) answers[`custom:${slide.id}`] = edit.trim();
+    }
+    // "Use this" keeps recommendation as-is
+  }
+  if (stewardCancelled) { ctx.ui.notify("Factory setup cancelled", "info"); return; }
+  // Surface dynamic questions (only where evidence ambiguous)
+  for (const q of (recommendation as { questions?: Array<{ id: string; question: string; options: Array<{ id: string; label: string }> }> }).questions ?? []) {
+    if (!ctx.ui.select) continue;
+    const ans = await ctx.ui.select(q.question, q.options.map((o) => o.label));
+    if (ans) {
+      const opt = q.options.find((o) => o.label === ans);
+      if (opt) answers[q.id] = opt.id;
+    }
   }
 
   // Step 5: SetupPlan -> deterministic writer -> doctor
@@ -328,7 +327,7 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
     `readiness: ${validation.readiness}`,
     ...validation.checks.filter((c) => !c.ok).map((c) => `  ${c.name.startsWith("doctor:") ? "⚠" : "✗"} ${c.name}: ${c.detail}`),
     "",
-    `workflow preset: ${recommendation.workflow?.value.preset ?? answers["workflow-preset"] ?? "balanced"}`,
+    `workflow: ${(recommendation.workflow?.value as { kind?: string; preset?: string })?.kind === "custom" ? "custom DAG" : (recommendation.workflow?.value as { preset?: string })?.preset ?? answers["workflow-preset"] ?? "balanced"}`,
     `base branch: ${loaded.effectiveConfig.git.baseBranch}`,
     `constitution: ${recommendation.constitution}`,
     "",
@@ -349,7 +348,8 @@ function renderSetupSummary(
   const pms = ctx.repository.packageManagers.join(", ") || "none";
   const frameworks = ctx.repository.frameworks.join(", ") || "none";
   const discoveredCount = Object.values(ctx.discoveredCommands).filter(Boolean).length;
-  const preset = rec.workflow?.value.preset ?? "balanced";
+  const wfVal = rec.workflow?.value as { kind?: string; preset?: string; workflow?: { stages: Array<{ name: string }> } } | undefined;
+  const presetLabel = wfVal?.kind === "custom" ? `Custom (${wfVal.workflow?.stages.map((s) => s.name).join(" → ") ?? "custom"})` : wfVal?.preset ? wfVal.preset.charAt(0).toUpperCase() + wfVal.preset.slice(1) : "Balanced";
   const cmds = Object.values(rec.commands ?? {}).map((c) => c!.value).join(", ") || "none";
   return [
     "Factory checked this project.",
@@ -362,7 +362,7 @@ function renderSetupSummary(
     `  ${discoveredCount} build/verification command(s)`,
     "",
     "I recommend:",
-    `  Workflow    ${preset.charAt(0).toUpperCase() + preset.slice(1)}`,
+    `  Workflow    ${presetLabel}`,
     ...(rec.models ? [`  Models      ${Object.entries(rec.models).map(([r, v]) => `${r}:${v!.value.model}`).join(", ")}`] : []),
     `  Verification  ${cmds}`,
     `  Parallel workers  ${rec.runtime?.maxParallelAgents?.value ?? 2}`,
@@ -440,7 +440,8 @@ async function runSetupCustomize(
       const choice = await uiCtx.ui.select?.("Workflow preset", ["Balanced", "Fast", "Safe"]);
       if (choice) {
         const preset = choice.toLowerCase().split(" ")[0] as import("@factory/schemas").WorkflowPreset;
-        current.workflow = { value: { preset, workflowId: current.workflow?.value.workflowId ?? "default-dev" }, reason: `User chose ${preset}` };
+        const curWf = current.workflow?.value as { workflowId?: string } | undefined;
+        current.workflow = { value: { kind: "preset", preset, workflowId: curWf?.workflowId ?? "default-dev" }, reason: `User chose ${preset}` };
       }
     } else if (section === "Models") {
       for (const role of ["planner", "builder", "reviewer", "repair"] as const) {
@@ -546,15 +547,15 @@ async function runSetupCustomize(
 async function createOptionalSetupExecutor(
   ctx: FactoryPiCommandContext,
   onEvent?: (executionId: string, event: { type: string; text?: string; data?: Record<string, unknown> }) => void,
-): Promise<import("@factory/core").AgentExecutor | undefined> {
-  try {
-    const pi = await detectPiModelConfiguration(ctx.cwd);
-    if (!pi.hasAuth) return undefined;
-    const piExecutors = await import("../../../executors/pi/dist/index.js");
-    const factory = (piExecutors as unknown as { createPiSdkSessionFactory: (opts: unknown) => unknown }).createPiSdkSessionFactory({ packageName: process.env.FACTORY_PI_SDK_PACKAGE });
-    const { PiAgentExecutor } = piExecutors as unknown as { PiAgentExecutor: new (opts: unknown) => import("@factory/core").AgentExecutor };
-    return new PiAgentExecutor({ sessionFactory: factory, onEvent });
-  } catch { return undefined; }
+): Promise<import("@factory/core").AgentExecutor> {
+  const pi = await detectPiModelConfiguration(ctx.cwd);
+  if (!pi.hasAuth) {
+    throw new Error("FACTORY_SETUP_REQUIRES_PI_EXECUTOR: pi.hasAuth is false — no auth.json or provider mismatch. Configure auth and re-run /factory setup.");
+  }
+  const piExecutors = await import("../../../executors/pi/dist/index.js");
+  const factory = (piExecutors as unknown as { createPiSdkSessionFactory: (opts: unknown) => unknown }).createPiSdkSessionFactory({ packageName: process.env.FACTORY_PI_SDK_PACKAGE });
+  const { PiAgentExecutor } = piExecutors as unknown as { PiAgentExecutor: new (opts: unknown) => import("@factory/core").AgentExecutor };
+  return new PiAgentExecutor({ sessionFactory: factory, onEvent });
 }
 
 async function runLegacySetupFlow(plan: import("@factory/core").FactorySetupPlan, ctx: FactoryPiCommandContext, force: boolean, project: Awaited<ReturnType<typeof discoverFactoryProject>>): Promise<void> {

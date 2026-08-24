@@ -9,3 +9,4 @@ export * from "./validate.js";
 export * from "./setup-context.js";
 export * from "./factory-setup-llm.js";
 export * from "./recommend-validate.js";
+export * from "./setup-tui.js";

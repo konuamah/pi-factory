@@ -69,9 +69,20 @@ export interface FactorySetupContext {
 
 export type WorkflowPreset = "balanced" | "fast" | "safe";
 
-export interface WorkflowRecommendation {
-  preset: WorkflowPreset;
-  workflowId: string;
+export type WorkflowRecommendation =
+  | { kind: "preset"; preset: WorkflowPreset; workflowId: string }
+  | { kind: "custom"; workflow: WorkflowDefinition; reason: string };
+
+export type RecommendationKind = "fact" | "recommendation" | "preference";
+
+export interface QuestionKindMeta {
+  kind: RecommendationKind;
+}
+
+export interface WhyNot {
+  area: string;
+  reason: string;
+  howToEnable?: string;
 }
 
 export interface TaskTypeRecommendation {
@@ -89,11 +100,19 @@ export interface SetupQuestion {
   question: string;
   options: Array<{ id: string; label: string }>;
   context?: string;
+  kind?: RecommendationKind; // fact=discoverable, recommendation=AI default, preference=user must decide
 }
 
 export type ConstitutionRecommendation = "GENERATE" | "REFRESH" | "KEEP";
 
+export interface ProjectUnderstanding {
+  summary: string; // 3-6 sentence simple-English repo description
+  highlights: string[]; // bullets: monorepo, API, DB, tests, CI, Docker, Factory state
+  correctionsPrompt?: string; // "Looks right / Correct something" — first steward slide
+}
+
 export interface FactorySetupRecommendation {
+  projectUnderstanding: ProjectUnderstanding;
   summary: string;
   workflow?: { value: WorkflowRecommendation; reason: string };
   models?: Partial<Record<ModelRole, { value: ModelSelection; reason: string }>>;
@@ -119,7 +138,15 @@ export interface FactorySetupRecommendation {
   };
   capabilities?: { allow?: Capability[]; deny?: Capability[] };
   taskTypes?: TaskTypeRecommendation[];
+  skills?: { ids: string[]; reason: string };
+  dashboard?: {
+    enabled?: Recommendation<boolean>;
+    port?: Recommendation<number>;
+    host?: Recommendation<string>;
+    autoOpen?: Recommendation<boolean>;
+  };
   constitution: ConstitutionRecommendation;
+  whyNot?: WhyNot[]; // things intentionally skipped, with reason
   explanation: string[];
   questions: SetupQuestion[];
 }

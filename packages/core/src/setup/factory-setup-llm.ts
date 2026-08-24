@@ -12,12 +12,14 @@ export interface FactorySetupLlmInput {
 export async function recommendViaFactorySetupSkill(
   input: FactorySetupLlmInput,
 ): Promise<FactorySetupRecommendation> {
-  const fallback = buildDeterministicRecommendation(input.context);
   if (!input.executor) {
-    return fallback;
+    throw new Error(
+      "FACTORY_SETUP_REQUIRES_PI_EXECUTOR: No Pi executor — configure ~/.pi/agent/settings.json + auth.json and run /factory setup from a Pi session with auth. No fallback recommendation will be returned (fail-loud mode)."
+    );
   }
 
-  const skillSource = (await loadFactorySetupSkillSource(input.cwd).catch(() => undefined)) ?? "";
+  // FAIL-LOUD: skill must exist — do not return empty string and continue with a degraded prompt.
+  const skillSource = await loadFactorySetupSkillSource(input.cwd);
   const prompt = buildFactorySetupPrompt(input.context, skillSource);
   input.onEvent?.("Analyzing repository configuration...\n");
 
@@ -30,10 +32,22 @@ export async function recommendViaFactorySetupSkill(
   });
   input.onEvent?.(result.outputText.slice(0, 200) + "\n");
 
-  const parsed = extractJson(result.outputText);
-  if (!parsed) return fallback;
+  if (result.status !== "completed") {
+    throw new Error(
+      `FACTORY_SETUP_LLM_FAILED: executor status=${result.status} — error=${result.errorMessage ?? "none"} — output was: ${result.outputText.slice(0, 800)}`
+    );
+  }
 
-  const rec = normalizeRecommendation(parsed, input.context, fallback);
+  const parsed = extractJson(result.outputText);
+  if (!parsed) {
+    throw new Error(
+      `FACTORY_SETUP_LLM_INVALID_JSON: LLM did not return valid JSON — raw output (first 1200 chars) was: ${result.outputText.slice(0, 1200)}`
+    );
+  }
+
+  // Normalize against parsed output only; required fields must be present (no silent fallback fill for missing required fields).
+  const template = buildDeterministicRecommendation(input.context);
+  const rec = normalizeRecommendationStrict(parsed, input.context, template);
   return validateSetupRecommendation(rec, input.context);
 }
 
@@ -43,15 +57,14 @@ async function loadFactorySetupSkillSource(cwd: string): Promise<string> {
   const candidates = [
     path.join(cwd, "skills", "factory-setup", "SKILL.md"),
     path.join(cwd, ".pi", "skills", "factory-setup", "SKILL.md"),
-    // when running from worktree, also try repo root
     path.resolve(cwd, "..", "skills", "factory-setup", "SKILL.md"),
   ];
   for (const p of candidates) {
     try {
-      return await fs.readFile(p, "utf8");
+      const content = await fs.readFile(p, "utf8");
+      if (content.trim()) return content;
     } catch {}
   }
-  // Fallback: try relative to this file's location (dist or src)
   try {
     const fsSync = await import("node:fs");
     const candidates2 = [
@@ -59,28 +72,44 @@ async function loadFactorySetupSkillSource(cwd: string): Promise<string> {
       path.resolve(cwd, "skills/factory-setup/SKILL.md"),
     ];
     for (const p of candidates2) {
-      try { return fsSync.readFileSync(p, "utf8"); } catch {}
+      try {
+        const content = fsSync.readFileSync(p, "utf8");
+        if (content.trim()) return content;
+      } catch {}
     }
   } catch {}
-  return "";
+  throw new Error(
+    `factory-setup skill not found — expected skills/factory-setup/SKILL.md at: ${candidates.join(", ")}`
+  );
 }
 
 function buildFactorySetupPrompt(context: FactorySetupContext, skillSource: string): string {
-  // Smart truncation: prioritize high-value context, drop raw text dumps first
   const compact = buildCompactContext(context);
   const ctxJson = JSON.stringify(compact, null, 2);
   const skillBudget = 6000;
   const ctxBudget = 12000;
   const skillSlice = skillSource ? skillSource.slice(0, skillBudget) : "";
   const ctxSlice = smartTruncateJson(ctxJson, ctxBudget, compact);
+  const workflowPrimitives = `
+## Workflow primitives (Factory already supports these — you may emit a custom DAG)
+Stages: { name, dependsOn?: string[], type?: "agent"|"command"|"approval", role?: ModelRole, commands?: string[], requiresApproval?: boolean, requiredCapabilities?: Capability[] }
+Roles: planner|builder|reviewer|repair  · Keep DAG acyclic, 2-7 stages.
+Example simple docs repo: plan -> build -> verify
+Example mature app: plan -> implementation{builder} -> verification{command} -> review{reviewer} -> approval
+Example DB repo (recommended here): plan -> build -> migration-check{command} -> integration-verify{command} -> review -> approval — Why: DB changes affect app+deploy, verify before review.
+You may return workflow as { kind:"preset", preset:"balanced"|"fast"|"safe" } or { kind:"custom", workflow: WorkflowDefinition }.
+`;
+  const englishRule = `Simple-English rule: translate internals — finalMerge=required -> "Ask before merging", maxParallelAgents -> "Parallel workers", retainRuns -> "Old workspaces kept".
+`;
   return [
     skillSlice ? `# Factory Setup Skill\n\n${skillSlice}` : "",
+    workflowPrimitives,
+    englishRule,
     "\n## FactorySetupContext (JSON)\n",
     "```json",
     ctxSlice,
     "```",
-    "\n## Task\nProduce a single JSON object matching FactorySetupRecommendation. Use only allowlisted choices. Follow the SKILL rules above.",
-    "Return JSON only, no markdown.",
+    "\n## Task\nProduce FactorySetupRecommendation: projectUnderstanding{summary,highlights} + workflow + models/commands/runtime/git/repair/approval/capabilities/taskTypes/skills/dashboard/constitution + whyNot[] + questions{kind=fact|recommendation|preference} . Use only allowlisted choices. Return JSON only.",
   ].filter(Boolean).join("\n");
 }
 
@@ -147,6 +176,17 @@ function extractJson(text: string): unknown | undefined {
   return undefined;
 }
 
+function normalizeRecommendationStrict(
+  raw: unknown,
+  ctx: FactorySetupContext,
+  template: FactorySetupRecommendation,
+): FactorySetupRecommendation {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("FACTORY_SETUP_LLM_INVALID: LLM returned null/non-object JSON.");
+  }
+  return normalizeRecommendation(raw, ctx, template);
+}
+
 function normalizeRecommendation(
   raw: unknown,
   ctx: FactorySetupContext,
@@ -155,15 +195,22 @@ function normalizeRecommendation(
   if (!raw || typeof raw !== "object") return fallback;
   const r = raw as Record<string, unknown>;
 
-  // Coerce constitution
   const cRaw = String(r.constitution ?? fallback.constitution).toUpperCase();
   const constitution = (
-    cRaw === "GENERATE" || cRaw === "REFRESH" || cRaw === "KEEP"
-      ? cRaw
-      : fallback.constitution
+    cRaw === "GENERATE" || cRaw === "REFRESH" || cRaw === "KEEP" ? cRaw : fallback.constitution
   ) as FactorySetupRecommendation["constitution"];
 
+  const puRaw = r.projectUnderstanding as Record<string, unknown> | undefined;
+  const projectUnderstanding: FactorySetupRecommendation["projectUnderstanding"] =
+    puRaw && typeof puRaw.summary === "string" && puRaw.summary.trim()
+      ? {
+          summary: String(puRaw.summary).trim(),
+          highlights: Array.isArray(puRaw.highlights) ? (puRaw.highlights as string[]).filter((s) => typeof s === "string").slice(0, 8) : fallback.projectUnderstanding.highlights,
+        }
+      : fallback.projectUnderstanding;
+
   const rec: FactorySetupRecommendation = {
+    projectUnderstanding,
     summary: typeof r.summary === "string" && r.summary.trim() ? r.summary.trim() : fallback.summary,
     constitution,
     explanation: Array.isArray(r.explanation) ? (r.explanation as string[]).filter((s) => typeof s === "string") : fallback.explanation,
@@ -173,9 +220,22 @@ function normalizeRecommendation(
   if (r.workflow && typeof r.workflow === "object") {
     const w = r.workflow as Record<string, unknown>;
     const v = w.value as Record<string, unknown> | undefined;
-    if (v?.preset && ["balanced", "fast", "safe"].includes(String(v.preset))) {
+    if (v?.kind === "custom" && v?.workflow && typeof v.workflow === "object") {
+      const wf = v.workflow as Record<string, unknown>;
+      if (Array.isArray(wf.stages) && wf.stages.length >= 2 && wf.stages.length <= 10) {
+        rec.workflow = {
+          value: { kind: "custom", workflow: wf as unknown as import("@factory/schemas").WorkflowDefinition, reason: String(v.reason ?? w.reason ?? "Custom workflow") },
+          reason: String(w.reason ?? "Custom workflow"),
+        };
+      }
+    } else if (v?.preset && ["balanced", "fast", "safe"].includes(String(v.preset))) {
       rec.workflow = {
-        value: { preset: String(v.preset) as import("@factory/schemas").WorkflowPreset, workflowId: String(v.workflowId ?? "default-dev") },
+        value: { kind: "preset", preset: String(v.preset) as import("@factory/schemas").WorkflowPreset, workflowId: String(v.workflowId ?? "default-dev") },
+        reason: String(w.reason ?? "Workflow preset"),
+      };
+    } else if (v?.preset && ["balanced", "fast", "safe"].includes(String(v.preset))) {
+      rec.workflow = {
+        value: { kind: "preset", preset: String(v.preset) as import("@factory/schemas").WorkflowPreset, workflowId: String(v.workflowId ?? "default-dev") },
         reason: String(w.reason ?? "Workflow preset"),
       };
     }
@@ -188,7 +248,9 @@ function normalizeRecommendation(
   if (r.git && typeof r.git === "object") rec.git = r.git as FactorySetupRecommendation["git"];
   if (r.capabilities && typeof r.capabilities === "object") rec.capabilities = r.capabilities as FactorySetupRecommendation["capabilities"];
   if (Array.isArray(r.taskTypes)) rec.taskTypes = r.taskTypes as FactorySetupRecommendation["taskTypes"];
-
+  if (r.skills && typeof r.skills === "object") rec.skills = r.skills as FactorySetupRecommendation["skills"];
+  if (r.dashboard && typeof r.dashboard === "object") rec.dashboard = r.dashboard as FactorySetupRecommendation["dashboard"];
+  if (Array.isArray(r.whyNot)) rec.whyNot = (r.whyNot as FactorySetupRecommendation["whyNot"]);
   return rec;
 }
 
@@ -221,13 +283,14 @@ function normalizeCommands(
   return out;
 }
 
-function buildDeterministicRecommendation(ctx: FactorySetupContext): FactorySetupRecommendation {
+export function buildDeterministicRecommendation(ctx: FactorySetupContext): FactorySetupRecommendation {
   const pm = ctx.repository.packageManagers[0] ?? "npm";
   const hasTests = ctx.repository.testing.frameworks.length > 0 || ctx.discoveredCommands.test !== undefined;
+  const hasMigrations = ctx.repository.persistence.migrations || ctx.repository.persistence.technologies.length > 0;
   const complexity =
     (ctx.repository.testing.integration ? 1 : 0) +
     (ctx.repository.testing.e2e ? 1 : 0) +
-    (ctx.repository.persistence.migrations ? 1 : 0) +
+    (hasMigrations ? 1 : 0) +
     (ctx.repository.ci.providers.length > 0 ? 1 : 0) +
     (ctx.repository.structure.monorepo ? 1 : 0);
   const preset: import("@factory/schemas").WorkflowPreset =
@@ -236,24 +299,79 @@ function buildDeterministicRecommendation(ctx: FactorySetupContext): FactorySetu
   const commands: FactorySetupRecommendation["commands"] = {};
   for (const field of ["setup", "lint", "typecheck", "test", "build"] as const) {
     const v = (ctx.discoveredCommands as Record<string, string | undefined>)[field];
-    if (v) {
-      commands[field] = { value: v, reason: `Discovered from ${pm}: ${v}`, source: "DISCOVERED", confidence: "HIGH" };
-    }
+    if (v) commands[field] = { value: v, reason: `Discovered from ${pm}: ${v}`, source: "DISCOVERED", confidence: "HIGH" };
   }
 
   const langs = ctx.repository.languages.join(", ") || "unknown";
   const tools = Object.values(ctx.discoveredCommands).filter(Boolean).length;
+  const pkgs = ctx.repository.structure.packages.length;
+  const isMonorepo = ctx.repository.structure.monorepo || pkgs > 2;
+
+  const projectUnderstanding: FactorySetupRecommendation["projectUnderstanding"] = {
+    summary: `This is a ${isMonorepo ? `TypeScript monorepo with ${pkgs || "multiple"} packages` : `${langs} project`} using ${pm}.${hasMigrations ? " It has database migrations." : ""}${ctx.repository.ci.providers.length ? ` CI: ${ctx.repository.ci.providers.join(", ")}.` : ""}${ctx.repository.deployment.detected ? ` Deployment: ${ctx.repository.deployment.providers.join(", ")}.` : ""} Factory is ${ctx.existing.project ? "already partially configured" : "not yet configured"}.`,
+    highlights: [
+      `${langs} · ${pm}`,
+      isMonorepo ? `Monorepo · ${pkgs} packages` : `Single package`,
+      hasMigrations ? `Database: ${ctx.repository.persistence.technologies.join(", ") || "migrations"}` : "No database detected",
+      `Tests: ${ctx.repository.testing.frameworks.join(", ") || (hasTests ? "yes" : "none")}`,
+      `CI: ${ctx.repository.ci.providers.join(", ") || "none"} · Deploy: ${ctx.repository.deployment.providers.join(", ") || "none"}`,
+      `Factory state: ${ctx.existing.constitutionExists ? "constitution exists" : "no constitution"}${ctx.existing.project ? ", config exists" : ""}`,
+    ],
+  };
+
+  const whyNot: FactorySetupRecommendation["whyNot"] = [];
+  if (ctx.repository.deployment.providers.length > 0 && !ctx.availableCapabilities.includes("deploy.production")) {
+    whyNot.push({ area: "Production deployment", reason: "I found deployment config but no deploy.production capability is available.", howToEnable: "Configure a deploy provider and allow deploy.production in capabilities." });
+  }
+
+  const questions: FactorySetupRecommendation["questions"] = [];
+  // Ambiguous test scripts
+  const pkgScripts = Object.keys((ctx as unknown as { _pkgScripts?: Record<string,string> })._pkgScripts ?? {});
+  if (pkgScripts.includes("test") && pkgScripts.includes("test:ci")) {
+    questions.push({ id: "verification:test_choice", question: "I found both npm test and npm run test:ci — which should Factory use for verification?", options: [{ id: "npm test", label: "npm test" }, { id: "npm run test:ci", label: "npm run test:ci" }], kind: "preference", context: "Both appear to run the test suite." });
+  }
+  if (ctx.repository.deployment.detected) {
+    questions.push({ id: "capabilities:production", question: "Should Factory ever be allowed to request production deployment?", options: [{ id: "no", label: "No" }, { id: "yes_ask", label: "Yes, but always ask first" }], kind: "preference", context: "Production deployment config detected." });
+  }
+
+  // Custom workflow sketch when migrations + API present
+  let workflow: FactorySetupRecommendation["workflow"];
+  if (hasMigrations && langs.includes("TypeScript")) {
+    workflow = {
+      value: {
+        kind: "custom",
+        workflow: {
+          id: "default-dev",
+          name: "DB-aware development",
+          stages: [
+            { name: "plan", type: "agent", role: "planner" },
+            { name: "build", type: "agent", role: "builder", dependsOn: ["plan"] },
+            { name: "migration-check", type: "command", commands: ["pnpm check:migrations"], dependsOn: ["build"] },
+            { name: "integration-verify", type: "command", commands: ["pnpm test"], dependsOn: ["migration-check"] },
+            { name: "review", type: "agent", role: "reviewer", dependsOn: ["integration-verify"] },
+            { name: "approval", type: "approval", dependsOn: ["review"] },
+          ],
+        },
+        reason: "Database changes can affect app and deploy, so verify them before review.",
+      },
+      reason: "Custom DB-aware workflow generated from repo structure.",
+    };
+  } else {
+    workflow = { value: { kind: "preset", preset, workflowId: "default-dev" }, reason: `Complexity ${complexity} → ${preset}` };
+  }
 
   return {
-    summary: `Factory checked this project — ${langs} with ${pm} and ${tools} verification command(s). Recommended: ${preset} workflow.`,
-    workflow: { value: { preset, workflowId: "default-dev" }, reason: `Complexity ${complexity} → ${preset}` },
+    projectUnderstanding,
+    summary: `Factory checked this project — ${langs} with ${pm} and ${tools} verification command(s). Recommended: ${workflow.value.kind === "preset" ? workflow.value.preset : "custom"} workflow.`,
+    workflow,
     commands,
     constitution: ctx.existing.constitutionExists ? "KEEP" : "GENERATE",
+    whyNot: whyNot.length ? whyNot : undefined,
     explanation: [
       `Matches tools already used: ${Object.values(ctx.discoveredCommands).filter(Boolean).join(", ") || "defaults"}.`,
       `Repository maturity: ${ctx.repository.maturity}, CI: ${ctx.repository.ci.providers.join(", ") || "none"}.`,
     ],
-    questions: [],
+    questions,
     runtime: { maxParallelAgents: { value: 2, reason: "Default parallel workers", source: "DEFAULT", confidence: "MEDIUM" } },
     repair: {
       enabled: { value: true, reason: "Enable repair up to attempts", source: "DEFAULT", confidence: "MEDIUM" },

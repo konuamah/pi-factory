@@ -1,6 +1,8 @@
 import http from "node:http";
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   queryStatus,
   queryRepository,
@@ -33,6 +35,97 @@ export interface DashboardServer {
   close(): Promise<void>;
 }
 
+let activeServer: DashboardServer | undefined;
+let activeOptions: DashboardServerOptions | undefined;
+
+export function resolveDashboardDist(cwd: string): string | undefined {
+  const candidates: string[] = [
+    path.join(cwd, "dashboard", "dist"),
+    path.join(cwd, "dashboard/dist"),
+  ];
+  try {
+    const here = fileURLToPath(import.meta.url);
+    const fromDist = path.resolve(path.dirname(here), "..", "..", "..", "..", "dashboard", "dist");
+    const fromSrc = path.resolve(path.dirname(here), "..", "..", "..", "dashboard", "dist");
+    candidates.push(fromDist, fromSrc);
+  } catch {}
+  for (const candidate of candidates) {
+    try {
+      if (fsSync.existsSync(path.join(candidate, "index.html"))) return candidate;
+      if (fsSync.existsSync(candidate) && fsSync.existsSync(path.join(candidate, "index.html"))) return candidate;
+    } catch {}
+  }
+  // Fallback: return first candidate that exists at all (even without index.html, serveStatic will handle missing gracefully)
+  for (const candidate of candidates) {
+    try {
+      if (fsSync.existsSync(candidate)) return candidate;
+    } catch {}
+  }
+  return undefined;
+}
+
+export function getDashboardServer(): DashboardServer | undefined {
+  return activeServer;
+}
+
+export function getDashboardUrl(): string | undefined {
+  if (!activeServer || !activeOptions) return undefined;
+  const host = activeOptions.host ?? "127.0.0.1";
+  return `http://${host}:${activeServer.port}`;
+}
+
+export async function ensureDashboardServer(
+  options: DashboardServerOptions,
+): Promise<{ server: DashboardServer; url: string; reused: boolean }> {
+  if (activeServer && activeOptions) {
+    // Reuse if same cwd and healthy
+    if (activeOptions.cwd === options.cwd) {
+      const healthy = await isDashboardHealthy(activeOptions.host ?? "127.0.0.1", activeServer.port).catch(() => false);
+      if (healthy) {
+        return { server: activeServer, url: getDashboardUrl()!, reused: true };
+      }
+    } else {
+      // Different cwd but server exists - reuse if healthy (single server per pi process)
+      const healthy = await isDashboardHealthy(activeOptions.host ?? "127.0.0.1", activeServer.port).catch(() => false);
+      if (healthy) {
+        return { server: activeServer, url: getDashboardUrl()!, reused: true };
+      }
+    }
+    // Stale
+    await activeServer.close().catch(() => {});
+    activeServer = undefined;
+    activeOptions = undefined;
+  }
+  const staticDir = options.staticDir ?? resolveDashboardDist(options.cwd);
+  const server = await createDashboardServer({ ...options, staticDir });
+  activeServer = server;
+  activeOptions = { ...options, staticDir };
+  const actualUrl = `http://${options.host ?? "127.0.0.1"}:${server.port}`;
+  return { server, url: actualUrl, reused: false };
+}
+
+export async function stopDashboardServer(): Promise<boolean> {
+  if (!activeServer) return false;
+  await activeServer.close().catch(() => {});
+  activeServer = undefined;
+  activeOptions = undefined;
+  return true;
+}
+
+async function isDashboardHealthy(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get({ host, port, path: "/health", timeout: 1500 }, (res) => {
+      resolve(res.statusCode === 200);
+      res.resume();
+    });
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
 export async function createDashboardServer(options: DashboardServerOptions): Promise<DashboardServer> {
   const handler = createRequestHandler(options.cwd, options.staticDir);
 
@@ -42,8 +135,12 @@ export async function createDashboardServer(options: DashboardServerOptions): Pr
     });
   });
 
-  await new Promise<void>((resolve) => {
-    server.listen(options.port ?? 0, options.host ?? "127.0.0.1", () => resolve());
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(options.port ?? 0, options.host ?? "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
   });
 
   const address = server.address();
@@ -218,7 +315,7 @@ async function handleEvents(cwd: string, req: http.IncomingMessage, res: http.Se
 
   const project = await discoverFactoryProject(cwd);
   const runsDir = project.paths.runsDir;
-  let sent: string[] = [];
+
   const seen = new Set<string>();
 
   const readNew = async (): Promise<void> => {
@@ -264,7 +361,12 @@ async function readRunEventFiles(runsDir: string): Promise<Array<{ runId: string
   } catch {
     return result;
   }
-  const runDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse().slice(0, 10);
+  const runDirs = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .reverse()
+    .slice(0, 10);
   for (const runId of runDirs) {
     try {
       const raw = await fs.readFile(path.join(runsDir, runId, "events.jsonl"), "utf8");

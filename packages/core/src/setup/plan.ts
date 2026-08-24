@@ -5,7 +5,10 @@ import { inspectRepositoryForSetup } from "./profile.js";
 import { recommendFromProfile } from "./recommend.js";
 import { loadEffectiveConfig } from "../config/loader.js";
 import { detectPiModelConfiguration } from "./pi-models.js";
+import { buildFactorySetupContext } from "./setup-context.js";
+import { validateSetupRecommendation } from "./recommend-validate.js";
 import { defaultConstitutionTemplate, defaultWorkflowTemplate } from "./init.js";
+import type { FactorySetupRecommendation } from "@factory/schemas";
 import type {
   FactorySetupPlan,
   ProposedFactorySetup,
@@ -19,6 +22,8 @@ export interface PlanFactorySetupInput {
   cwd: string;
   answers?: Record<string, string>;
   force?: boolean;
+  /** Pre-built LLM recommendation; when supplied, validated and applied before answers. */
+  recommendation?: FactorySetupRecommendation;
 }
 
 export async function planFactorySetup(input: PlanFactorySetupInput): Promise<FactorySetupPlan> {
@@ -34,7 +39,13 @@ export async function planFactorySetup(input: PlanFactorySetupInput): Promise<Fa
 
   const decisions = collectDecisions(profile, recommendations, mode);
 
-  const proposed = await buildProposedSetup(input.cwd, profile, recommendations, input.answers);
+  // Validate external recommendation against allowlists before it influences proposed files.
+  if (input.recommendation) {
+    const ctx = await buildFactorySetupContext(input.cwd);
+    validateSetupRecommendation(input.recommendation, ctx);
+  }
+
+  const proposed = await buildProposedSetup(input.cwd, profile, recommendations, input.answers, input.recommendation);
   const diffs = await buildDiffs(input.cwd, proposed);
 
   return {
@@ -101,14 +112,16 @@ async function buildProposedSetup(
   profile: Awaited<ReturnType<typeof inspectRepositoryForSetup>>,
   recommendations: SetupRecommendation[],
   answers?: Record<string, string>,
+  rec?: FactorySetupRecommendation,
 ): Promise<ProposedFactorySetup> {
   const root = profile.gitRoot ?? cwd;
   const files: ProposedFactorySetup["files"] = [];
 
   const findValue = (id: string): unknown => recommendations.find((r) => r.id === id)?.proposedValue;
 
-  // factory.yaml
-  const workflowPreset = (answers?.["workflow-preset"] as string) ?? String(findValue("workflow:preset") ?? "balanced");
+  // Recommendation takes precedence over heuristic, but answers still win (user customization).
+  const effectivePreset = rec?.workflow?.value.preset ?? undefined;
+  const workflowPreset = (answers?.["workflow-preset"] as string) ?? effectivePreset ?? String(findValue("workflow:preset") ?? "balanced");
   const workflowContent = defaultWorkflowTemplate(workflowPreset as "balanced" | "fast" | "safe");
   const workflowPath = path.join(root, "factory.yaml");
   files.push({
@@ -118,22 +131,42 @@ async function buildProposedSetup(
   });
 
   // .factory/config.yaml — reconcile with existing config, preserving user-owned values.
+  // Recommendation commands are applied only if DISCOVERED, or AI_SUGGESTED with explicit user confirmation via answers.
   const pi = await detectPiModelConfiguration(root).catch(() => undefined);
   const pm = profile.packageManagers[0] ?? "pnpm";
   const existing = profile.factory.files.projectConfig ? await readExistingConfig(path.join(root, ".factory", "config.yaml")) : undefined;
-  const testCommand = pick(existing?.commands?.test, findValue("verification:test"), `${pm} test`);
-  const lintCommand = pick(existing?.commands?.lint, findValue("verification:lint"), `${pm} lint`);
-  const typecheckCommand = pick(existing?.commands?.typecheck, findValue("verification:typecheck"), `${pm} typecheck`);
-  const buildCommand = pick(existing?.commands?.build, findValue("verification:build"), `${pm} build`);
+  const recCmd = (field: "setup" | "lint" | "typecheck" | "test" | "build"): string | undefined => {
+    const r = rec?.commands?.[field];
+    if (!r) return undefined;
+    if (r.source === "AI_SUGGESTED" && answers?.[`confirm:${field}`] !== "yes") return undefined;
+    return r.value;
+  };
+  const testCommand = pick(existing?.commands?.test, answers?.["cmd:test"], recCmd("test"), findValue("verification:test"), `${pm} test`);
+  const lintCommand = pick(existing?.commands?.lint, answers?.["cmd:lint"], recCmd("lint"), findValue("verification:lint"), `${pm} lint`);
+  const typecheckCommand = pick(existing?.commands?.typecheck, answers?.["cmd:typecheck"], recCmd("typecheck"), findValue("verification:typecheck"), `${pm} typecheck`);
+  const buildCommand = pick(existing?.commands?.build, answers?.["cmd:build"], recCmd("build"), findValue("verification:build"), `${pm} build`);
+  const setupCommand = pick(existing?.commands?.setup, answers?.["cmd:setup"], recCmd("setup"), `${pm} install`);
+  const maxParallelAgents = Number(answers?.["runtime:maxParallelAgents"] ?? rec?.runtime?.maxParallelAgents?.value ?? existing?.runtime?.maxParallelAgents ?? 4);
+  const repairEnabled = answers?.["repair:enabled"] ? answers["repair:enabled"] === "true" : (rec?.repair?.enabled?.value ?? existing?.repair?.enabled ?? true);
+  const maxAttempts = Number(answers?.["repair:maxAttempts"] ?? rec?.repair?.maxAttempts?.value ?? existing?.repair?.maxAttempts ?? 3);
+  const finalMerge = (answers?.["approval:finalMerge"] as string) ?? rec?.approval?.finalMerge?.value ?? existing?.approval?.finalMerge ?? "required";
+  const baseBranch = (answers?.["git:baseBranch"] as string) ?? rec?.git?.baseBranch?.value ?? existing?.project?.baseBranch ?? "main";
   const configContent = buildProjectConfig({
     testCommand,
     lintCommand,
     typecheckCommand,
     buildCommand,
+    setupCommand,
+    baseBranch,
+    maxParallelAgents,
+    repairEnabled,
+    maxAttempts,
+    finalMerge,
     pm,
     existing,
     pi,
-    recommendedTaskTypes: (String(findValue("task-type:suggestions") ?? "").length ? findValue("task-type:suggestions") as string[] : undefined),
+    rec,
+    recommendedTaskTypes: rec?.taskTypes?.map((t) => t.id) ?? (String(findValue("task-type:suggestions") ?? "").length ? findValue("task-type:suggestions") as string[] : undefined),
   });
   const configPath = path.join(root, ".factory", "config.yaml");
   files.push({
@@ -142,9 +175,10 @@ async function buildProposedSetup(
     action: profile.factory.files.projectConfig ? "update" : "create",
   });
 
-  // CONSTITUTION.md — stub unless generation is chosen.
-  const constitutionDecision = answers?.["constitution"] ?? "stub";
-  if (!profile.factory.files.constitution || constitutionDecision === "generate" || inputForce(answers)) {
+  // CONSTITUTION.md — stub unless generation/refresh is chosen. Recommendation drives this.
+  const constitutionDecision = (answers?.["constitution"] as string) ?? (rec ? rec.constitution.toLowerCase() : "stub");
+  const shouldWriteConstitution = !profile.factory.files.constitution || constitutionDecision === "generate" || constitutionDecision === "refresh" || inputForce(answers);
+  if (shouldWriteConstitution) {
     const constitutionPath = path.join(root, "CONSTITUTION.md");
     files.push({
       path: constitutionPath,
@@ -170,42 +204,46 @@ function buildProjectConfig(input: {
   lintCommand: string;
   typecheckCommand: string;
   buildCommand: string;
+  setupCommand: string;
+  baseBranch: string;
+  maxParallelAgents: number;
+  repairEnabled: boolean;
+  maxAttempts: number;
+  finalMerge: string;
   pm: string;
   existing?: ExistingConfigShape;
   pi?: Awaited<ReturnType<typeof detectPiModelConfiguration>>;
+  rec?: FactorySetupRecommendation;
   recommendedTaskTypes?: string[];
 }): string {
-  const modelBlock = renderModelBlock(input.pi);
-  const maxParallelAgents = input.existing?.runtime?.maxParallelAgents ?? 4;
-  const repairEnabled = input.existing?.repair?.enabled ?? true;
-  const maxAttempts = input.existing?.repair?.maxAttempts ?? 3;
-  const finalMerge = input.existing?.approval?.finalMerge ?? "required";
-  const baseBranch = input.existing?.project?.baseBranch ?? "main";
-  const setupCommand = input.existing?.commands?.setup ?? `${input.pm} install`;
-
+  const modelBlock = renderModelBlock(input.pi, input.rec);
   const taskTypeBlock = renderTaskTypes(input.recommendedTaskTypes);
+  const capabilityBlock = renderCapabilityBlock(input.rec);
+  const gitBlock = renderGitBlock(input.rec, input.existing);
 
   return [
     "project:",
-    `  baseBranch: ${baseBranch}`,
+    `  baseBranch: ${input.baseBranch}`,
     "",
     "commands:",
-    `  setup: ${setupCommand}`,
+    `  setup: ${input.setupCommand}`,
     `  lint: ${input.lintCommand}`,
     `  typecheck: ${input.typecheckCommand}`,
     `  test: ${input.testCommand}`,
     `  build: ${input.buildCommand}`,
     modelBlock,
     taskTypeBlock,
+    capabilityBlock,
+    gitBlock,
     "runtime:",
-    `  maxParallelAgents: ${maxParallelAgents}`,
+    `  maxParallelAgents: ${input.maxParallelAgents}`,
     "",
     "repair:",
-    `  enabled: ${repairEnabled}`,
-    `  maxAttempts: ${maxAttempts}`,
+    `  enabled: ${input.repairEnabled}`,
+    `  maxAttempts: ${input.maxAttempts}`,
     "",
     "approval:",
-    `  finalMerge: ${finalMerge}`,
+    `  finalMerge: ${input.finalMerge}`,
     "",
   ].join("\n");
 }
@@ -236,7 +274,17 @@ function renderTaskTypes(taskTypes: string[] | undefined): string {
   return `\ntaskTypes:\n${lines}\n\n`;
 }
 
-function renderModelBlock(pi?: Awaited<ReturnType<typeof detectPiModelConfiguration>>): string {
+function renderModelBlock(pi?: Awaited<ReturnType<typeof detectPiModelConfiguration>>, rec?: FactorySetupRecommendation): string {
+  if (rec?.models && Object.keys(rec.models).length > 0) {
+    const lines: string[] = ["", "models:"];
+    for (const role of ["planner", "builder", "reviewer", "repair"] as const) {
+      const entry = rec.models[role];
+      if (!entry) continue;
+      const provider = entry.value.provider ? `provider: ${entry.value.provider}, ` : "";
+      lines.push(`  ${role}: { ${provider}model: ${entry.value.model} }`);
+    }
+    if (lines.length > 2) { lines.push(""); return lines.join("\n"); }
+  }
   if (!pi?.hasModelSelection) {
     return "";
   }
@@ -250,6 +298,34 @@ function renderModelBlock(pi?: Awaited<ReturnType<typeof detectPiModelConfigurat
     `  repair: { model: ${model} }`,
     "",
   ].join("\n");
+}
+
+function renderCapabilityBlock(rec?: FactorySetupRecommendation): string {
+  if (!rec?.capabilities || (!rec.capabilities.allow?.length && !rec.capabilities.deny?.length)) return "";
+  const lines: string[] = ["", "capabilities:"];
+  if (rec.capabilities.allow?.length) lines.push(`  allow: [${rec.capabilities.allow.join(", ")}]`);
+  if (rec.capabilities.deny?.length) lines.push(`  deny: [${rec.capabilities.deny.join(", ")}]`);
+  lines.push("");
+  return lines.join("\n");
+}
+
+function renderGitBlock(rec?: FactorySetupRecommendation, existing?: ExistingConfigShape & { git?: { allowWorktrees?: boolean; worktreeDir?: string; cleanup?: { retainRuns?: number; pruneWorktrees?: boolean; pruneBranches?: boolean } } }): string {
+  if (!rec?.git) return "";
+  const lines: string[] = ["", "git:"];
+  if (rec.git.baseBranch) lines.push(`  baseBranch: ${rec.git.baseBranch.value}`);
+  if (rec.git.allowWorktrees) lines.push(`  allowWorktrees: ${rec.git.allowWorktrees.value}`);
+  if (rec.git.worktreeDir) lines.push(`  worktreeDir: ${rec.git.worktreeDir.value}`);
+  if (rec.git.cleanup) {
+    const cl = rec.git.cleanup;
+    const parts: string[] = [];
+    if (cl.retainRuns) parts.push(`retainRuns: ${cl.retainRuns.value}`);
+    if (cl.pruneWorktrees) parts.push(`pruneWorktrees: ${cl.pruneWorktrees.value}`);
+    if (cl.pruneBranches) parts.push(`pruneBranches: ${cl.pruneBranches.value}`);
+    if (parts.length) { lines.push("  cleanup:"); for (const p of parts) lines.push(`    ${p}`); }
+  }
+  if (lines.length <= 2) return "";
+  lines.push("");
+  return lines.join("\n");
 }
 
 function inputForce(answers?: Record<string, string>): boolean {

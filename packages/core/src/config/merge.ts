@@ -78,6 +78,12 @@ export function mergeConfigLayers(input: {
         project?.approval?.finalMerge ??
         builtIns.approval.finalMerge,
     },
+    dashboard: {
+      enabled: project?.dashboard?.enabled ?? global?.dashboard?.enabled ?? builtIns.dashboard.enabled,
+      port: project?.dashboard?.port ?? global?.dashboard?.port ?? builtIns.dashboard.port,
+      host: project?.dashboard?.host ?? global?.dashboard?.host ?? builtIns.dashboard.host,
+      autoOpen: project?.dashboard?.autoOpen ?? global?.dashboard?.autoOpen ?? builtIns.dashboard.autoOpen,
+    },
     workflow: mergedWorkflow,
     resolvedWorkflow,
     resolvedWorkflowId: resolvedWorkflow?.id,

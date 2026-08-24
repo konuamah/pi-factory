@@ -270,12 +270,13 @@ test('verification infers a single nested package root when the worktree root ha
     });
 
     const verification = await readJson(result.verificationPath);
-    assert.equal(verification.cwd, appDir);
+    // macOS: /var is symlink to /private/var — resolve both sides before comparing
+    assert.equal(await fs.realpath(verification.cwd), await fs.realpath(appDir));
     assert.equal(verification.cwdResolution, 'inferred-single-package');
     const marker = await fs.readFile(path.join(appDir, 'verify-marker.txt'), 'utf8');
-    assert.equal(marker, appDir);
+    assert.equal(await fs.realpath(marker), await fs.realpath(appDir));
     const logs = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'));
-    assert.equal(logs.verificationContext?.cwd, appDir);
+    assert.equal(await fs.realpath(logs.verificationContext?.cwd), await fs.realpath(appDir));
     assert.equal(logs.verificationContext?.cwdResolution, 'inferred-single-package');
   }, { rootPackage: false });
 });

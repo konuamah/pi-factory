@@ -31,4 +31,10 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
       pruneBranches: true,
     },
   },
+  dashboard: {
+    enabled: false,
+    port: 4199,
+    host: "127.0.0.1",
+    autoOpen: false,
+  },
 };

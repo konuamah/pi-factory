@@ -25,5 +25,18 @@ export function validateEffectiveConfig(config: EffectiveFactoryConfig): Effecti
     throw new Error("commands.cwd must not be empty when provided");
   }
 
+  if (!Number.isInteger(config.dashboard.port) || config.dashboard.port < 1024 || config.dashboard.port > 65535) {
+    throw new Error("dashboard.port must be an integer between 1024 and 65535");
+  }
+
+  if (!config.dashboard.host.trim()) {
+    throw new Error("dashboard.host is required");
+  }
+
+  // Security: bind only to loopback by default; deny 0.0.0.0 / public bind without explicit intent.
+  if (config.dashboard.host !== "127.0.0.1" && config.dashboard.host !== "localhost" && config.dashboard.host !== "::1") {
+    throw new Error("dashboard.host must be 127.0.0.1, localhost, or ::1");
+  }
+
   return config;
 }

@@ -36,8 +36,19 @@ export async function validateFactorySetup(cwd: string): Promise<SetupValidation
     checks.push({ name: `doctor:${check.name}`, ok: check.ok, detail: check.detail });
   }
 
-  const failed = checks.filter((check) => !check.ok);
-  const readiness: SetupReadiness = failed.length === 0 ? "READY" : failed.length <= 2 ? "READY_WITH_WARNINGS" : "NOT_READY";
+  // Only blocking checks gate NOT_READY; optional integration checks (doctor:*) may be warns.
+  const blockingFailed = checks.filter((check) => !check.ok && !isOptionalCheck(check.name));
+  const anyFailed = checks.filter((check) => !check.ok);
+  let readiness: SetupReadiness;
+  if (blockingFailed.length === 0 && anyFailed.length === 0) readiness = "READY";
+  else if (blockingFailed.length === 0) readiness = "READY_WITH_WARNINGS";
+  else readiness = anyFailed.length <= 2 && blockingFailed.length === 0 ? "READY_WITH_WARNINGS" : "NOT_READY";
+  // If only optional warnings, force READY_WITH_WARNINGS even when >2 optional fails.
+  if (blockingFailed.length === 0 && anyFailed.length > 0) readiness = "READY_WITH_WARNINGS";
 
   return { readiness, checks };
+}
+
+function isOptionalCheck(name: string): boolean {
+  return name.startsWith("doctor:") || name === "constitution";
 }

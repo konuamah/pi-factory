@@ -87,6 +87,12 @@ export interface FactoryBuiltInDefaults {
       pruneBranches: boolean;
     };
   };
+  dashboard: {
+    enabled: boolean;
+    port: number;
+    host: string;
+    autoOpen: boolean;
+  };
 }
 
 export interface GlobalFactoryConfig {
@@ -100,6 +106,12 @@ export interface GlobalFactoryConfig {
   defaults?: {
     autonomy?: string;
     workflow?: string;
+  };
+  dashboard?: {
+    enabled?: boolean;
+    port?: number;
+    host?: string;
+    autoOpen?: boolean;
   };
 }
 
@@ -154,6 +166,12 @@ export interface ProjectFactoryConfig {
     finalMerge?: "required" | "not-required";
   };
   models?: Partial<Record<ModelRole, ModelSelection>>;
+  dashboard?: {
+    enabled?: boolean;
+    port?: number;
+    host?: string;
+    autoOpen?: boolean;
+  };
 }
 
 export interface RunOverrides {
@@ -207,6 +225,12 @@ export interface EffectiveFactoryConfig {
   };
   approval: {
     finalMerge: "required" | "not-required";
+  };
+  dashboard: {
+    enabled: boolean;
+    port: number;
+    host: string;
+    autoOpen: boolean;
   };
   capabilities?: CapabilityPolicy;
   taskTypes?: Record<string, TaskTypeDefinition>;

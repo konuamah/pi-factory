@@ -52,7 +52,7 @@ import type { FactoryPiAutocompleteItem, FactoryPiCommandContext } from "./types
 
 const execFileAsync = promisify(execFile);
 const FACTORY_WIDGET_ID = "factory-status";
-const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "plan", "resume", "cancel", "worktree", "workflow", "capabilities", "models", "cleanup", "constitution"];
+const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "plan", "resume", "cancel", "worktree", "workflow", "capabilities", "models", "cleanup", "constitution", "dashboard"];
 
 export async function getFactoryCommandCompletions(
   prefix: string,
@@ -102,6 +102,7 @@ export async function handleFactoryCommand(
       renderLines(ctx, [
         "Factory",
         "",
+        "/factory dashboard [start|stop|status|open] [--port N] [--host H]  dashboard control (opt-in via dashboard.enabled)",
         "/factory setup   initialize project-local Factory files",
         "/factory status [run-id] inspect config and latest or specific run state",
         "/factory doctor  validate repo and config readiness",
@@ -171,6 +172,9 @@ export async function handleFactoryCommand(
       case "constitution":
         await handleConstitution(rest, ctx);
         return;
+      case "dashboard":
+        await handleDashboard(rest, ctx);
+        return;
       default:
         await handlePrototypeGoal(args, ctx);
     }
@@ -199,40 +203,93 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
     if (!ok) { ctx.ui.notify("Factory setup cancelled", "info"); return; }
   }
 
-  const plan = await planFactorySetup({ cwd: ctx.cwd, force });
+  // Step 1: deterministic inspection with provenance (streamed)
+  const panel = mountFactoryStreamingWidget(ctx.ui, FACTORY_WIDGET_ID, {
+    title: "Factory setup",
+    goal: ctx.cwd,
+    phase: "setup-inspection",
+    role: "inspection",
+    status: "inspecting",
+    lines: ["Inspecting repository for factory setup..."],
+    footer: "Live Factory setup stream. Use arrow keys to scroll.",
+  });
+  const { buildFactorySetupContext } = await import("@factory/core");
+  panel.append("Provenance: builtIn < global < project < workflow — collecting layers...");
+  const setupContext = await (buildFactorySetupContext as (cwd: string) => Promise<import("@factory/schemas").FactorySetupContext>)(ctx.cwd);
+  panel.append(`Found: ${setupContext.repository.languages.join(", ") || "none"} · ${setupContext.repository.packageManagers.join(", ") || "none"} · ${Object.values(setupContext.discoveredCommands).filter(Boolean).length} commands`);
 
-  renderLines(ctx, [
-    "Factory setup",
-    `mode: ${plan.mode}`,
-    `repository maturity: ${plan.profile.maturity}`,
-    `languages: ${plan.profile.languages.join(", ") || "none"}`,
-    `package managers: ${plan.profile.packageManagers.join(", ") || "none"}`,
-    `frameworks: ${plan.profile.frameworks.join(", ") || "none"}`,
-    `monorepo: ${plan.profile.structure.monorepo ? "yes" : "no"}`,
-    `CI: ${plan.profile.ci.providers.join(", ") || "none"}`,
-    `previous runs: ${plan.profile.factory.runsCount}`,
-  ]);
+  // Step 2: built-in factory-setup skill -> LLM recommendation (validated) with streaming
+  let recommendation: import("@factory/schemas").FactorySetupRecommendation | undefined;
+  try {
+    const { recommendViaFactorySetupSkill } = await import("@factory/core");
+    const executor = await createOptionalSetupExecutor(ctx, (text) => panel.append(text)).catch(() => undefined);
+    if (executor) {
+      panel.setPhase("setup-recommendation");
+      panel.setRole("factory-setup");
+      panel.setStatus("streaming");
+      panel.append("Calling factory-setup skill via Pi SDK...");
+    }
+    recommendation = await (recommendViaFactorySetupSkill as unknown as (
+      i: { cwd: string; context: unknown; executor?: unknown; onEvent?: (t: string) => void } ) => Promise<import("@factory/schemas").FactorySetupRecommendation>
+    )({ cwd: ctx.cwd, context: setupContext, executor, onEvent: (t: string) => panel.append(t) });
+    panel.setStatus(executor ? "completed" : "completed (deterministic fallback)");
+  } catch {
+    panel.append("Recommendation fell back to deterministic heuristics.");
+  }
 
-  const answers: Record<string, string> = {};
+  if (!recommendation) {
+    // Fallback to legacy profile-based plan
+    const plan = await planFactorySetup({ cwd: ctx.cwd, force });
+    return runLegacySetupFlow(plan, ctx, force, project);
+  }
 
+  // Step 3: simple-English TUI summary with provenance
+  const summaryLines = renderSetupSummary(setupContext, recommendation);
+  renderLines(ctx, summaryLines);
+
+  type SetupAction = "use" | "customize" | "details" | "cancel";
+  let action: SetupAction = "use";
   if (ctx.ui.select) {
-    const choice = await ctx.ui.select("Workflow preset", ["Balanced", "Fast", "Safe"]);
-    answers["workflow-preset"] = (choice ?? "Balanced").toLowerCase();
-  } else {
-    answers["workflow-preset"] = "balanced";
+    const choice = await ctx.ui.select("Factory setup", [
+      "Use recommended setup",
+      "Customize",
+      "Show details",
+      "Cancel",
+    ]);
+    if (!choice) action = "cancel";
+    else if (choice.startsWith("Customize")) action = "customize";
+    else if (choice.startsWith("Show details")) action = "details";
+    else if (choice.startsWith("Cancel")) action = "cancel";
+    else action = "use";
+  } else if (ctx.ui.confirm) {
+    const ok = await ctx.ui.confirm("Use recommended setup?", summaryLines.join("\n"));
+    action = ok ? "use" : "cancel";
   }
 
-  if (ctx.ui.confirm) {
-    const generate = await ctx.ui.confirm(
-      "Generate constitution now?",
-      "Create a repository-specific CONSTITUTION.md, or write a minimal stub?",
-    );
-    answers["constitution"] = generate ? "generate" : "stub";
-  } else {
-    answers["constitution"] = "stub";
+  if (action === "cancel") { ctx.ui.notify("Factory setup cancelled", "info"); return; }
+
+  if (action === "details") {
+    renderLines(ctx, [...summaryLines, "", ...renderSetupDetails(setupContext, recommendation)]);
+    if (ctx.ui.select) {
+      const c2 = await ctx.ui.select("Factory setup", ["Use recommended setup", "Customize", "Cancel"]);
+      if (!c2 || c2.startsWith("Cancel")) { ctx.ui.notify("Factory setup cancelled", "info"); return; }
+      action = c2.startsWith("Customize") ? "customize" : "use";
+    }
   }
 
-  const finalPlan = await planFactorySetup({ cwd: ctx.cwd, answers, force });
+  // Step 4: Customize loop (section-based, not forced)
+  const answers: Record<string, string> = {};
+  if (action === "customize") {
+    const custom = await runSetupCustomize(setupContext, recommendation, answers, ctx);
+    if (!custom) { ctx.ui.notify("Factory setup cancelled", "info"); return; }
+    // Merge user customizations into recommendation (handled via answers in plan)
+    Object.assign(answers, custom.answers);
+    // Apply direct recommendation customizations
+    if (custom.recommendation) recommendation = custom.recommendation;
+  }
+
+  // Step 5: SetupPlan -> deterministic writer -> doctor
+  const finalPlan = await planFactorySetup({ cwd: ctx.cwd, answers, force, recommendation });
 
   renderLines(ctx, [
     "Factory setup plan",
@@ -246,7 +303,9 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
 
   const written = await applyFactorySetup(finalPlan);
 
-  if (answers["constitution"] === "generate") {
+  // Constitution from recommendation, not separate prompt
+  const constAction = (answers["constitution"] as string) ?? recommendation.constitution.toLowerCase();
+  if (constAction === "generate" || constAction === "refresh") {
     try {
       renderLines(ctx, ["Factory setup", "phase: constitution-refresh"]);
       const executor = await createRequiredConstitutionExecutor();
@@ -260,14 +319,18 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
   const validation = await validateFactorySetup(ctx.cwd);
   const pi = await detectPiModelConfiguration(ctx.cwd);
 
+  // READY and READY_WITH_WARNINGS are both healthy
+  const isHealthy = validation.readiness === "READY" || validation.readiness === "READY_WITH_WARNINGS";
   renderLines(ctx, [
     "Factory setup complete",
     `mode: ${finalPlan.mode}`,
     `files written: ${written.length}`,
     `readiness: ${validation.readiness}`,
+    ...validation.checks.filter((c) => !c.ok).map((c) => `  ${c.name.startsWith("doctor:") ? "⚠" : "✗"} ${c.name}: ${c.detail}`),
     "",
-    `workflow preset: ${answers["workflow-preset"]}`,
+    `workflow preset: ${recommendation.workflow?.value.preset ?? answers["workflow-preset"] ?? "balanced"}`,
     `base branch: ${loaded.effectiveConfig.git.baseBranch}`,
+    `constitution: ${recommendation.constitution}`,
     "",
     `pi auth configured: ${pi.hasAuth ? "yes" : "no"}`,
     `pi default model: ${pi.defaultProvider && pi.defaultModel ? `${pi.defaultProvider}/${pi.defaultModel}` : "none"}`,
@@ -275,7 +338,256 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
     ...(!pi.hasAuth ? ["  hint: use /login before generating a constitution or running model-backed flows"] : []),
   ]);
 
-  ctx.ui.notify(`Factory setup complete — ${validation.readiness}`, validation.readiness === "NOT_READY" ? "warning" : "info");
+  ctx.ui.notify(`Factory setup complete — ${validation.readiness}`, isHealthy ? "info" : "warning");
+}
+
+function renderSetupSummary(
+  ctx: import("@factory/schemas").FactorySetupContext,
+  rec: import("@factory/schemas").FactorySetupRecommendation,
+): string[] {
+  const langs = ctx.repository.languages.join(", ") || "none";
+  const pms = ctx.repository.packageManagers.join(", ") || "none";
+  const frameworks = ctx.repository.frameworks.join(", ") || "none";
+  const discoveredCount = Object.values(ctx.discoveredCommands).filter(Boolean).length;
+  const preset = rec.workflow?.value.preset ?? "balanced";
+  const cmds = Object.values(rec.commands ?? {}).map((c) => c!.value).join(", ") || "none";
+  return [
+    "Factory checked this project.",
+    "",
+    "I found:",
+    `  ${langs}`,
+    `  ${pms}`,
+    ...(frameworks !== "none" ? [`  ${frameworks}`] : []),
+    `  Git`,
+    `  ${discoveredCount} build/verification command(s)`,
+    "",
+    "I recommend:",
+    `  Workflow    ${preset.charAt(0).toUpperCase() + preset.slice(1)}`,
+    ...(rec.models ? [`  Models      ${Object.entries(rec.models).map(([r, v]) => `${r}:${v!.value.model}`).join(", ")}`] : []),
+    `  Verification  ${cmds}`,
+    `  Parallel workers  ${rec.runtime?.maxParallelAgents?.value ?? 2}`,
+    `  Repair  Up to ${rec.repair?.maxAttempts?.value ?? 3} attempts`,
+    `  Final merge  ${rec.approval?.finalMerge?.value === "required" ? "Ask for approval" : "Auto-merge"}`,
+    "",
+    `I can also ${rec.constitution === "GENERATE" ? "generate" : rec.constitution === "REFRESH" ? "refresh" : "keep"} the repository constitution.`,
+    "",
+    "Why this setup?",
+    ...(rec.explanation.slice(0, 2).map((e) => `  ${e}`)),
+    "",
+    rec.summary,
+  ];
+}
+
+function renderSetupDetails(
+  ctx: import("@factory/schemas").FactorySetupContext,
+  rec: import("@factory/schemas").FactorySetupRecommendation,
+): string[] {
+  const lines: string[] = ["Details", ""];
+  const src = ctx.existing;
+  const provenance = (field: string, existingValue: unknown): string => {
+    if (existingValue !== undefined && existingValue !== null && existingValue !== "") return `Source: Project configuration`;
+    const g = src.global as Record<string, unknown> | undefined;
+    if (g && (g as Record<string, unknown>)[field] !== undefined) return `Source: Global configuration`;
+    return `Source: Built-in default`;
+  };
+  if (rec.models) {
+    for (const [role, entry] of Object.entries(rec.models)) {
+      lines.push(`  ${role}: ${entry!.value.model}${entry!.value.provider ? ` (${entry!.value.provider})` : ""} — ${entry!.reason}`);
+      lines.push(`    ${provenance(role, (src.project?.models as Record<string, unknown> | undefined)?.[role])} / ${entry!.reason}`);
+    }
+  }
+  if (rec.commands) {
+    for (const [field, r] of Object.entries(rec.commands)) {
+      if (!r) continue;
+      const flag = r.source === "DISCOVERED" ? "✓" : r.source === "AI_SUGGESTED" ? "?" : "·";
+      lines.push(`  ${field}: ${flag} ${r.value} [${r.source}] — ${r.reason}` + (r.requiresConfirmation ? " (needs confirmation)" : ""));
+    }
+  }
+  if (rec.capabilities?.allow?.length) lines.push(`  capabilities allow: ${rec.capabilities.allow.join(", ")}`);
+  if (rec.capabilities?.deny?.length) lines.push(`  capabilities deny: ${rec.capabilities.deny.join(", ")}`);
+  if (rec.taskTypes?.length) lines.push(`  task types: ${rec.taskTypes.map((t) => t.id).join(", ")}`);
+  lines.push(`  constitution: ${rec.constitution}`);
+  lines.push("");
+  lines.push(`Available models: ${ctx.availableModels.map((m) => (m.provider ? `${m.provider}/` : "") + m.model).join(", ")}`);
+  lines.push(`Available capabilities: ${ctx.availableCapabilities.join(", ")}`);
+  return lines;
+}
+
+async function runSetupCustomize(
+  ctx: import("@factory/schemas").FactorySetupContext,
+  rec: import("@factory/schemas").FactorySetupRecommendation,
+  answers: Record<string, string>,
+  uiCtx: FactoryPiCommandContext,
+): Promise<{ answers: Record<string, string>; recommendation: import("@factory/schemas").FactorySetupRecommendation } | undefined> {
+  let current = structuredClone(rec) as import("@factory/schemas").FactorySetupRecommendation;
+  const localAnswers: Record<string, string> = { ...answers };
+  while (true) {
+    const section = await uiCtx.ui.select?.("What would you like to change?", [
+      "Workflow",
+      "Models",
+      "Commands",
+      "Runtime",
+      "Git / worktrees",
+      "Repair",
+      "Approval",
+      "Capabilities",
+      "Task routing",
+      "Constitution",
+      "Done",
+    ]);
+    if (!section || section === "Done") break;
+    if (section === "Workflow") {
+      const choice = await uiCtx.ui.select?.("Workflow preset", ["Balanced", "Fast", "Safe"]);
+      if (choice) {
+        const preset = choice.toLowerCase().split(" ")[0] as import("@factory/schemas").WorkflowPreset;
+        current.workflow = { value: { preset, workflowId: current.workflow?.value.workflowId ?? "default-dev" }, reason: `User chose ${preset}` };
+      }
+    } else if (section === "Models") {
+      for (const role of ["planner", "builder", "reviewer", "repair"] as const) {
+        const cur = current.models?.[role]?.value;
+        const curLabel = cur ? `${cur.provider ? `${cur.provider}/` : ""}${cur.model}` : "unset";
+        const choice = await uiCtx.ui.select?.(`Model for ${role} (now: ${curLabel})`, [
+          ...ctx.availableModels.map((m) => `${m.provider ? `${m.provider}/` : ""}${m.model}`),
+          "Keep current",
+          "Skip / unset",
+        ]);
+        if (!choice || choice === "Keep current") continue;
+        if (choice === "Skip / unset") { if (current.models) delete current.models[role]; continue; }
+        const [provider, ...rest] = choice.split("/");
+        const model = rest.length ? rest.join("/") : provider;
+        const prov = rest.length ? provider : undefined;
+        current.models = current.models ?? {};
+        const matched = ctx.availableModels.find((m) => `${m.provider ?? ""}:${m.model}` === `${prov ?? ""}:${model}`);
+        if (!matched && !choice.includes("/")) {
+          // Single model id like "opus" — pick first match
+          const byModel = ctx.availableModels.find((m) => m.model === choice);
+          if (byModel) { current.models[role] = { value: byModel, reason: `User chose ${choice}` }; continue; }
+        }
+        const sel = matched ?? { provider: prov, model: model! };
+        current.models[role] = { value: sel, reason: `User chose ${choice}` };
+      }
+    } else if (section === "Commands") {
+      for (const field of ["setup", "lint", "typecheck", "test", "build"] as const) {
+        const cur = current.commands?.[field];
+        const curLabel = cur ? `${cur.value} [${cur.source}]` : "unset";
+        const discovered = (ctx.discoveredCommands as Record<string, string | undefined>)[field];
+        const options = [
+          ...(discovered ? [`Use discovered — ${discovered}`] : []),
+          "Enter custom command",
+          "Keep current",
+          "Clear",
+        ];
+        const choice = await uiCtx.ui.select?.(`Command: ${field} (now: ${curLabel})`, options);
+        if (!choice || choice === "Keep current") continue;
+        if (choice === "Clear") { if (current.commands) delete current.commands[field]; continue; }
+        if (choice.startsWith("Use discovered")) {
+          if (discovered) { current.commands = current.commands ?? {}; current.commands[field] = { value: discovered, reason: `User kept discovered ${field}`, source: "DISCOVERED", confidence: "HIGH" }; }
+          continue;
+        }
+        const custom = await uiCtx.ui.input?.(`Custom ${field} command`, "e.g. pnpm test:integration");
+        if (!custom?.trim()) continue;
+        const val = custom.trim();
+        const isDiscovered = Object.values(ctx.discoveredCommands).includes(val);
+        current.commands = current.commands ?? {};
+        current.commands[field] = {
+          value: val,
+          reason: isDiscovered ? `User kept discovered: ${val}` : `User custom: ${val}`,
+          source: isDiscovered ? "DISCOVERED" : "AI_SUGGESTED",
+          confidence: isDiscovered ? "HIGH" : "MEDIUM",
+          ...(isDiscovered ? {} : { requiresConfirmation: true as const }),
+        };
+        if (!isDiscovered) localAnswers[`confirm:${field}`] = "yes"; // user just confirmed by entering it in Customize
+      }
+    } else if (section === "Runtime") {
+      const cur = String(current.runtime?.maxParallelAgents?.value ?? 2);
+      const val = await uiCtx.ui.input?.("Max parallel agents (1-16)", cur);
+      if (val?.trim()) {
+        const n = Number.parseInt(val.trim(), 10);
+        if (Number.isFinite(n) && n >= 1 && n <= 16) { current.runtime = current.runtime ?? {}; current.runtime.maxParallelAgents = { value: n, reason: "User chose parallel workers", source: "DEFAULT", confidence: "HIGH" }; localAnswers["runtime:maxParallelAgents"] = String(n); }
+      }
+    } else if (section === "Git / worktrees") {
+      const bb = await uiCtx.ui.input?.("Base branch", current.git?.baseBranch?.value ?? ctx.effective?.git.baseBranch ?? "main");
+      if (bb?.trim()) { current.git = current.git ?? {}; current.git.baseBranch = { value: bb.trim(), reason: "User chose base branch", source: "DEFAULT", confidence: "HIGH" }; localAnswers["git:baseBranch"] = bb.trim(); }
+      const aw = await uiCtx.ui.select?.("Allow worktrees?", ["Yes", "No", "Keep current"]);
+      if (aw && aw !== "Keep current") { current.git = current.git ?? {}; current.git.allowWorktrees = { value: aw === "Yes", reason: "User chose worktree policy", source: "DEFAULT", confidence: "HIGH" }; }
+    } else if (section === "Repair") {
+      const en = await uiCtx.ui.select?.("Enable repair?", ["Enabled", "Disabled", "Keep current"]);
+      if (en && en !== "Keep current") { current.repair = current.repair ?? {}; current.repair.enabled = { value: en === "Enabled", reason: "User chose repair policy", source: "DEFAULT", confidence: "HIGH" }; localAnswers["repair:enabled"] = String(en === "Enabled"); }
+      const ma = await uiCtx.ui.input?.("Max repair attempts (0-10)", String(current.repair?.maxAttempts?.value ?? 3));
+      if (ma?.trim()) { const n = Number.parseInt(ma.trim(), 10); if (Number.isFinite(n) && n >= 0 && n <= 10) { current.repair = current.repair ?? {}; current.repair.maxAttempts = { value: n, reason: "User chose maxAttempts", source: "DEFAULT", confidence: "HIGH" }; localAnswers["repair:maxAttempts"] = String(n); } }
+    } else if (section === "Approval") {
+      const choice = await uiCtx.ui.select?.("Final merge", ["Ask for approval (required)", "Auto-merge (not-required)", "Keep current"]);
+      if (choice && choice !== "Keep current") {
+        const v = choice.startsWith("Ask") ? "required" as const : "not-required" as const;
+        current.approval = current.approval ?? {}; current.approval.finalMerge = { value: v, reason: "User chose merge policy", source: "DEFAULT", confidence: "HIGH" }; localAnswers["approval:finalMerge"] = v;
+      }
+    } else if (section === "Capabilities") {
+      const curAllow = current.capabilities?.allow?.join(", ") || "none";
+      const curDeny = current.capabilities?.deny?.join(", ") || "none";
+      const want = await uiCtx.ui.select?.(`Capabilities (allow: ${curAllow} / deny: ${curDeny})`, ["Edit allow", "Edit deny", "Keep current"]);
+      if (want === "Edit allow") {
+        const val = await uiCtx.ui.input?.("Allow capabilities (comma-separated)", curAllow);
+        if (val !== undefined) { const ids = val.split(",").map((s) => s.trim()).filter(Boolean) as import("@factory/schemas").Capability[]; current.capabilities = current.capabilities ?? {}; (current.capabilities as Record<string, unknown>).allow = ids; }
+      } else if (want === "Edit deny") {
+        const val = await uiCtx.ui.input?.("Deny capabilities (comma-separated)", curDeny);
+        if (val !== undefined) { const ids = val.split(",").map((s) => s.trim()).filter(Boolean) as import("@factory/schemas").Capability[]; current.capabilities = current.capabilities ?? {}; (current.capabilities as Record<string, unknown>).deny = ids; }
+      }
+    } else if (section === "Task routing") {
+      const val = await uiCtx.ui.input?.("Task type IDs (comma-separated, e.g. database-migration)", current.taskTypes?.map((t) => t.id).join(", ") ?? "");
+      if (val !== undefined) { const ids = val.split(",").map((s) => s.trim()).filter(Boolean); current.taskTypes = ids.map((id) => ({ id, reason: "User chose task types", source: "DEFAULT" as const, confidence: "MEDIUM" as const })); }
+    } else if (section === "Constitution") {
+      const choice = await uiCtx.ui.select?.("Constitution", ["GENERATE", "REFRESH", "KEEP"]);
+      if (choice) current.constitution = choice as import("@factory/schemas").ConstitutionRecommendation;
+    }
+  }
+  return { answers: localAnswers, recommendation: current };
+}
+
+async function createOptionalSetupExecutor(
+  ctx: FactoryPiCommandContext,
+  onEvent?: (executionId: string, event: { type: string; text?: string; data?: Record<string, unknown> }) => void,
+): Promise<import("@factory/core").AgentExecutor | undefined> {
+  try {
+    const pi = await detectPiModelConfiguration(ctx.cwd);
+    if (!pi.hasAuth) return undefined;
+    const piExecutors = await import("../../../executors/pi/dist/index.js");
+    const factory = (piExecutors as unknown as { createPiSdkSessionFactory: (opts: unknown) => unknown }).createPiSdkSessionFactory({ packageName: process.env.FACTORY_PI_SDK_PACKAGE });
+    const { PiAgentExecutor } = piExecutors as unknown as { PiAgentExecutor: new (opts: unknown) => import("@factory/core").AgentExecutor };
+    return new PiAgentExecutor({ sessionFactory: factory, onEvent });
+  } catch { return undefined; }
+}
+
+async function runLegacySetupFlow(plan: import("@factory/core").FactorySetupPlan, ctx: FactoryPiCommandContext, force: boolean, project: Awaited<ReturnType<typeof discoverFactoryProject>>): Promise<void> {
+  renderLines(ctx, [
+    "Factory setup",
+    `mode: ${plan.mode}`,
+    `repository maturity: ${plan.profile.maturity}`,
+    `languages: ${plan.profile.languages.join(", ") || "none"}`,
+    `package managers: ${plan.profile.packageManagers.join(", ") || "none"}`,
+    `frameworks: ${plan.profile.frameworks.join(", ") || "none"}`,
+    `monorepo: ${plan.profile.structure.monorepo ? "yes" : "no"}`,
+    `CI: ${plan.profile.ci.providers.join(", ") || "none"}`,
+    `previous runs: ${plan.profile.factory.runsCount}`,
+  ]);
+  const answers: Record<string, string> = {};
+  if (ctx.ui.select) {
+    const choice = await ctx.ui.select("Workflow preset", ["Balanced", "Fast", "Safe"]);
+    answers["workflow-preset"] = (choice ?? "Balanced").toLowerCase();
+  } else { answers["workflow-preset"] = "balanced"; }
+  if (ctx.ui.confirm) {
+    const generate = await ctx.ui.confirm("Generate constitution now?", "Create a repository-specific CONSTITUTION.md, or write a minimal stub?");
+    answers["constitution"] = generate ? "generate" : "stub";
+  } else { answers["constitution"] = "stub"; }
+  const finalPlan = await planFactorySetup({ cwd: ctx.cwd, answers, force });
+  renderLines(ctx, ["Factory setup plan", ...finalPlan.diffs.map((d) => `  ${d.file.replace(project.paths.gitRoot ?? ctx.cwd, ".")}${d.changes.includes("create file") ? " (+create)" : d.changes.includes("content changes") ? " (~update)" : " (unchanged)"}`)]);
+  if (ctx.ui.confirm) { const apply = await ctx.ui.confirm("Apply Factory setup?", "Preview shown above. Write these files?"); if (!apply) { ctx.ui.notify("Factory setup not applied", "info"); return; } }
+  const written = await applyFactorySetup(finalPlan);
+  if (answers["constitution"] === "generate") { try { renderLines(ctx, ["Factory setup", "phase: constitution-refresh"]); const executor = await createRequiredConstitutionExecutor(); await runConstitutionScan({ cwd: ctx.cwd, constitutionExecutor: executor }); } catch { ctx.ui.notify("Constitution generation failed; stub remains", "warning"); } }
+  const loaded = await loadEffectiveConfig({ cwd: ctx.cwd });
+  const validation = await validateFactorySetup(ctx.cwd);
+  const pi = await detectPiModelConfiguration(ctx.cwd);
+  renderLines(ctx, ["Factory setup complete", `mode: ${finalPlan.mode}`, `files written: ${written.length}`, `readiness: ${validation.readiness}`, "", `workflow preset: ${answers["workflow-preset"]}`, `base branch: ${loaded.effectiveConfig.git.baseBranch}`, "", `pi auth configured: ${pi.hasAuth ? "yes" : "no"}`, `pi default model: ${pi.defaultProvider && pi.defaultModel ? `${pi.defaultProvider}/${pi.defaultModel}` : "none"}`, ...(!pi.hasModelSelection ? ["  hint: configure a Pi default model in ~/.pi/agent/settings.json"] : []), ...(!pi.hasAuth ? ["  hint: use /login before generating a constitution or running model-backed flows"] : []),]);
+  ctx.ui.notify(`Factory setup complete — ${validation.readiness}`, (validation.readiness === "READY" || validation.readiness === "READY_WITH_WARNINGS") ? "info" : "warning");
 }
 
 async function handleStatus(ctx: FactoryPiCommandContext, runId?: string): Promise<void> {
@@ -1646,6 +1958,105 @@ function buildIntegrationFailureLines(
     `integration conflicts: ${integrationFailure.conflictingFiles.join(", ") || "none"}`,
     `merge in progress: ${integrationFailure.mergeInProgress ? "yes" : "no"}`,
   ];
+}
+
+async function handleDashboard(rest: string[], ctx: FactoryPiCommandContext): Promise<void> {
+  const action = (rest[0] ?? "status").toLowerCase();
+  // parse --port/--host flags from rest
+  let port: number | undefined;
+  let host: string | undefined;
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === "--port" && rest[i + 1]) port = Number.parseInt(rest[i + 1]!, 10);
+    else if (rest[i]?.startsWith("--port=")) port = Number.parseInt(rest[i]!.slice("--port=".length), 10);
+    else if (rest[i] === "--host" && rest[i + 1]) host = rest[i + 1];
+    else if (rest[i]?.startsWith("--host=")) host = rest[i]!.slice("--host=".length);
+  }
+  const loaded = await loadEffectiveConfig({ cwd: ctx.cwd }).catch(() => undefined);
+  const effectivePort = port ?? loaded?.effectiveConfig.dashboard.port;
+  const effectiveHost = host ?? loaded?.effectiveConfig.dashboard.host ?? "127.0.0.1";
+  const web = await loadDashboardWeb().catch(() => undefined);
+  if (!web) {
+    renderLines(ctx, ["Factory dashboard", "Dashboard adapter not available. Run npm run build."]);
+    ctx.ui.notify("Dashboard not available", "warning");
+    return;
+  }
+  const { getDashboardUrl, getDashboardServer, ensureDashboardServer, stopDashboardServer, resolveDashboardDist } = web as unknown as {
+    getDashboardUrl: () => string | undefined;
+    getDashboardServer: () => { port: number } | undefined;
+    ensureDashboardServer: (o: { cwd: string; port?: number; host?: string; staticDir?: string }) => Promise<{ url: string; reused: boolean }>;
+    stopDashboardServer: () => Promise<boolean>;
+    resolveDashboardDist: (cwd: string) => string | undefined;
+  };
+  const dist = resolveDashboardDist(ctx.cwd);
+  if (action === "start" || action === "up" || action === "" || action === "status") {
+    if (action === "start" || action === "up") {
+      try {
+        const { url, reused } = await ensureDashboardServer({ cwd: ctx.cwd, port: effectivePort, host: effectiveHost, staticDir: dist });
+        renderLines(ctx, [
+          "Factory dashboard",
+          `${reused ? "reused" : "started"}: ${url}`,
+          `host: ${effectiveHost}`,
+          `port: ${String(effectivePort ?? getDashboardServer()?.port ?? "?")}`,
+          `static: ${dist ?? "(not built — run npm run dashboard:build)"}`,
+          `config enabled: ${loaded?.effectiveConfig.dashboard.enabled ? "yes" : "no"} (set dashboard.enabled: true to auto-start on next pi)`,
+        ]);
+        ctx.ui.notify(`Dashboard ${reused ? "running" : "started"} at ${url}`, "info");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/EADDRINUSE/.test(msg)) {
+          const existing = getDashboardUrl();
+          renderLines(ctx, ["Factory dashboard", `port in use: ${effectivePort}`, existing ? `existing: ${existing}` : "try /factory dashboard stop then start"]);
+          ctx.ui.notify("Dashboard port in use", "warning");
+        } else throw e;
+      }
+      return;
+    }
+    const url = getDashboardUrl();
+    const server = getDashboardServer();
+    renderLines(ctx, [
+      "Factory dashboard",
+      url ? `running: ${url}` : "not running (use /factory dashboard start)",
+      `configured: ${effectiveHost}:${String(effectivePort ?? 4199)}`,
+      `auto-start: ${loaded?.effectiveConfig.dashboard.enabled ? "enabled" : "disabled"} (dashboard.enabled)` + (loaded?.effectiveConfig.dashboard.autoOpen ? " + autoOpen" : ""),
+      `static: ${dist ?? "not built — run npm run dashboard:build"}`,
+      "",
+      "Commands: /factory dashboard start [--port N] [--host H] | stop | status | open",
+    ]);
+    ctx.ui.notify(url ? `Dashboard at ${url}` : "Dashboard not running", url ? "info" : "warning");
+    return;
+  }
+  if (action === "stop" || action === "down") {
+    const stopped = await stopDashboardServer();
+    renderLines(ctx, ["Factory dashboard", stopped ? "stopped" : "not running"]);
+    ctx.ui.notify(stopped ? "Dashboard stopped" : "Dashboard not running", stopped ? "info" : "warning");
+    return;
+  }
+  if (action === "open") {
+    let url = getDashboardUrl();
+    if (!url) {
+      const started = await ensureDashboardServer({ cwd: ctx.cwd, port: effectivePort, host: effectiveHost, staticDir: dist });
+      url = started.url;
+    }
+    renderLines(ctx, ["Factory dashboard", `open: ${url}`]);
+    // Try to open browser; do not fail if unavailable (headless)
+    try {
+      const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+      const args = process.platform === "win32" ? ["/c", "start", url] : [url];
+      await execFileAsync(openCmd, args, { windowsHide: true }).catch(() => undefined);
+    } catch {}
+    ctx.ui.notify(`Dashboard: ${url}`, "info");
+    return;
+  }
+  renderLines(ctx, ["Factory dashboard", "Usage: /factory dashboard [status|start|stop|open] [--port N] [--host H]"]);
+  ctx.ui.notify("Unknown dashboard action", "warning");
+}
+
+async function loadDashboardWeb(): Promise<unknown> {
+  try {
+    // @ts-ignore - dynamic import, may not have types until built
+    return await import("../../../adapters/web/dist/index.js");
+  } catch {}
+  return undefined;
 }
 
 function renderLines(ctx: FactoryPiCommandContext, lines: string[]): void {

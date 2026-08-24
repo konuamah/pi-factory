@@ -6,3 +6,6 @@ export * from "./recommend.js";
 export * from "./plan.js";
 export * from "./apply.js";
 export * from "./validate.js";
+export * from "./setup-context.js";
+export * from "./factory-setup-llm.js";
+export * from "./recommend-validate.js";

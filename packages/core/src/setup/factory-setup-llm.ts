@@ -33,13 +33,22 @@ export async function recommendViaFactorySetupSkill(
   input.onEvent?.(result.outputText.slice(0, 200) + "\n");
 
   if (result.status !== "completed") {
+    const providerHint = result.errorMessage?.includes("401") || result.errorMessage?.includes("api key")
+      ? " — Provider auth failed (401). Remove the invalid OPENAI_API_KEY / refresh provider auth and retry."
+      : "";
     throw new Error(
-      `FACTORY_SETUP_LLM_FAILED: executor status=${result.status} — error=${result.errorMessage ?? "none"} — output was: ${result.outputText.slice(0, 800)}`
+      `FACTORY_SETUP_LLM_FAILED: executor status=${result.status} — error=${result.errorMessage ?? "none"}${providerHint} — output was: ${result.outputText.slice(0, 800)}`
     );
   }
 
   const parsed = extractJson(result.outputText);
   if (!parsed) {
+    const maybe401 = result.outputText.includes("401") || JSON.stringify(result.events ?? []).includes("401");
+    if (maybe401 && !result.outputText.trim()) {
+      throw new Error(
+        `FACTORY_SETUP_LLM_PROVIDER_AUTH_FAILED: LLM returned empty output (likely invalid OPENAI_API_KEY or provider 401). Clear OPENAI_API_KEY or fix provider auth, then re-run /factory setup. Events contained: ${JSON.stringify(result.events?.slice(0, 3) ?? [], null, 2).slice(0, 800)}`
+      );
+    }
     throw new Error(
       `FACTORY_SETUP_LLM_INVALID_JSON: LLM did not return valid JSON — raw output (first 1200 chars) was: ${result.outputText.slice(0, 1200)}`
     );

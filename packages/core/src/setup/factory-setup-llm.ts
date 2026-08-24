@@ -22,11 +22,17 @@ export async function recommendViaFactorySetupSkill(
   const skillSource = await loadFactorySetupSkillSource(input.cwd);
   const prompt = buildFactorySetupPrompt(input.context, skillSource);
   input.onEvent?.("Analyzing repository configuration...\n");
+  // Use the user's default chat model (commandcode/Spark) explicitly so we don't
+  // fall back to a stale OPENAI_API_KEY (401) or a depleted deepseek (402).
+  const defaultModel = resolveDefaultModel(input.context);
+  const modelInfo = defaultModel ? ` (model: ${defaultModel.provider ?? "default"}/${defaultModel.model})` : "";
+  input.onEvent?.(`Model: ${modelInfo || "Pi default"} — scanning providers...\n`);
 
   const result = await input.executor.execute({
     executionId: `factory-setup-${Date.now()}`,
     cwd: input.cwd,
     prompt,
+    ...(defaultModel ? { model: defaultModel } : {}),
     tools: ["read", "grep", "find", "ls"],
     metadata: { role: "planner", purpose: "factory-setup-recommendation", streaming: true },
   });
@@ -54,9 +60,15 @@ export async function recommendViaFactorySetupSkill(
     );
   }
 
-  // Normalize against parsed output only; required fields must be present (no silent fallback fill for missing required fields).
+  // Normalize against deterministic template for missing fields, then strictly validate.
   const template = buildDeterministicRecommendation(input.context);
-  const rec = normalizeRecommendationStrict(parsed, input.context, template);
+  const rec = normalizeRecommendation(parsed, input.context, template) as FactorySetupRecommendation & { projectUnderstanding: { summary: string } };
+  // FAIL-LOUD: LLM must produce real understanding and workflow — empty summary/preset is provider fallback, not valid.
+  if (!rec.projectUnderstanding?.summary?.trim() || !rec.workflow) {
+    throw new Error(
+      `FACTORY_SETUP_LLM_INCOMPLETE: LLM did not return projectUnderstanding.summary + workflow — raw output was: ${result.outputText.slice(0, 1200)}`
+    );
+  }
   return validateSetupRecommendation(rec, input.context);
 }
 
@@ -190,9 +202,7 @@ function normalizeRecommendationStrict(
   ctx: FactorySetupContext,
   template: FactorySetupRecommendation,
 ): FactorySetupRecommendation {
-  if (!raw || typeof raw !== "object") {
-    throw new Error("FACTORY_SETUP_LLM_INVALID: LLM returned null/non-object JSON.");
-  }
+  if (!raw || typeof raw !== "object") throw new Error("FACTORY_SETUP_LLM_INVALID: LLM returned null/non-object JSON.");
   return normalizeRecommendation(raw, ctx, template);
 }
 
@@ -368,11 +378,21 @@ export function buildDeterministicRecommendation(ctx: FactorySetupContext): Fact
   } else {
     workflow = { value: { kind: "preset", preset, workflowId: "default-dev" }, reason: `Complexity ${complexity} → ${preset}` };
   }
+  const defaultModel = resolveDefaultModel(ctx);
+  const models: FactorySetupRecommendation["models"] | undefined = defaultModel
+    ? {
+        planner: { value: defaultModel, reason: "Detected from your Pi model configuration; used for planning." },
+        builder: { value: defaultModel, reason: "Detected from your Pi model configuration; used for implementation." },
+        reviewer: { value: defaultModel, reason: "Detected from your Pi model configuration; used for review." },
+        repair: { value: defaultModel, reason: "Detected from your Pi model configuration; used for repair attempts." },
+      }
+    : undefined;
 
   return {
     projectUnderstanding,
     summary: `Factory checked this project — ${langs} with ${pm} and ${tools} verification command(s). Recommended: ${workflow.value.kind === "preset" ? workflow.value.preset : "custom"} workflow.`,
     workflow,
+    ...(models ? { models } : {}),
     commands,
     constitution: ctx.existing.constitutionExists ? "KEEP" : "GENERATE",
     whyNot: whyNot.length ? whyNot : undefined,
@@ -390,5 +410,12 @@ export function buildDeterministicRecommendation(ctx: FactorySetupContext): Fact
   };
 }
 
-// Kept for reference; gateway creates the executor via piExecutors.createPiSdkSessionFactory directly.
-
+function resolveDefaultModel(context: FactorySetupContext): { provider?: string; model: string } | undefined {
+  // buildFactorySetupContext orders the user's actual Pi default first.
+  if (context.availableModels[0]?.provider) return context.availableModels[0];
+  // Fall back to any configured model with a provider.
+  const anyWithProvider = context.availableModels.find((m) => m.provider);
+  if (anyWithProvider) return anyWithProvider;
+  // Or first available at all (built-ins like opus/sonnet are allowed).
+  return context.availableModels[0];
+}

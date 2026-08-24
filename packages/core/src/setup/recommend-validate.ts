@@ -5,6 +5,7 @@ export function validateSetupRecommendation(
   ctx: FactorySetupContext,
 ): FactorySetupRecommendation {
   const allowedModels = new Set(ctx.availableModels.map((m) => `${m.provider ?? ""}:${m.model}`));
+  const defaultModel = ctx.availableModels[0];
   const allowedCaps = new Set(ctx.availableCapabilities);
   const allowedSkills = new Set(ctx.availableSkills.map((s) => s.id));
   const allowedPresets = new Set(["balanced", "fast", "safe"]);
@@ -40,7 +41,11 @@ export function validateSetupRecommendation(
       if (!entry) continue;
       const key = `${entry.value.provider ?? ""}:${entry.value.model}`;
       if (!allowedModels.has(key)) {
-        throw new Error(`model for ${role} not in availableModels: ${key}`);
+        if (!defaultModel) {
+          throw new Error(`model for ${role} not in availableModels: ${key}`);
+        }
+        entry.value = defaultModel;
+        entry.reason = `${entry.reason} Replaced unavailable model ${key} with detected Pi default ${defaultModel.provider ? `${defaultModel.provider}/` : ""}${defaultModel.model}.`;
       }
     }
   }
@@ -52,7 +57,10 @@ export function validateSetupRecommendation(
       const v = r.value.trim();
       if (!v) throw new Error(`command ${field} must not be empty`);
       if (r.source === "DISCOVERED" && !discoveredVals.has(v)) {
-        throw new Error(`command ${field} marked DISCOVERED but value not discovered: ${v}`);
+        r.source = "AI_SUGGESTED";
+        r.confidence = r.confidence === "HIGH" ? "MEDIUM" : r.confidence;
+        r.requiresConfirmation = true;
+        r.reason = `${r.reason} Reclassified because this command was not found in discovered package/tooling commands.`;
       }
       if (r.source === "AI_SUGGESTED" && r.requiresConfirmation !== true) {
         throw new Error(`AI_SUGGESTED command ${field} must have requiresConfirmation: true`);
@@ -123,11 +131,41 @@ export function validateSetupRecommendation(
 
   if (rec.skills?.ids) for (const id of rec.skills.ids) if (!allowedSkills.has(id)) throw new Error(`skill not allowlisted: ${id}`);
 
-  for (const q of rec.questions ?? []) if (!q.question?.trim() || !q.options?.length) throw new Error(`question ${q.id} missing question/options`);
+  // Questions are advisory — tolerate LLM that emits {kind, question} without id/options (e.g. Spark's honest questions).
+  // Normalize: fill missing id, drop questions that have neither question nor options.
+  if (rec.questions?.length) {
+    const normalized: typeof rec.questions = [];
+    for (let i = 0; i < rec.questions.length; i++) {
+      const q = rec.questions[i] as unknown as Record<string, unknown>;
+      const question = String(q.question ?? "").trim();
+      if (!question) continue;
+      const id = String(q.id ?? `q-${i}`);
+      const options = Array.isArray(q.options) ? (q.options as Array<{ id?: string; label?: string }>) : [];
+      const opts = options.length
+        ? options.map((o, j) => ({ id: String(o.id ?? `opt-${j}`), label: String(o.label ?? o.id ?? `Option ${j + 1}`) }))
+        : defaultQuestionOptions(question);
+      normalized.push({ id, question, options: opts, ...(q.context ? { context: String(q.context) } : {}), ...(q.kind ? { kind: q.kind as import("@factory/schemas").SetupQuestion["kind"] } : {}) });
+    }
+    rec.questions = normalized;
+  }
 
   // Cross-check: AI_SUGGESTED commands must not be auto-applied later — caller must enforce requiresConfirmation gate
 
   return rec;
+}
+
+function defaultQuestionOptions(question: string): Array<{ id: string; label: string }> {
+  if (isBinaryQuestion(question)) {
+    return [
+      { id: "yes", label: "Yes" },
+      { id: "no", label: "No" },
+    ];
+  }
+  return [{ id: "ack", label: "Got it" }];
+}
+
+function isBinaryQuestion(question: string): boolean {
+  return /^(should|do|does|did|can|could|would|will|is|are|was|were|has|have|want|enable|disable|keep|use|allow)\b/i.test(question.trim());
 }
 
 function hasCycle(stages: Array<{ name: string; dependsOn?: string[] }>): boolean {

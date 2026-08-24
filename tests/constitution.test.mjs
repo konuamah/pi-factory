@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { runConstitutionScan } from '../packages/core/dist/index.js';
+import { judgeConstitutionRefreshForTask, runConstitutionScan } from '../packages/core/dist/index.js';
 
 const execFile = promisify(execFileCb);
 
@@ -84,6 +84,47 @@ test('no-change finalized constitution is reused without requiring an executor',
       assert.equal(second.interpreter.status, 'completed');
       assert.equal(second.refresh.noChange, true);
       assert.equal(second.refresh.reusedAreaIds.length, 120);
+    },
+  );
+});
+
+test('constitution preflight skips only when finalized context can be reused', async () => {
+  await withTempProject(
+    {
+      'package.json': JSON.stringify({ name: 'tmp', type: 'module' }, null, 2),
+      '.factory/constitution/metadata.json': JSON.stringify({ finalized: true }, null, 2),
+    },
+    async (root) => {
+      const result = await judgeConstitutionRefreshForTask({ cwd: root, goal: 'Update button copy' });
+      assert.equal(result.decision, 'skip');
+      assert.equal(result.usedLlm, false);
+      assert.equal(result.finalizedConstitution, true);
+    },
+  );
+});
+
+test('constitution preflight constrains unsafe LLM skip without finalized context', async () => {
+  await withTempProject(
+    {
+      'package.json': JSON.stringify({ name: 'tmp', type: 'module' }, null, 2),
+    },
+    async (root) => {
+      const executor = {
+        async execute() {
+          return {
+            executionId: 'preflight',
+            status: 'completed',
+            outputText: '{"decision":"skip","reason":"Looks small."}',
+            events: [],
+          };
+        },
+        async cancel() {},
+      };
+
+      const result = await judgeConstitutionRefreshForTask({ cwd: root, goal: 'Update button copy', executor });
+      assert.equal(result.decision, 'full');
+      assert.equal(result.usedLlm, true);
+      assert.equal(result.finalizedConstitution, false);
     },
   );
 });

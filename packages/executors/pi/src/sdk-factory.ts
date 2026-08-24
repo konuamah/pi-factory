@@ -45,6 +45,8 @@ export function createPiSdkSessionFactory(
         }
       }
 
+      // If caller supplies a model, respect it strictly; otherwise let Pi use
+      // the user's default (commandcode/OAuth etc.) — do NOT inject a stale env model.
       if (input.model) {
         const resolution = await resolveRequestedModel(sdk, input.model);
         if (resolution.modelRuntime) {
@@ -64,6 +66,16 @@ export function createPiSdkSessionFactory(
             },
           });
         }
+      } else {
+        diagnostics.push({
+          type: "model.selection_warning",
+          data: {
+            requestedModel: "(default)",
+            requestedProvider: "(default)",
+            reason: "No model requested — using Pi default from settings.json/auth.json (commandcode/Spark etc.)",
+            fallback: "sdk-default",
+          },
+        });
       }
 
       const created = await sdk.createAgentSession(createOptions);
@@ -143,18 +155,21 @@ async function resolveRequestedModel(
   resolvedModel?: unknown;
   warning?: string;
 }> {
-  if (!sdk.ModelRuntime?.create) {
-    throw new ModelProviderResolutionError(
-      `Configured model \"${model.model}\" could not be resolved because this Pi SDK does not expose ModelRuntime. No fallback is used.`,
-    );
-  }
-
-  const modelRuntime = await sdk.ModelRuntime.create();
   if (!model.provider) {
     throw new ModelProviderResolutionError(
       `Configured model \"${model.model}\" has no provider, so Factory cannot resolve it. Provide a provider or remove the model from config.`,
     );
   }
+
+  // SDK 0.82 no longer exposes ModelRuntime — pass model directly to createAgentSession.
+  // Old path kept for backward compat when ModelRuntime exists.
+  if (!sdk.ModelRuntime?.create) {
+    return {
+      resolvedModel: { provider: model.provider, model: model.model, id: model.model },
+    };
+  }
+
+  const modelRuntime = await sdk.ModelRuntime.create();
 
   const resolvedModel =
     typeof modelRuntime.getModel === "function"

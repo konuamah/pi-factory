@@ -33,11 +33,7 @@ export function buildStewardSlides(
 ): StewardSlide[] {
   const pu = rec.projectUnderstanding;
   const wf = rec.workflow?.value;
-  const wfLabel = wf
-    ? wf.kind === "custom"
-      ? `Custom: ${wf.workflow.stages.map((s) => s.name).join(" → ")}`
-      : `${wf.preset} (${wf.workflowId})`
-    : "balanced (default)";
+  const workflowSummary = describeWorkflow(wf);
 
   return [
     {
@@ -60,7 +56,9 @@ export function buildStewardSlides(
       kind: "recommendation",
       recommended: rec.workflow,
       lines: [
-        `I recommend: ${wfLabel}`,
+        `I recommend: ${workflowSummary.label}`,
+        ...(workflowSummary.idLine ? [workflowSummary.idLine] : []),
+        ...(workflowSummary.stageLine ? [workflowSummary.stageLine] : []),
         ...(rec.workflow?.reason ? [`Why: ${rec.workflow.reason}`] : []),
         ...(wf?.kind === "custom" ? [(wf as { reason: string }).reason ? `Reason: ${(wf as { reason: string }).reason}` : undefined].filter(Boolean) as string[] : []),
         ...(rec.whyNot?.filter((w) => w.area.toLowerCase().includes("workflow")).map((w) => `Not recommended: ${w.area} — ${w.reason}`) ?? []),
@@ -74,11 +72,14 @@ export function buildStewardSlides(
       kind: "recommendation",
       recommended: rec.models,
       lines: [
+        ...describeConfiguredModels(ctx),
         ...(rec.models
           ? Object.entries(rec.models).map(([role, v]) => `${role}: ${v!.value.provider ? `${v!.value.provider}/` : ""}${v!.value.model} — ${v!.reason}`)
           : ["No model overrides — using Factory defaults (opus/sonnet)."]),
         "",
-        "Why: Planning and review need more reasoning; most implementation is handled well by Sonnet.",
+        rec.models
+          ? "Why: Factory is using models discovered from your Pi configuration first; built-in fallbacks are only used if no configured model is available."
+          : "Why: No configured Pi model was available to Factory, so it will fall back to built-in role defaults.",
       ],
     },
     {
@@ -160,9 +161,7 @@ export function buildStewardSlides(
       simpleTitle: "How different kinds of work are routed",
       kind: "recommendation",
       recommended: rec.taskTypes,
-      lines: rec.taskTypes?.length
-        ? rec.taskTypes.map((t) => `• ${t.id} — ${t.reason}`)
-        : ["Default routing (task type inferred from goal/files)."],
+      lines: describeTaskRouting(ctx, rec),
     },
     {
       id: "skills",
@@ -170,7 +169,7 @@ export function buildStewardSlides(
       simpleTitle: "Extra capabilities for this project",
       kind: "recommendation",
       recommended: rec.skills,
-      lines: rec.skills?.ids.length ? [`Skills: ${rec.skills.ids.join(", ")} — ${rec.skills.reason}`] : ["No extra skills recommended."],
+      lines: describeSkills(ctx, rec),
     },
     {
       id: "dashboard",
@@ -188,11 +187,7 @@ export function buildStewardSlides(
       title: "13. Constitution — living understanding",
       simpleTitle: "How Factory remembers this repo",
       kind: "recommendation",
-      lines: [
-        `${rec.constitution === "GENERATE" ? "Generate" : rec.constitution === "REFRESH" ? "Refresh" : "Keep"} the repository constitution (evidence-backed, not hand-written).`,
-        "After setup, Factory keeps it healthy — Observe → Understand → Recommend → Ask → Record → Work → Refresh.",
-        ...(rec.explanation.slice(0, 2).map((e) => `Why: ${e}`)),
-      ],
+      lines: describeConstitution(ctx, rec),
     },
     {
       id: "finalReview",
@@ -217,4 +212,189 @@ export function simpleEnglishLabel(field: string): string {
     "repair.maxAttempts": "How many repair attempts after verification fails?",
   };
   return map[field] ?? field;
+}
+
+function describeWorkflow(wf: NonNullable<FactorySetupRecommendation["workflow"]>["value"] | undefined): {
+  label: string;
+  idLine?: string;
+  stageLine?: string;
+} {
+  if (!wf) {
+    return {
+      label: "Balanced development flow",
+      idLine: "Saved as: default-dev — the workflow name Factory uses when you do not choose another one.",
+      stageLine: "Steps: plan → build → verify → approval → merge.",
+    };
+  }
+
+  if (wf.kind === "custom") {
+    return {
+      label: "Custom workflow",
+      idLine: `Saved as: ${wf.workflow.id} — the workflow name Factory uses when selecting this custom flow.`,
+      stageLine: `Steps: ${wf.workflow.stages.map((s) => s.name).join(" → ")}.`,
+    };
+  }
+
+  const presetName = wf.preset === "safe"
+    ? "Safe development flow"
+    : wf.preset === "fast"
+      ? "Fast development flow"
+      : "Balanced development flow";
+  const stages = wf.preset === "fast"
+    ? "plan → build → approval → merge"
+    : "plan → build → verify → approval → merge";
+  const workflowId = wf.workflowId ?? "default-dev";
+
+  return {
+    label: presetName,
+    idLine: `Saved as: ${workflowId} — the workflow name Factory uses when you do not choose another one.`,
+    stageLine: `Steps: ${stages}.`,
+  };
+}
+
+function describeConfiguredModels(ctx: FactorySetupContext): string[] {
+  const configured = ctx.availableModels.filter((model) => model.provider);
+  if (configured.length === 0) {
+    return ["Configured Pi models found: none visible to Factory.", ""];
+  }
+
+  const byProvider = new Map<string, string[]>();
+  for (const model of configured) {
+    const provider = model.provider ?? "default";
+    const models = byProvider.get(provider) ?? [];
+    models.push(model.model);
+    byProvider.set(provider, models);
+  }
+
+  const providerLines = [...byProvider.entries()].slice(0, 4).map(([provider, models]) => {
+    const sample = models.slice(0, 3).join(", ");
+    const extra = models.length > 3 ? `, +${models.length - 3} more` : "";
+    return `${provider}: ${sample}${extra}`;
+  });
+
+  return [
+    `Configured Pi providers found: ${[...byProvider.keys()].slice(0, 4).join(", ")}${byProvider.size > 4 ? `, +${byProvider.size - 4} more` : ""}.`,
+    ...providerLines.map((line) => `  ${line}`),
+    "",
+  ];
+}
+
+function describeTaskRouting(ctx: FactorySetupContext, rec: FactorySetupRecommendation): string[] {
+  const taskTypes = rec.taskTypes?.length
+    ? rec.taskTypes
+    : Object.entries(ctx.effective?.taskTypes ?? {}).map(([id, definition]) => ({
+        id,
+        description: definition.description,
+        match: definition.match,
+        routing: definition.routing,
+        reason: "Already present in this project config.",
+        source: "DEFAULT" as const,
+        confidence: "MEDIUM" as const,
+      }));
+
+  if (taskTypes.length === 0) {
+    return [
+      "Task routing means: Factory can tag a run as a specific kind of work, then use any matching model or workflow rules for that kind.",
+      "How it matches: first an explicit run task type, then goal keywords, then changed-file path hints.",
+      "",
+      "Factory will treat work as general unless you choose a task type for a run.",
+      "What this affects: task type can choose different role models or workflows when configured.",
+      "Configured task types: none.",
+    ];
+  }
+
+  const lines = [
+    "Task routing means: Factory can tag a run as a specific kind of work, then use any matching model or workflow rules for that kind.",
+    "How it matches: first an explicit run task type, then goal keywords, then changed-file path hints.",
+    "",
+  ];
+
+  for (const taskType of taskTypes) {
+    const keywords = taskType.match?.keywords ?? [];
+    const paths = taskType.match?.paths ?? [];
+    const routes = Object.entries(taskType.routing ?? {})
+      .filter(([, route]) => Boolean(route?.model))
+      .map(([role, route]) => `${role} → ${route!.provider ? `${route!.provider}/` : ""}${route!.model}`);
+    lines.push(`• ${taskType.id}`);
+    lines.push(`  When it matches: ${[
+      keywords.length ? `goal contains ${keywords.map((k) => JSON.stringify(k)).join(", ")}` : "",
+      paths.length ? `changed files match ${paths.map((p) => JSON.stringify(p)).join(", ")}` : "",
+    ].filter(Boolean).join("; ") || "only when explicitly chosen for a run"}.`);
+    lines.push(`  What changes: ${routes.length ? routes.join(", ") : "no special model routing yet; it only labels the run for now"}.`);
+    if (taskType.reason) lines.push(`  Why keep it: ${taskType.reason}`);
+  }
+
+  return lines;
+}
+
+function describeSkills(ctx: FactorySetupContext, rec: FactorySetupRecommendation): string[] {
+  const selected = rec.skills?.ids ?? [];
+  const available = ctx.availableSkills.map((skill) => skill.id);
+  const personal = available.filter((id) => !isFactoryBuiltInSkill(id));
+  const lines = [
+    "Skills are reusable agent playbooks: a SKILL.md file plus optional scripts, references, and assets.",
+    "Factory will bring your own skills into its inventory before falling back to built-in Factory stage skills.",
+    "Where Factory looks globally: ~/.agents/skills, ~/.codex/skills, ~/.claude/skills, ~/.warp/skills, ~/.cursor/skills, ~/.gemini/skills, ~/.copilot/skills, ~/.github/skills, ~/.opencode/skills, ~/.factory/skills.",
+    "Where Factory looks in this repo: .agents/skills, .codex/skills, .claude/skills, .warp/skills, .cursor/skills, .gemini/skills, .copilot/skills, .github/skills, .opencode/skills, .factory/skills, .pi/skills, skills/.",
+    "Other agent guidance such as AGENTS.md, CLAUDE.md, and Cursor rules can stay as repo guidance; Customize can be used to decide what should become a Factory skill.",
+    "",
+    `Detected skills: ${available.length ? available.slice(0, 12).join(", ") : "none"}${available.length > 12 ? `, +${available.length - 12} more` : ""}.`,
+  ];
+
+  if (personal.length > 0) {
+    lines.push(`Your imported skill candidates: ${personal.slice(0, 8).join(", ")}${personal.length > 8 ? `, +${personal.length - 8} more` : ""}.`);
+  }
+
+  if (selected.length > 0) {
+    lines.push(`Recommended working set: ${selected.join(", ")}.`);
+    if (rec.skills?.reason) lines.push(`Why: ${rec.skills.reason}`);
+  } else {
+    lines.push("Recommended working set: use detected project/personal skills when their descriptions match the task; otherwise use Factory built-ins.");
+  }
+
+  return lines;
+}
+
+function isFactoryBuiltInSkill(id: string): boolean {
+  return [
+    "repo-interpretation",
+    "architecture-planning",
+    "implementation-task",
+    "acceptance-review",
+    "failure-triage",
+    "verification-repair",
+    "verification-planning",
+    "factory-setup",
+  ].includes(id);
+}
+
+function describeConstitution(ctx: FactorySetupContext, rec: FactorySetupRecommendation): string[] {
+  const action = rec.constitution === "GENERATE"
+    ? "Create"
+    : rec.constitution === "REFRESH"
+      ? "Refresh"
+      : "Keep";
+  const hasExisting = ctx.existing.constitutionExists;
+  const hasMetadata = ctx.repository.factory.hasConstitutionMetadata;
+  const actionMeaning = rec.constitution === "GENERATE"
+    ? "Factory will scan the repo and write a new CONSTITUTION.md."
+    : rec.constitution === "REFRESH"
+      ? "Factory will rescan the repo and update CONSTITUTION.md with current evidence."
+      : "Factory will leave the current CONSTITUTION.md in place during setup.";
+  const reason = rec.constitution === "KEEP"
+    ? hasExisting
+      ? "A CONSTITUTION.md already exists, so setup does not need to rewrite it."
+      : "No constitution change was requested during setup."
+    : hasMetadata
+      ? "Factory has prior scan metadata, so it can compare the current repo against the last scan."
+      : "Factory needs an initial evidence-backed repo guide before agents rely on it.";
+
+  return [
+    "The constitution is Factory's repo guide for agents. It records what this project actually uses: structure, commands, tests, services, data, security, deployment, and conventions.",
+    `Recommendation: ${action} the constitution.`,
+    actionMeaning,
+    `Current state: ${hasExisting ? "CONSTITUTION.md exists" : "no CONSTITUTION.md found"}; ${hasMetadata ? "Factory scan metadata exists" : "no Factory scan metadata found"}.`,
+    `Why: ${reason}`,
+    "Customize this if you want Factory to regenerate it now, refresh it from the latest repo facts, or keep the existing file unchanged.",
+  ];
 }

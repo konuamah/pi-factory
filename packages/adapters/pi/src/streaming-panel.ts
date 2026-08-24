@@ -15,6 +15,7 @@ export interface FactoryStreamingPanelController {
   setRole(value: string | undefined): void;
   setStatus(value: string): void;
   append(text: string): void;
+  appendStream(text: string): void;
   setLines(lines: string[]): void;
   setFooter(value: string | undefined): void;
   setKeyHandler(handler: ((data: string) => boolean | void) | undefined): void;
@@ -40,6 +41,7 @@ class FactoryStreamingPanelComponent {
   private cachedWidth?: number;
   private cachedLines?: string[];
   private keyHandler?: (data: string) => boolean | void;
+  private streamLineActive = false;
 
   readonly controller: FactoryStreamingPanelController;
 
@@ -64,11 +66,18 @@ class FactoryStreamingPanelComponent {
         if (this.state.lines.length > 200) {
           this.state.lines = this.state.lines.slice(-200);
         }
+        this.streamLineActive = false;
+        this.scrollOffset = 0;
+        this.invalidateAndRender();
+      },
+      appendStream: (text) => {
+        this.appendStreamText(text);
         this.scrollOffset = 0;
         this.invalidateAndRender();
       },
       setLines: (lines) => {
         this.state.lines = [...lines];
+        this.streamLineActive = false;
         this.scrollOffset = 0;
         this.invalidateAndRender();
       },
@@ -133,6 +142,33 @@ class FactoryStreamingPanelComponent {
   private invalidateAndRender(): void {
     this.invalidate();
     this.requestRender?.();
+  }
+
+  private appendStreamText(text: string): void {
+    if (!text) {
+      return;
+    }
+    if (!this.streamLineActive || this.state.lines.length === 0) {
+      this.state.lines.push("");
+      this.streamLineActive = true;
+    }
+
+    const parts = text.split(/\r?\n/);
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index]!;
+      this.state.lines[this.state.lines.length - 1] = `${this.state.lines[this.state.lines.length - 1] ?? ""}${part}`;
+      if (index < parts.length - 1) {
+        this.state.lines.push("");
+      }
+    }
+
+    if (this.state.lines.at(-1) === "") {
+      this.streamLineActive = false;
+      this.state.lines.pop();
+    }
+    if (this.state.lines.length > 200) {
+      this.state.lines = this.state.lines.slice(-200);
+    }
   }
 }
 

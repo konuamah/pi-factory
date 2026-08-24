@@ -156,7 +156,11 @@ async function readPackageCommands(root: string, manifests: string[]): Promise<R
   try {
     const raw = await fs.readFile(path.join(root, packageJsonPath), "utf8");
     const parsed = JSON.parse(raw) as { scripts?: Record<string, string> };
-    return parsed.scripts ?? {};
+    const scripts = parsed.scripts ?? {};
+    // Always infer install so discoveredCommands.setup sees npm/pnpm/yarn install even without explicit setup script
+    const pm = detectPackageManagers([packageJsonPath], [])[0] ?? "npm";
+    const install = pm === "pnpm" ? "pnpm install" : pm === "yarn" ? "yarn install" : "npm install";
+    return { ...scripts, __install: install };
   } catch {
     return {};
   }

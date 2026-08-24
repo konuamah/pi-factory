@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type {
   EffectiveFactoryConfig,
+  ModelSelection,
   WorkflowConfig,
   WorkflowDefinition,
   WorkflowStage,
@@ -106,7 +107,7 @@ function flattenWorkflows(workflows: WorkflowDefinition[]): string[] {
       if (stage.commands?.length) lines.push(`        commands: [${stage.commands.map((c) => `"${c.replace(/"/g, '\\"')}"`).join(", ")}]`);
       if (stage.requiresApproval !== undefined) lines.push(`        requiresApproval: ${stage.requiresApproval}`);
       if (stage.taskType) lines.push(`        taskType: ${stage.taskType}`);
-      if (stage.model) lines.push(`        model: ${stage.model.model}`);
+      if (stage.model) lines.push(`        model: ${JSON.stringify(stage.model)}`);
     }
   }
   return lines;
@@ -129,7 +130,7 @@ function parseSimpleWorkflowYaml(raw: string): WorkflowConfig {
   let currentWorkflow: WorkflowDefinition | undefined;
   let currentStage: WorkflowStage | undefined;
 
-  const parseValue = (value: string): string | boolean | string[] => {
+  const parseValue = (value: string): string | boolean | string[] | Record<string, unknown> => {
     const trimmedValue = value.trim();
     if (trimmedValue.startsWith("[") && trimmedValue.endsWith("]")) {
       return trimmedValue
@@ -137,6 +138,16 @@ function parseSimpleWorkflowYaml(raw: string): WorkflowConfig {
         .split(",")
         .map((part) => part.trim().replace(/^["']|["']$/g, "").replace(/\\"/g, "\""))
         .filter(Boolean);
+    }
+    if (trimmedValue.startsWith("{") && trimmedValue.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmedValue);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch {
+        // Fall through to treating the value as a plain string.
+      }
     }
     if (trimmedValue === "true") return true;
     if (trimmedValue === "false") return false;
@@ -229,7 +240,15 @@ function parseSimpleWorkflowYaml(raw: string): WorkflowConfig {
     }
 
     if (currentStage && indent === 8 && /^model:/.test(trimmed)) {
-      currentStage.model = { model: String(parseValue(trimmed.slice("model:".length))) };
+      const value = parseValue(trimmed.slice("model:".length));
+      if (value && typeof value === "object" && !Array.isArray(value) && typeof value.model === "string") {
+        currentStage.model = {
+          ...(typeof value.provider === "string" ? { provider: value.provider } : {}),
+          model: value.model,
+        } satisfies ModelSelection;
+      } else {
+        currentStage.model = { model: String(value) };
+      }
       continue;
     }
   }

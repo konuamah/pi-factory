@@ -296,13 +296,14 @@ function renderModelBlock(pi?: Awaited<ReturnType<typeof detectPiModelConfigurat
     return "";
   }
   const model = pi.defaultModel ? pi.defaultModel : "sonnet";
+  const provider = pi.defaultProvider ? `provider: ${pi.defaultProvider}, ` : "";
   return [
     "",
     "models:",
-    `  planner: { model: ${model} }`,
-    `  builder: { model: ${model} }`,
-    `  reviewer: { model: ${model} }`,
-    `  repair: { model: ${model} }`,
+    `  planner: { ${provider}model: ${model} }`,
+    `  builder: { ${provider}model: ${model} }`,
+    `  reviewer: { ${provider}model: ${model} }`,
+    `  repair: { ${provider}model: ${model} }`,
     "",
   ].join("\n");
 }

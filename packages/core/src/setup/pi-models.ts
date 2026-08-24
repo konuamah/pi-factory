@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { ModelSelection } from "@factory/schemas";
 
 export interface PiModelConfigurationStatus {
   agentDir: string;
@@ -8,9 +9,12 @@ export interface PiModelConfigurationStatus {
   projectSettingsPath: string;
   authPath: string;
   modelsPath: string;
+  modelsStorePath: string;
+  commandCodeModelsPath: string;
   defaultProvider?: string;
   defaultModel?: string;
   enabledModels: string[];
+  configuredModels: ModelSelection[];
   authProviders: string[];
   customProviderCount: number;
   customModelCount: number;
@@ -27,11 +31,15 @@ export async function detectPiModelConfiguration(
   const projectSettingsPath = path.join(cwd, ".pi", "settings.json");
   const authPath = path.join(agentDir, "auth.json");
   const modelsPath = path.join(agentDir, "models.json");
+  const modelsStorePath = path.join(agentDir, "models-store.json");
+  const commandCodeModelsPath = path.join(agentDir, "commandcode-models.json");
 
   const globalSettings = (await readJsonFile<Record<string, unknown>>(globalSettingsPath)) ?? {};
   const projectSettings = (await readJsonFile<Record<string, unknown>>(projectSettingsPath)) ?? {};
   const auth = (await readJsonFile<Record<string, unknown>>(authPath)) ?? {};
   const models = (await readJsonFile<Record<string, unknown>>(modelsPath)) ?? {};
+  const modelsStore = (await readJsonFile<Record<string, unknown>>(modelsStorePath)) ?? {};
+  const commandCodeModels = (await readJsonFile<Record<string, unknown>>(commandCodeModelsPath)) ?? {};
 
   const defaultProvider =
     readString(projectSettings.defaultProvider) ?? readString(globalSettings.defaultProvider);
@@ -53,6 +61,15 @@ export async function detectPiModelConfiguration(
     const modelsValue = provider.models;
     return count + (Array.isArray(modelsValue) ? modelsValue.length : 0);
   }, 0);
+  const configuredModels = collectConfiguredModels({
+    defaultProvider,
+    defaultModel,
+    enabledModels,
+    authProviders,
+    models,
+    modelsStore,
+    commandCodeModels,
+  });
 
   return {
     agentDir,
@@ -60,15 +77,76 @@ export async function detectPiModelConfiguration(
     projectSettingsPath,
     authPath,
     modelsPath,
+    modelsStorePath,
+    commandCodeModelsPath,
     defaultProvider,
     defaultModel,
     enabledModels,
+    configuredModels,
     authProviders,
     customProviderCount: customProviders.length,
     customModelCount,
-    hasModelSelection: Boolean((defaultProvider && defaultModel) || enabledModels.length > 0 || customModelCount > 0),
+    hasModelSelection: Boolean((defaultProvider && defaultModel) || enabledModels.length > 0 || customModelCount > 0 || configuredModels.length > 0),
     hasAuth: authProviders.length > 0,
   };
+}
+
+function collectConfiguredModels(input: {
+  defaultProvider?: string;
+  defaultModel?: string;
+  enabledModels: string[];
+  authProviders: string[];
+  models: Record<string, unknown>;
+  modelsStore: Record<string, unknown>;
+  commandCodeModels: Record<string, unknown>;
+}): ModelSelection[] {
+  const out: ModelSelection[] = [];
+  const seen = new Set<string>();
+  const add = (provider: string | undefined, model: unknown): void => {
+    if (typeof model !== "string" || !model.trim()) return;
+    const selection = { ...(provider ? { provider } : {}), model: model.trim() };
+    const key = `${selection.provider ?? ""}:${selection.model}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(selection);
+  };
+
+  add(input.defaultProvider, input.defaultModel);
+  for (const model of input.enabledModels) {
+    add(input.defaultProvider, model);
+  }
+
+  const storeProviders = asRecord(input.modelsStore);
+  for (const provider of input.authProviders) {
+    const providerRecord = asRecord(storeProviders?.[provider]);
+    const models = Array.isArray(providerRecord?.models) ? providerRecord.models : [];
+    for (const model of models) {
+      const id = asRecord(model)?.id;
+      add(provider, id);
+    }
+  }
+
+  if (input.authProviders.includes("commandcode")) {
+    const models = Array.isArray(input.commandCodeModels.models) ? input.commandCodeModels.models : [];
+    for (const model of models) {
+      const id = asRecord(model)?.id;
+      add("commandcode", id);
+    }
+  }
+
+  const customProviders = asRecord(input.models.providers);
+  if (customProviders) {
+    for (const [provider, providerConfig] of Object.entries(customProviders)) {
+      const providerRecord = asRecord(providerConfig);
+      const models = Array.isArray(providerRecord?.models) ? providerRecord.models : [];
+      for (const model of models) {
+        const id = asRecord(model)?.id;
+        add(provider, id);
+      }
+    }
+  }
+
+  return out;
 }
 
 async function readJsonFile<T>(filePath: string): Promise<T | undefined> {

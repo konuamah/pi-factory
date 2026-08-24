@@ -37,6 +37,7 @@ test('detectPiModelConfiguration finds global default provider/model and auth', 
     assert.equal(result.defaultProvider, 'anthropic');
     assert.equal(result.defaultModel, 'claude-sonnet-4-20250514');
     assert.deepEqual(result.authProviders, ['anthropic']);
+    assert.deepEqual(result.configuredModels[0], { provider: 'anthropic', model: 'claude-sonnet-4-20250514' });
   });
 });
 
@@ -81,6 +82,34 @@ test('detectPiModelConfiguration counts custom models from models.json', async (
     assert.equal(result.customModelCount, 2);
     assert.equal(result.hasModelSelection, true);
     assert.equal(result.hasAuth, false);
+    assert.deepEqual(result.configuredModels, [
+      { provider: 'ollama', model: 'llama3.1:8b' },
+      { provider: 'ollama', model: 'qwen2.5-coder:7b' },
+    ]);
+  });
+});
+
+test('detectPiModelConfiguration reads auth provider models from Pi model stores', async () => {
+  await withTempDirs(async ({ agentDir, projectDir }) => {
+    await fs.writeFile(
+      path.join(agentDir, 'auth.json'),
+      JSON.stringify({ 'openai-codex': { type: 'api_key' }, commandcode: { type: 'api_key' } }, null, 2),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(agentDir, 'models-store.json'),
+      JSON.stringify({ 'openai-codex': { models: [{ id: 'gpt-5.4-mini' }, { id: 'gpt-5.4' }] } }, null, 2),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(agentDir, 'commandcode-models.json'),
+      JSON.stringify({ models: [{ id: 'claude-sonnet-5' }] }, null, 2),
+      'utf8',
+    );
+
+    const result = await detectPiModelConfiguration(projectDir, { agentDir });
+    assert.ok(result.configuredModels.some((m) => m.provider === 'openai-codex' && m.model === 'gpt-5.4-mini'));
+    assert.ok(result.configuredModels.some((m) => m.provider === 'commandcode' && m.model === 'claude-sonnet-5'));
   });
 });
 

@@ -35,6 +35,7 @@ import {
   registerCapability,
   validateCapabilityDefinition,
   parseCapabilityFile,
+  judgeConstitutionRefreshForTask,
   planFactorySetup,
   applyFactorySetup,
   validateFactorySetup,
@@ -49,6 +50,7 @@ import { requestDecisionInput } from "./decision-dialog.js";
 import { promptFactorySetupChoices } from "./setup-wizard.js";
 import { mountFactoryStreamingWidget } from "./streaming-panel.js";
 import type { FactoryPiAutocompleteItem, FactoryPiCommandContext } from "./types.js";
+import type { ModelRole, ModelSelection, WorkflowNodeType, WorkflowStage } from "@factory/schemas";
 
 
 const execFileAsync = promisify(execFile);
@@ -221,7 +223,7 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
 
   // Step 2: built-in factory-setup skill -> LLM recommendation (fail-loud, no fallback)
   const { recommendViaFactorySetupSkill } = await import("@factory/core");
-  const executor = await createOptionalSetupExecutor(ctx, (text) => panel.append(text));
+  const executor = await createOptionalSetupExecutor(ctx, (text) => panel.appendStream(text));
   if (!executor) {
     const isDestructive = hasExistingSetup && !force;
     const msg = isDestructive
@@ -243,38 +245,38 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
   // Uses buildStewardSlides from @factory/core; falls back to simple choice when no interactive UI.
   const { buildStewardSlides } = await import("@factory/core");
   const slides = (buildStewardSlides as unknown as (c: unknown, r: unknown) => Array<{ id: string; title: string; simpleTitle: string; lines: string[]; kind: string }>)(setupContext, recommendation!);
-  // Slide 1 correction gate
-  const pu = (recommendation as { projectUnderstanding: { summary: string; highlights: string[] } }).projectUnderstanding;
-  renderLines(ctx, [pu.summary, "", ...pu.highlights.map((h) => `• ${h}`), "", "Does this look right?"]);
-  if (ctx.ui.select) {
-    const corr = await ctx.ui.select("Project understanding", ["Looks right", "Correct something"]);
-    if (!corr) { ctx.ui.notify("Factory setup cancelled", "info"); return; }
-    if (corr.startsWith("Correct")) {
-      const fixed = await ctx.ui.input?.("What should be corrected?", "e.g. This is not a monorepo, it's a docs site");
-      if (fixed?.trim()) (recommendation as unknown as Record<string, unknown>)["_correction"] = fixed.trim();
-    }
-  }
-  // Walk remaining slides; user must explicitly confirm each or jump to final
   let stewardCancelled = false;
   const answers: Record<string, string> = {};
-  for (const slide of slides.slice(1)) {
+  let slideIndex = 0;
+  while (slideIndex < slides.length) {
+    const slide = slides[slideIndex]!;
     renderLines(ctx, [slide.simpleTitle, `(${slide.title} — ${slide.kind})`, "", ...slide.lines]);
-    if (!ctx.ui.select) continue; // non-interactive: auto-accept recommendation
-    const opts = ["Use this", "Customize", "Show details"];
+    if (!ctx.ui.select) { slideIndex++; continue; } // non-interactive: auto-accept recommendation
+    const opts = stewardSlideOptions(slide.id, slideIndex);
     const choice = await ctx.ui.select(slide.title, opts);
-    if (!choice) { stewardCancelled = true; break; }
+    if (!choice || choice === "Cancel") { stewardCancelled = true; break; }
+    if (choice === "Back") {
+      slideIndex = Math.max(0, slideIndex - 1);
+      continue;
+    }
     if (choice === "Show details") {
       renderLines(ctx, ["Details — raw key:", `id: ${slide.id}`, ...slide.lines]);
-      const c2 = await ctx.ui.select(slide.title, ["Use this", "Customize"]);
-      if (!c2 || c2.startsWith("Customize")) {
+      const c2 = await ctx.ui.select(slide.title, stewardSlideDetailOptions(slide.id, slideIndex));
+      if (!c2 || c2 === "Cancel") { stewardCancelled = true; break; }
+      if (c2 === "Back") {
+        slideIndex = Math.max(0, slideIndex - 1);
+        continue;
+      }
+      if (isCustomizeChoice(c2)) {
         const edit = await ctx.ui.input?.(`Modify ${slide.title}`, slide.lines.join("\n").slice(0, 120));
         if (edit?.trim()) answers[`custom:${slide.id}`] = edit.trim();
       }
-    } else if (choice === "Customize") {
+    } else if (isCustomizeChoice(choice)) {
       const edit = await ctx.ui.input?.(`Modify ${slide.title}`, slide.lines.join("\n").slice(0, 120));
       if (edit?.trim()) answers[`custom:${slide.id}`] = edit.trim();
     }
-    // "Use this" keeps recommendation as-is
+    // "Next / Use this" keeps recommendation as-is.
+    slideIndex++;
   }
   if (stewardCancelled) { ctx.ui.notify("Factory setup cancelled", "info"); return; }
   // Surface dynamic questions (only where evidence ambiguous)
@@ -338,6 +340,33 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
   ]);
 
   ctx.ui.notify(`Factory setup complete — ${validation.readiness}`, isHealthy ? "info" : "warning");
+}
+
+function stewardSlideOptions(slideId: string, slideIndex: number): string[] {
+  return [
+    slideId === "understanding" ? "Looks right" : "Next / Use this",
+    ...(slideIndex > 0 ? ["Back"] : []),
+    ...(stewardSlideCanCustomize(slideId) ? [slideId === "understanding" ? "Correct something" : "Customize"] : []),
+    "Show details",
+    "Cancel",
+  ];
+}
+
+function stewardSlideDetailOptions(slideId: string, slideIndex: number): string[] {
+  return [
+    slideId === "understanding" ? "Looks right" : "Next / Use this",
+    ...(slideIndex > 0 ? ["Back"] : []),
+    ...(stewardSlideCanCustomize(slideId) ? [slideId === "understanding" ? "Correct something" : "Customize"] : []),
+    "Cancel",
+  ];
+}
+
+function stewardSlideCanCustomize(slideId: string): boolean {
+  return slideId !== "finalReview";
+}
+
+function isCustomizeChoice(choice: string): boolean {
+  return choice === "Customize" || choice === "Correct something";
 }
 
 function renderSetupSummary(
@@ -956,7 +985,7 @@ async function handleConstitution(_args: string[], ctx: FactoryPiCommandContext)
     panel.setRole(executionId.includes("planner") ? "planner" : "constitution-interpreter");
     panel.setStatus("streaming");
     if (event.text) {
-      panel.append(event.text);
+      panel.appendStream(event.text);
     }
   });
   const result = await runConstitutionScan({
@@ -1336,25 +1365,51 @@ async function handleWorkflowCreate(ctx: FactoryPiCommandContext, registry: Awai
   const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "workflow";
   const description = (await ctx.ui.input("Factory workflow description", "Optional short description")) ?? undefined;
 
-  const stageNames: string[] = [];
-  let nextName: string | undefined;
-  do {
-    nextName = await ctx.ui.input("Add workflow node", "Node name, or blank to finish");
-    if (nextName?.trim()) {
-      stageNames.push(nextName.trim().toLowerCase().replace(/\s+/g, "-"));
-    }
-  } while (nextName?.trim());
+  let stages: WorkflowStage[];
+  let setAsDefault = false;
 
-  if (stageNames.length === 0) {
+  if (ctx.ui.select) {
+    renderLines(ctx, [
+      "Factory workflow create",
+      "Scanning Pi providers before workflow design...",
+      "You can keep role defaults, or set a model on individual agent nodes.",
+    ]);
+    const pi = await detectPiModelConfiguration(ctx.cwd).catch(() => undefined);
+    const modelOptions = workflowModelOptions(pi);
+    const providerCount = new Set(modelOptions.map((model) => model.provider).filter(Boolean)).size;
+    renderLines(ctx, [
+      "Factory workflow create",
+      `Pi providers found: ${providerCount || "none"}`,
+      `Models found: ${modelOptions.length || "none"}`,
+      pi?.defaultProvider && pi.defaultModel ? `Pi default: ${pi.defaultProvider}/${pi.defaultModel}` : "Pi default: not configured",
+      "",
+      "Next, add workflow nodes. Advanced model overrides are optional per agent node.",
+    ]);
+
+    stages = await collectWorkflowStages(ctx, modelOptions);
+    const defaultChoice = await ctx.ui.select("Use this workflow as the Factory default?", ["No", "Yes"]);
+    setAsDefault = defaultChoice === "Yes";
+  } else {
+    const stageNames: string[] = [];
+    let nextName: string | undefined;
+    do {
+      nextName = await ctx.ui.input("Add workflow node", "Node name, or blank to finish");
+      if (nextName?.trim()) {
+        stageNames.push(slugifyWorkflowPart(nextName.trim()));
+      }
+    } while (nextName?.trim());
+
+    stages = stageNames.map((stageName, index) => ({
+      name: stageName,
+      dependsOn: index > 0 ? [stageNames[index - 1]!] : [],
+      type: index === stageNames.length - 1 ? ("approval" as const) : ("agent" as const),
+    }));
+  }
+
+  if (stages.length === 0) {
     ctx.ui.notify("Workflow needs at least one node", "error");
     return;
   }
-
-  const stages = stageNames.map((stageName, index) => ({
-    name: stageName,
-    dependsOn: index > 0 ? [stageNames[index - 1]!] : [],
-    type: index === stageNames.length - 1 ? ("approval" as const) : ("agent" as const),
-  }));
 
   registry.workflows.push({
     id,
@@ -1362,9 +1417,166 @@ async function handleWorkflowCreate(ctx: FactoryPiCommandContext, registry: Awai
     description: description?.trim() || undefined,
     stages,
   });
+  if (setAsDefault) {
+    registry.defaultWorkflowId = id;
+  }
   await writeWorkflowRegistry(ctx.cwd, registry);
-  renderLines(ctx, ["Factory workflow created", `id: ${id}`, `name: ${name.trim()}`, `nodes: ${stages.length}`]);
+  renderLines(ctx, [
+    "Factory workflow created",
+    `id: ${id}`,
+    `name: ${name.trim()}`,
+    `default: ${setAsDefault ? "yes" : "no"}`,
+    `nodes: ${stages.length}`,
+    "",
+    ...stages.map((stage) => {
+      const role = stage.role ? ` role=${stage.role}` : "";
+      const model = stage.model ? ` model=${formatModelSelection(stage.model)}` : "";
+      const commands = stage.commands?.length ? ` commands=${stage.commands.join(", ")}` : "";
+      const depends = stage.dependsOn?.length ? ` after=${stage.dependsOn.join(", ")}` : "";
+      return `- ${stage.name} [${stage.type ?? "agent"}]${role}${model}${commands}${depends}`;
+    }),
+  ]);
   ctx.ui.notify(`Workflow ${name.trim()} created`, "info");
+}
+
+async function collectWorkflowStages(
+  ctx: FactoryPiCommandContext,
+  modelOptions: ModelSelection[],
+): Promise<WorkflowStage[]> {
+  const stages: WorkflowStage[] = [];
+
+  while (true) {
+    const addChoice = await ctx.ui.select?.(
+      stages.length === 0 ? "Add the first workflow node?" : "Add another workflow node?",
+      stages.length === 0 ? ["Add node", "Cancel"] : ["Add node", "Finish workflow"],
+    );
+    if (addChoice !== "Add node") break;
+
+    const rawName = await ctx.ui.input?.("Workflow node name", "e.g. plan, build, verify, approval");
+    const name = slugifyWorkflowPart(rawName ?? "");
+    if (!name) {
+      ctx.ui.notify("Node name is required", "warning");
+      continue;
+    }
+
+    const typeChoice = await ctx.ui.select?.("Node type", [
+      "Agent — Factory asks a model to reason or do work",
+      "Command — Factory runs project commands",
+      "Approval — Factory asks a human before continuing",
+      "Task graph — Factory expands this node into sub-tasks",
+    ]);
+    const type = workflowNodeTypeFromChoice(typeChoice);
+    const previous = stages.at(-1)?.name;
+    const stage: WorkflowStage = {
+      name,
+      type,
+      dependsOn: previous ? [previous] : [],
+    };
+
+    if (type === "agent") {
+      const roleChoice = await ctx.ui.select?.("Agent role", [
+        "builder — implementation work",
+        "planner — planning and repo reasoning",
+        "reviewer — review and risk spotting",
+        "repair — fix failed checks",
+        "No role override",
+      ]);
+      const role = workflowRoleFromChoice(roleChoice);
+      if (role) stage.role = role;
+
+      const model = await selectWorkflowStageModel(ctx, modelOptions);
+      if (model) stage.model = model;
+    }
+
+    if (type === "command") {
+      const rawCommands = await ctx.ui.input?.("Commands for this node", "comma-separated, e.g. lint, typecheck, test");
+      const commands = splitWorkflowCommands(rawCommands ?? "");
+      if (commands.length > 0) {
+        stage.commands = commands;
+      }
+    }
+
+    if (type === "approval") {
+      stage.requiresApproval = true;
+    }
+
+    stages.push(stage);
+  }
+
+  return stages;
+}
+
+async function selectWorkflowStageModel(
+  ctx: FactoryPiCommandContext,
+  modelOptions: ModelSelection[],
+): Promise<ModelSelection | undefined> {
+  const choiceOptions = [
+    "Use workflow role default",
+    ...(modelOptions.length > 0 ? modelOptions.map((model) => `Choose ${formatModelSelection(model)}`) : []),
+    "Enter provider/model manually",
+    "No stage model override",
+  ];
+  const choice = await ctx.ui.select?.("Model for this agent node", choiceOptions);
+
+  if (!choice || choice === "Use workflow role default" || choice === "No stage model override") {
+    return undefined;
+  }
+
+  if (choice === "Enter provider/model manually") {
+    const provider = (await ctx.ui.input?.("Model provider", "e.g. openai-codex, anthropic, openai"))?.trim();
+    const model = (await ctx.ui.input?.("Model name", "e.g. gpt-5, claude-sonnet-4-20250514"))?.trim();
+    return model ? { ...(provider ? { provider } : {}), model } : undefined;
+  }
+
+  const label = choice.replace(/^Choose\s+/, "");
+  return modelOptions.find((model) => formatModelSelection(model) === label);
+}
+
+function workflowModelOptions(pi: Awaited<ReturnType<typeof detectPiModelConfiguration>> | undefined): ModelSelection[] {
+  const models: ModelSelection[] = [];
+  const seen = new Set<string>();
+  const add = (model?: ModelSelection): void => {
+    if (!model?.model) return;
+    const key = `${model.provider ?? ""}/${model.model}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    models.push(model);
+  };
+
+  if (pi?.defaultProvider && pi.defaultModel) {
+    add({ provider: pi.defaultProvider, model: pi.defaultModel });
+  }
+  for (const model of pi?.configuredModels ?? []) {
+    add(model);
+  }
+  return models;
+}
+
+function formatModelSelection(model: ModelSelection): string {
+  return model.provider ? `${model.provider}/${model.model}` : model.model;
+}
+
+function slugifyWorkflowPart(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function workflowNodeTypeFromChoice(choice: string | undefined): WorkflowNodeType {
+  if (choice?.startsWith("Command")) return "command";
+  if (choice?.startsWith("Approval")) return "approval";
+  if (choice?.startsWith("Task graph")) return "task-graph";
+  return "agent";
+}
+
+function workflowRoleFromChoice(choice: string | undefined): ModelRole | undefined {
+  if (choice?.startsWith("planner")) return "planner";
+  if (choice?.startsWith("reviewer")) return "reviewer";
+  if (choice?.startsWith("repair")) return "repair";
+  if (choice?.startsWith("builder")) return "builder";
+  return undefined;
+}
+
+function splitWorkflowCommands(value: string): string[] {
+  return value.split(",").map((command) => command.trim()).filter(Boolean);
 }
 
 async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext): Promise<void> {
@@ -1414,10 +1626,10 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
   const panel = mountFactoryStreamingWidget(ctx.ui, FACTORY_WIDGET_ID, {
     title: "Factory run",
     goal: trimmedGoal,
-    phase: "constitution-refresh",
-    role: "constitution-interpreter",
+    phase: "constitution-preflight",
+    role: "constitution-preflight",
     status: "starting",
-    lines: ["Starting constitution refresh..."],
+    lines: ["Checking whether repository memory needs a refresh..."],
     footer: "Live Factory stream. Use arrow keys to scroll.",
   });
 
@@ -1428,28 +1640,59 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     refresh: { mode: string; changedFiles: string[] };
   };
 
-  panel.setPhase("constitution-refresh");
+  panel.setPhase("constitution-preflight");
   panel.setStatus("running");
-  panel.append("Scanning repository facts...");
+  panel.append("Asking the model whether this task needs a constitution scan...");
 
   const constitutionExecutor = await createRequiredConstitutionExecutor((executionId, event) => {
-    panel.setRole(executionId.includes("planner") ? "planner" : "constitution-interpreter");
+    panel.setRole(executionId.includes("preflight") ? "constitution-preflight" : executionId.includes("planner") ? "planner" : "constitution-interpreter");
     panel.setStatus("streaming");
     if (event.text) {
-      panel.append(event.text);
+      panel.appendStream(event.text);
     }
   });
 
-  const constitutionResult = await runConstitutionScan({
+  const constitutionPreflight = await judgeConstitutionRefreshForTask({
     cwd: ctx.cwd,
-    constitutionExecutor,
+    goal: trimmedGoal,
+    executor: constitutionExecutor,
   });
+  panel.append("Checking what changed...");
+  panel.append(`Found ${constitutionPreflight.changedFiles.length} changed file(s).`);
+  panel.append(`Impacted constitution areas: ${constitutionPreflight.impactedAreaIds.join(", ") || "none"}.`);
+  panel.append(`Existing constitution: ${constitutionPreflight.finalizedConstitution ? "finalized and reusable" : "not finalized yet"}.`);
+  panel.append(`Model judgment: ${constitutionPreflight.decision}`);
+  panel.append(`Why: ${constitutionPreflight.reason}`);
 
-  panel.setStatus("completed");
-  panel.append("Constitution refresh completed.");
-  panel.append(`Constitution strategy: ${constitutionResult.refreshStrategy}`);
-  panel.append(`Changed files: ${constitutionResult.refresh.changedFiles.length}`);
-  constitutionSummary = constitutionResult;
+  if (constitutionPreflight.decision === "skip") {
+    panel.setStatus("completed");
+    panel.append("Next: reuse existing constitution and go straight to planning.");
+    constitutionSummary = {
+      mode: "preflight",
+      finalized: constitutionPreflight.finalizedConstitution,
+      refreshStrategy: "skipped-by-preflight",
+      refresh: { mode: "FAST", changedFiles: constitutionPreflight.changedFiles },
+    };
+  } else {
+    panel.setPhase("constitution-refresh");
+    panel.setRole("constitution-interpreter");
+    panel.setStatus("running");
+    panel.append(
+      constitutionPreflight.decision === "targeted"
+        ? `Next: refresh only impacted areas (${constitutionPreflight.impactedAreaIds.join(", ") || "none"}).`
+        : "Next: run a full constitution refresh because broader repo context may matter.",
+    );
+    const constitutionResult = await runConstitutionScan({
+      cwd: ctx.cwd,
+      constitutionExecutor,
+    });
+    panel.setStatus("completed");
+    panel.append("Constitution refresh completed.");
+    panel.append(`Constitution strategy: ${constitutionResult.refreshStrategy}`);
+    panel.append(`Changed files: ${constitutionResult.refresh.changedFiles.length}`);
+    panel.append(`Reused areas: ${constitutionResult.refresh.reusedAreaIds?.length ?? 0}`);
+    constitutionSummary = constitutionResult;
+  }
   panel.setPhase("planning");
   panel.setRole(effectiveExecutorMode && effectiveExecutorMode !== "off" ? "planner" : undefined);
   panel.setStatus("starting");
@@ -1469,7 +1712,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
       panel.setRole("reviewer");
     }
     if (event.text) {
-      panel.append(event.text);
+      panel.appendStream(event.text);
     }
   }, ctx);
 
@@ -2186,4 +2429,3 @@ async function resolveExecutorMode(
 
   return undefined;
 }
-

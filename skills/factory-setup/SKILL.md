@@ -34,24 +34,23 @@ You must produce a `FactorySetupRecommendation` — advice, not configuration. T
 
 ```ts
 interface FactorySetupRecommendation {
-  summary: string;                         // 1-2 sentence simple-English summary for the TUI header
-  workflow?: { value: WorkflowRecommendation; reason: string };
+  projectUnderstanding: { summary: string; highlights: string[] }; // simple-English repo mental model — always required
+  summary: string;
+  workflow?: { value: WorkflowRecommendation /* preset {kind:"preset",preset} | custom {kind:"custom",workflow} */; reason: string };
   models?: Partial<Record<ModelRole, { value: ModelSelection; reason: string }>>;
-  commands?: {
-    setup?: Recommendation<string>;
-    lint?: Recommendation<string>;
-    typecheck?: Recommendation<string>;
-    test?: Recommendation<string>;
-    build?: Recommendation<string>;
-  };
+  commands?: { setup?: Recommendation<string>; lint?: Recommendation<string>; typecheck?: Recommendation<string>; test?: Recommendation<string>; build?: Recommendation<string>; };
   runtime?: { maxParallelAgents?: Recommendation<number> };
   repair?: { enabled?: Recommendation<boolean>; maxAttempts?: Recommendation<number> };
   approval?: { finalMerge?: Recommendation<"required" | "not-required"> };
+  git?: { baseBranch?: Recommendation<string>; allowWorktrees?: Recommendation<boolean>; /*...cleanup*/ };
   capabilities?: { allow?: Capability[]; deny?: Capability[] };
   taskTypes?: TaskTypeRecommendation[];
-  constitution: "GENERATE" | "REFRESH" | "KEEP";
-  explanation: string[];                   // why this setup matches the repo (1-4 bullets)
-  questions: SetupQuestion[];              // only ask where authority or preference truly needed
+  skills?: { ids: string[]; reason: string };
+  dashboard?: { enabled?: Recommendation<boolean>; /*port,host,autoOpen*/ };
+  whyNot?: Array<{ area: string; reason: string; howToEnable?: string }>; // honestly skipped areas
+  constitution: "GENERATE" | "REFRESH" | "KEEP"; // GENERATE when missing, REFRESH when metadata exists
+  explanation: string[];
+  questions: SetupQuestion[]; // {kind: "fact"|"recommendation"|"preference"} — only where repo cannot answer
 }
 ```
 
@@ -71,17 +70,31 @@ interface Recommendation<T> {
 
 ## Rules
 
-1. **Only real knobs.** You may recommend only: role models, `maxParallelAgents`, `baseBranch`, `setup/lint/typecheck/test/build` commands, worktree behavior (`allowWorktrees`, `worktreeDir`, `cleanup`), `repair` attempts, `finalMerge` approval, capability `allow/deny`, `taskTypes`/`routing`, and workflow presets (`balanced` | `fast` | `safe` for v1). Never invent a config key.
+1. **Only real knobs.** You may recommend only: role models, `maxParallelAgents`, `baseBranch`, `setup/lint/typecheck/test/build` commands, worktree behavior (`allowWorktrees`, `worktreeDir`, `cleanup`), `repair` attempts, `finalMerge` approval, capability `allow/deny`, `taskTypes`/`routing`, **skills/dashboard**, `whyNot`, and workflow **presets or custom DAGs**. Never invent a config key.
 2. **Models/capabilities/skills/commands allowlisted.** If a model/capability/skill/command ID is not in the supplied lists, you must not recommend it silently — use `AI_SUGGESTED` + `requiresConfirmation`.
 3. **Commands:** Prefer `DISCOVERED` commands. Silently placing an invented command into final config is forbidden. Example:
    - `discoveredCommands.test = "pnpm test"` → `{ value: "pnpm test", source: "DISCOVERED", requiresConfirmation: false }`
    - Wanting `"pnpm test:integration"` not discovered → `{ value: "pnpm test:integration", source: "AI_SUGGESTED", requiresConfirmation: true }`
 4. **Provenance aware.** Respect precedence `builtIn < global < project < workflow < run`. If `existing.project` already defines `repair.maxAttempts = 2`, say `Source: Project configuration — Recommendation: Keep current setting` rather than overriding. Show `effective` only for explanation.
-5. **Workflows (v1).** Choose one preset: `balanced` (default, `plan→build→verify→approval→merge`), `fast` (`plan→build→approval→merge`), `safe` (verification-first). Do not emit custom DAG stages yet.
+5. **Workflows.** You may return a preset **or** a custom DAG using the real primitives below. Prefer custom when the repo justifies it.
+
+   Presets: `balanced` (`plan→build→verify→approval→merge`), `fast` (`plan→build→approval→merge`), `safe` (verification-first).
+
+   Custom DAG (use when repo has DB migrations / integration tests / CI etc.):
+   ```ts
+   WorkflowDefinition: { id, name, description?, stages: WorkflowStage[], capabilityPolicy? }
+   WorkflowStage: { name, dependsOn?: string[], type?: "agent"|"command"|"approval"|"task-graph", role?: ModelRole, commands?: string[], requiresApproval?: boolean, requiredCapabilities?: Capability[] }
+   Roles: planner|builder|reviewer|repair — keep DAG acyclic, 2–7 stages, dependsOn →DAG.
+   ```
+   Good: simple docs `plan → build → verify`; mature app `plan → implementation → verification → review → approval`; **DB repo (recommended)** `plan → build → migration-check → integration-verify → review → approval — Why: Database changes can affect application code and deployment, so verify before review.` Return as `"workflow": {"value": {"kind": "custom", "workflow": {...}, "reason": "..."}, "reason": "..."}` or `"kind": "preset", "preset": "balanced"`.
 6. **Constitution.** Emit only `GENERATE` | `REFRESH` | `KEEP`. Never author `CONSTITUTION.md` prose — that is the fact pipeline's job. `GENERATE` when missing, `REFRESH` when metadata exists, `KEEP` when user chose to keep.
 7. **Explain.** Keep `summary` and `explanation` in simple English, referencing evidence (e.g. "You use pnpm + Vitest + Git, so Balanced fits").
 8. **Minimal questions.** Ask at most where decision is required (e.g. constitution generation). Do not force the user through every section.
-9. **Validation.** Your output will be strictly validated. Any value outside the allowlists or with an invented key will be rejected before the deterministic writer runs.
+9. **Simple English is a product rule.** Translate internals: `finalMerge=required` → "Ask before merging?", `maxParallelAgents` → "How many AI workers may work at once?", `retainRuns` → "How many completed run workspaces should Factory keep?", `allowWorktrees` isolated, `maxAttempts`. Show why and why-not; `Show details` reveals raw keys.
+
+10. **Project understanding first.** Begin every recommendation by explaining the repo in simple English (monorepo/packages, API, DB, tests, CI, Docker, factory state) — the steward reviews this slide first and may correct it.
+
+11. **Validation.** Your output will be strictly validated. Any value outside the allowlists or with an invented key will be rejected before the deterministic writer runs.
 
 ## Example simple-English rendering (for context, not to output as prose)
 

@@ -44,8 +44,10 @@ export async function buildFactorySetupContext(cwd: string): Promise<FactorySetu
   // Available skills — builtin registry + project skills
   const availableSkills = await collectAvailableSkills(gitRoot);
 
+  // profile.commands.install may be __install (inferred npm install etc.) when no explicit setup script
+  const inferredInstall = (profile.commands as Record<string, string | undefined>).__install ?? profile.commands.install;
   const discoveredCommands: FactorySetupContext["discoveredCommands"] = {
-    setup: profile.commands.install,
+    setup: inferredInstall,
     lint: profile.commands.lint,
     typecheck: profile.commands.typecheck,
     test: profile.commands.test,
@@ -84,12 +86,17 @@ function collectAvailableModels(pi: Awaited<ReturnType<typeof detectPiModelConfi
     models.push(m);
   };
 
-  // Built-ins always available
-  for (const role of ["planner", "builder", "reviewer", "repair"] as const) {
-    add(builtInDefaults.models[role]);
-  }
+  // User's actual Pi default (commandcode/Spark etc.) first — not opus/sonnet.
+  // This ensures setup uses the same LLM you are chatting with.
   if (pi?.defaultProvider && pi?.defaultModel) {
     add({ provider: pi.defaultProvider, model: pi.defaultModel });
+  }
+  for (const model of pi?.configuredModels ?? []) {
+    add(model);
+  }
+  // Keep built-ins last; configured Pi models should be preferred.
+  for (const role of ["planner", "builder", "reviewer", "repair"] as const) {
+    add(builtInDefaults.models[role]);
   }
 
   return models;
@@ -106,8 +113,8 @@ async function collectAvailableSkills(gitRoot: string): Promise<SkillSummary[]> 
     summaries.push({ id });
   }
 
-  // Project-discovered skills
-  for (const root of [path.join(gitRoot, ".pi", "skills"), path.join(gitRoot, ".agents", "skills"), path.join(gitRoot, "skills", "factory-setup")]) {
+  // Bring-your-own skills from common agent locations.
+  for (const root of skillSearchRoots(gitRoot)) {
     const files = await discoverSkillFiles(root).catch(() => []);
     for (const file of files) {
       const parsed = await parseSkillFile(file);
@@ -127,6 +134,38 @@ async function collectAvailableSkills(gitRoot: string): Promise<SkillSummary[]> 
   }
 
   return summaries.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function skillSearchRoots(gitRoot: string): string[] {
+  const home = os.homedir();
+  return [
+    path.join(home, ".agents", "skills"),
+    path.join(home, ".codex", "skills"),
+    path.join(home, ".claude", "skills"),
+    path.join(home, ".warp", "skills"),
+    path.join(home, ".cursor", "skills"),
+    path.join(home, ".gemini", "skills"),
+    path.join(home, ".gemini", "config", "skills"),
+    path.join(home, ".copilot", "skills"),
+    path.join(home, ".github", "skills"),
+    path.join(home, ".opencode", "skills"),
+    path.join(home, ".factory", "skills"),
+    path.join(gitRoot, ".agents", "skills"),
+    path.join(gitRoot, ".codex", "skills"),
+    path.join(gitRoot, ".claude", "skills"),
+    path.join(gitRoot, ".warp", "skills"),
+    path.join(gitRoot, ".cursor", "skills"),
+    path.join(gitRoot, ".gemini", "skills"),
+    path.join(gitRoot, ".gemini", "config", "skills"),
+    path.join(gitRoot, ".copilot", "skills"),
+    path.join(gitRoot, ".github", "skills"),
+    path.join(gitRoot, ".opencode", "skills"),
+    path.join(gitRoot, ".factory", "skills"),
+    path.join(gitRoot, ".pi", "skills"),
+    path.join(gitRoot, "github", "skills"),
+    path.join(gitRoot, "copilot", "skills"),
+    path.join(gitRoot, "skills"),
+  ];
 }
 
 async function readRawIfExists(filePath: string): Promise<string | undefined> {

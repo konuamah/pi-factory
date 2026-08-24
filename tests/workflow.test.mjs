@@ -60,7 +60,7 @@ test('workflow registry round-trips through factory.yaml', async () => {
           description: 'Extra reviews for risky changes',
           stages: [
             { name: 'plan', type: 'agent', role: 'planner' },
-            { name: 'architecture-review', type: 'agent', role: 'reviewer', dependsOn: ['plan'] },
+            { name: 'architecture-review', type: 'agent', role: 'reviewer', model: { provider: 'openai-codex', model: 'gpt-5' }, dependsOn: ['plan'] },
             { name: 'implementation', type: 'agent', role: 'builder', dependsOn: ['plan'] },
             { name: 'tests', type: 'command', commands: ['node -e ""'], dependsOn: ['implementation'] },
             { name: 'security-review', type: 'agent', role: 'reviewer', dependsOn: ['implementation'] },
@@ -78,6 +78,7 @@ test('workflow registry round-trips through factory.yaml', async () => {
     assert.ok(highRisk);
     assert.equal(highRisk.stages.length, 6);
     assert.deepEqual(highRisk.stages.find((stage) => stage.name === 'tests')?.commands, ['node -e ""']);
+    assert.deepEqual(highRisk.stages.find((stage) => stage.name === 'architecture-review')?.model, { provider: 'openai-codex', model: 'gpt-5' });
     assert.equal(highRisk.stages.find((stage) => stage.name === 'security-review')?.dependsOn?.join(','), 'implementation');
   } finally {
     await fs.rm(root, { recursive: true, force: true });

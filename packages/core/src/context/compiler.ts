@@ -198,16 +198,23 @@ function renderInstructions(
 }
 
 async function selectRelevantFiles(input: ContextCompileRequest): Promise<ContextFile[]> {
-  const files: ContextFile[] = [];
+  const files = new Map<string, ContextFile>();
   for (const hint of [...(input.task?.context?.fileHints ?? []), ...(input.fileHints ?? [])]) {
-    files.push({ path: hint, reason: "Declared file hint for this task/role.", relevance: 0.8 });
+    addContextFile(files, { path: hint, reason: "Declared file hint for this task/role.", relevance: 0.8 });
   }
   for (const dep of input.dependencyTasks ?? []) {
     for (const hint of dep.context?.fileHints ?? []) {
-      files.push({ path: hint, reason: `File hint from dependency task ${dep.id}.`, relevance: 0.6 });
+      addContextFile(files, { path: hint, reason: `File hint from dependency task ${dep.id}.`, relevance: 0.6 });
     }
   }
-  return files;
+  return [...files.values()];
+}
+
+function addContextFile(files: Map<string, ContextFile>, file: ContextFile): void {
+  const existing = files.get(file.path);
+  if (!existing || file.relevance > existing.relevance) {
+    files.set(file.path, file);
+  }
 }
 
 function fitBudget(sections: string[], maxChars: number): string[] {

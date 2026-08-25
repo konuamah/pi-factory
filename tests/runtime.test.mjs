@@ -170,9 +170,17 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(reviewerPrompt, /acceptance-review@1\.0\.0/);
     assert.match(reviewerPrompt, /Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly\./);
     const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
-    const plan = await readJson(path.join(root, '.factory', 'runs', runs.at(-1), 'plan.json'));
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const plan = await readJson(path.join(runDir, 'plan.json'));
     const buildTask = plan.tasks.find((task) => task.stage === 'build');
     assert.deepEqual(buildTask.context.fileHints, ['src/index.ts']);
+    const eventsRaw = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    const contextEvent = eventsRaw
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+      .find((event) => event.type === 'task.context_compiled' && event.data.role === 'builder');
+    assert.deepEqual(contextEvent.data.files, ['src/index.ts']);
   });
 });
 

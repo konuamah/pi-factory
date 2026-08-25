@@ -63,26 +63,14 @@ function makeExecutor(label, calls) {
         executionId: input.executionId,
         status: 'completed',
         outputText: actualLabel === 'discovery'
-          ? [
-              'Discovery Report',
-              '### Goal',
-              '- Confirmed: add a demo feature.',
-              '### Current State',
-              '- Confirmed: repository contains src/index.ts.',
-              '### Relevant Components',
-              '- Confirmed: src/index.ts is relevant entry file evidence.',
-              '### Requirements & Constraints',
-              '- Confirmed: keep scope limited.',
-              '### Dependencies & Risks',
-              '- Inferred: implementation may need focused verification.',
-              '### Unknowns / Questions',
-              '- Unknown: exact final edit until planning.',
-              '### Scope',
-              '- Confirmed: repo-local change only.',
-              '### Key Findings',
-              '- Confirmed: src/index.ts exists.',
-              'DISCOVERY_COMPLETE',
-            ].join('\n')
+          ? JSON.stringify({
+              status: 'complete',
+              files: ['src/index.ts'],
+              evidence: [
+                { status: 'confirmed', file: 'src/index.ts', finding: 'src/index.ts exists and is the demo implementation surface.' },
+              ],
+              unknowns: [],
+            }, null, 2)
           : actualLabel === 'planner'
           ? ['Feature Plan', '- Update the target document for clarity', '- Keep scope limited to the requested file', 'WAITING_FOR_APPROVAL'].join('\n')
           : `${actualLabel} completed`,
@@ -146,8 +134,9 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(discoveryPrompt, /Role: Discovery/);
     assert.match(discoveryPrompt, /You are in Discovery only/);
     assert.match(discoveryPrompt, /Do not:\n- implement anything\n- modify files\n- write code\n- create an implementation plan/);
-    assert.match(discoveryPrompt, /Produce a concise Discovery Report/);
-    assert.match(discoveryPrompt, /DISCOVERY_COMPLETE/);
+    assert.match(discoveryPrompt, /Return JSON only/);
+    assert.match(discoveryPrompt, /"status": "complete"/);
+    assert.match(discoveryPrompt, /DISCOVERY_FAILED/);
     const builderPrompt = calls.find((call) => call.label === 'builder')?.prompt ?? '';
     const reviewerPrompt = calls.find((call) => call.label === 'reviewer')?.prompt ?? '';
 
@@ -155,16 +144,17 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(plannerPrompt, /Selected skills:/);
     assert.match(plannerPrompt, /repo-interpretation@1\.0\.0/);
     assert.match(plannerPrompt, /architecture-planning@1\.0\.0/);
-    assert.match(plannerPrompt, /Discovery Report \(authoritative pre-planning evidence\):/);
+    assert.match(plannerPrompt, /Validated Discovery result \(authoritative pre-planning evidence\):/);
     assert.match(plannerPrompt, /src\/index\.ts/);
     assert.match(plannerPrompt, /execution contract for the Builder/);
     assert.match(plannerPrompt, /Do not perform broad repository discovery here/);
+    assert.match(plannerPrompt, /Do not ask Builder to find, locate, search for, or identify implementation files/);
     assert.match(plannerPrompt, /PLANNING DECISIONS/);
     assert.match(plannerPrompt, /IMPLEMENTATION SEQUENCE/);
     assert.match(plannerPrompt, /VERIFICATION CONTRACT/);
     assert.match(plannerPrompt, /RISKS AND BLOCKERS/);
     assert.match(plannerPrompt, /Name the confirmed files, components, data sources, commands, or config surfaces/);
-    assert.match(plannerPrompt, /make the first step a narrow evidence check/);
+    assert.match(plannerPrompt, /Do not make the first step a broad search/);
     assert.match(plannerPrompt, /Do not broaden scope beyond the requested outcome\./);
     assert.match(builderPrompt, /Selected skills:/);
     assert.match(builderPrompt, /implementation-task@1\.0\.0/);
@@ -201,7 +191,7 @@ test('invalid discovery output fails loudly before planning', async () => {
         requestPlanApproval: async () => ({ decision: 'approve' }),
         requestApproval: async () => true,
       }),
-      /Discovery failed: Discovery did not finish with DISCOVERY_COMPLETE/,
+      /Discovery failed: Discovery returned invalid structured JSON/,
     );
 
     assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
@@ -211,6 +201,169 @@ test('invalid discovery output fails loudly before planning', async () => {
     const state = await readJson(path.join(runDir, 'state.json'));
     assert.equal(state.status, 'FAILED');
     assert.equal(state.phase, 'discovery-failed');
+  });
+});
+
+test('directory-only discovery fails loudly before planning', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: JSON.stringify({
+            status: 'complete',
+            files: ['src/'],
+            evidence: [
+              { status: 'confirmed', file: 'src/', finding: 'Courses are somewhere under src/.' },
+            ],
+            unknowns: ['Exact file is unknown.'],
+          }),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Remove outdated upcoming course',
+        discoveryExecutor,
+        plannerExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Discovery failed: Discovery did not identify any concrete implementation file/,
+    );
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
+  });
+});
+
+test('discovery with no confirmed evidence fails loudly before planning', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: JSON.stringify({
+            status: 'complete',
+            files: ['src/index.ts'],
+            evidence: [
+              { status: 'inferred', file: 'src/index.ts', finding: 'Might be relevant.' },
+            ],
+            unknowns: [],
+          }),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Add a demo feature',
+        discoveryExecutor,
+        plannerExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Discovery failed: Discovery did not provide confirmed evidence tied to a concrete file/,
+    );
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
+  });
+});
+
+test('explicit discovery failure stops before planning', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: 'DISCOVERY_FAILED: Could not identify the implementation surface.',
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Add a demo feature',
+        discoveryExecutor,
+        plannerExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Discovery failed: Could not identify the implementation surface\./,
+    );
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
+  });
+});
+
+test('planner cannot delegate broad discovery to builder', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = makeExecutor('discovery', calls);
+    const plannerExecutor = {
+      async execute(input) {
+        calls.push({ label: 'planner', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: [
+            '1. PLANNING DECISIONS',
+            '- Use the frontend.',
+            '2. IMPLEMENTATION SEQUENCE',
+            '- Step 1: Search for the upcoming courses and identify the relevant file.',
+            '3. VERIFICATION CONTRACT',
+            '- Run lint.',
+            '4. RISKS AND BLOCKERS',
+            '- None.',
+            'WAITING_FOR_APPROVAL',
+          ].join('\n'),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Remove outdated upcoming course',
+        discoveryExecutor,
+        plannerExecutor,
+        builderExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Planning failed: Planner delegated broad discovery to Builder/,
+    );
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'builder').length, 0);
   });
 });
 

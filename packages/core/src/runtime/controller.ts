@@ -341,7 +341,7 @@ export async function runFactoryController(
       });
       throw new Error(`Discovery failed: ${discoveryValidation.reason}`);
     }
-    discoveryOutputText = sanitizeDiscoveryOutput(discoveryResult.outputText);
+    discoveryOutputText = JSON.stringify(discoveryValidation.discovery, null, 2);
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
       type: "discovery.executor_completed",
@@ -385,6 +385,22 @@ export async function runFactoryController(
     });
     plannerOutputText = sanitizePlannerOutput(plannerResult.outputText);
     plannerExecutionPath = await writePrototypePlannerExecutionArtifact(run.runDir, plannerResult);
+    const plannerValidation = validatePlannerOutput(plannerOutputText);
+    if (!plannerValidation.ok) {
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "planning.invalid_output",
+        data: {
+          plannerExecutionPath,
+          reason: plannerValidation.reason,
+        },
+      });
+      await updateFactoryRunState({
+        statePath: run.statePath,
+        patch: { status: "FAILED", phase: "planning-failed" },
+      });
+      throw new Error(`Planning failed: ${plannerValidation.reason}`);
+    }
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
       type: "planning.executor_completed",
@@ -2236,44 +2252,92 @@ function sanitizePlannerOutput(value: string | undefined): string | undefined {
   return trimmed.replace(/\bWAITING_FOR_APPROVAL\b\s*$/m, "").trim() || undefined;
 }
 
-function sanitizeDiscoveryOutput(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  return trimmed.replace(/\bDISCOVERY_COMPLETE\b\s*$/m, "").trim() || undefined;
-}
-
-function validateDiscoveryOutput(value: string | undefined): { ok: true } | { ok: false; reason: string } {
-  const text = value?.trim() ?? "";
+function validatePlannerOutput(value: string | undefined): { ok: true } | { ok: false; reason: string } {
+  const text = value?.toLowerCase() ?? "";
   if (!text) {
-    return { ok: false, reason: "Discovery returned no output" };
+    return { ok: true };
   }
-  if (!/\bDISCOVERY_COMPLETE\b/.test(text)) {
-    return { ok: false, reason: "Discovery did not finish with DISCOVERY_COMPLETE" };
-  }
-  const requiredSections = [
-    "Goal",
-    "Current State",
-    "Relevant Components",
-    "Requirements & Constraints",
-    "Dependencies & Risks",
-    "Unknowns / Questions",
-    "Scope",
-    "Key Findings",
+  const broadDiscoveryLanguage = [
+    "search for",
+    "find where",
+    "locate the",
+    "identify the relevant file",
+    "identify the exact file",
+    "find the files",
+    "bounded evidence check",
   ];
-  const missing = requiredSections.filter((section) => !new RegExp(`^#{1,3}\\s+${escapeRegExp(section)}\\b`, "im").test(text));
-  if (missing.length > 0) {
-    return { ok: false, reason: `Discovery report missing required section(s): ${missing.join(", ")}` };
-  }
-  if (!/\b(Confirmed|Inferred|Unknown)\b/.test(text)) {
-    return { ok: false, reason: "Discovery report did not classify findings as Confirmed, Inferred, or Unknown" };
+  const match = broadDiscoveryLanguage.find((term) => text.includes(term));
+  if (match) {
+    return { ok: false, reason: `Planner delegated broad discovery to Builder: "${match}"` };
   }
   return { ok: true };
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+interface DiscoveryContract {
+  status: "complete" | "failed";
+  files?: string[];
+  evidence?: Array<{ status: "confirmed" | "inferred" | "unknown"; file?: string; finding: string }>;
+  unknowns?: string[];
+  reason?: string;
+}
+
+function validateDiscoveryOutput(value: string | undefined): { ok: true; discovery: DiscoveryContract } | { ok: false; reason: string } {
+  const text = value?.trim() ?? "";
+  if (!text) {
+    return { ok: false, reason: "Discovery returned no output" };
+  }
+  if (/^DISCOVERY_FAILED:/i.test(text)) {
+    return { ok: false, reason: text.replace(/^DISCOVERY_FAILED:\s*/i, "").trim() || "Discovery failed" };
+  }
+
+  const parsed = parseDiscoveryJson(text);
+  if (!parsed) {
+    return { ok: false, reason: "Discovery returned invalid structured JSON" };
+  }
+  if (parsed.status === "failed") {
+    return { ok: false, reason: parsed.reason?.trim() || "Discovery failed" };
+  }
+  if (parsed.status !== "complete") {
+    return { ok: false, reason: "Discovery status must be complete or failed" };
+  }
+
+  const files = Array.isArray(parsed.files) ? parsed.files : [];
+  if (!files.some(isConcreteFile)) {
+    return { ok: false, reason: "Discovery did not identify any concrete implementation file" };
+  }
+
+  const evidence = Array.isArray(parsed.evidence) ? parsed.evidence : [];
+  if (!evidence.some((item) => item?.status === "confirmed" && isConcreteFile(item.file) && item.finding?.trim())) {
+    return { ok: false, reason: "Discovery did not provide confirmed evidence tied to a concrete file" };
+  }
+
+  return { ok: true, discovery: parsed };
+}
+
+function parseDiscoveryJson(text: string): DiscoveryContract | undefined {
+  const stripped = text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(stripped) as DiscoveryContract;
+    if (parsed && typeof parsed === "object") {
+      return parsed;
+    }
+  } catch {}
+  return undefined;
+}
+
+function isConcreteFile(value: string | undefined): boolean {
+  if (!value) return false;
+  const filePath = value.trim().replace(/`/g, "");
+  if (!filePath || filePath.endsWith("/")) return false;
+  if (/^(src|components|frontend|backend|course files)$/i.test(filePath)) return false;
+  if (/^(AGENTS|README|CONSTITUTION)\.md$/i.test(filePath)) return false;
+  if (filePath.includes("node_modules/")) return false;
+  if (filePath.includes("/AGENTS.md") || filePath.includes("/README.md") || filePath.includes("/CONSTITUTION.md")) return false;
+  return /(^|\/)(package\.json|factory\.yaml|\.factory\/config\.yaml)$/.test(filePath)
+    || /\.[A-Za-z0-9]+$/.test(filePath);
 }
 
 function buildDiscoveryPrompt(
@@ -2284,9 +2348,8 @@ function buildDiscoveryPrompt(
   return [
     "Role: Discovery",
     "",
-    "Your job is to understand the task and the relevant existing system well enough for a separate Planning phase to make sound implementation decisions.",
-    "",
-    "You are in Discovery only.",
+    "Your job is to identify the concrete repository files/components/data/config surfaces needed for a separate Planning phase.",
+    "You are in Discovery only. Use only read-only repository tools.",
     "",
     "Do not:",
     "- implement anything",
@@ -2294,72 +2357,34 @@ function buildDiscoveryPrompt(
     "- write code",
     "- create an implementation plan",
     "- recommend a solution prematurely",
+    "- return likely candidates, possible sources, or searches for Builder to run",
+    "- stop after a preamble",
     "",
-    "## Objective",
-    "",
-    "Determine:",
-    "- what the user wants to achieve",
-    "- how the relevant system currently works",
-    "- which components are involved",
-    "- existing patterns and architecture",
-    "- requirements and constraints",
-    "- dependencies and risks",
-    "- unknowns",
-    "- task scope",
+    "Objective:",
+    "- Find the concrete files involved.",
+    "- Return evidence from those files.",
+    "- Capture only unknowns that remain after read-only inspection.",
     "",
     `User task: ${goal}`,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "",
-    "## Discovery Process",
+    "Return JSON only, with this exact shape:",
+    "{",
+    "  \"status\": \"complete\",",
+    "  \"files\": [\"src/path/to/file.ts\"],",
+    "  \"evidence\": [",
+    "    { \"status\": \"confirmed\", \"file\": \"src/path/to/file.ts\", \"finding\": \"What this file proves\" }",
+    "  ],",
+    "  \"unknowns\": []",
+    "}",
     "",
-    "### 1. Understand the Goal",
-    "Identify the desired outcome, problem, explicit requirements, reasonable implicit requirements, and acceptance criteria.",
-    "Do not invent unclear requirements.",
+    "A concrete file is a real file path like src/data/courses.ts, src/components/UpcomingCourses.tsx, package.json, factory.yaml, or .factory/config.yaml.",
+    "A directory such as src/, components/, frontend/, backend/, or course files is not a concrete file.",
+    "Evidence must include at least one confirmed item tied to a concrete file.",
     "",
-    "### 2. Investigate the Current System",
-    "Inspect relevant code, files, configuration, schemas, APIs, tests, and documentation.",
-    "Trace the actual behavior where possible:",
-    "Entry point -> components -> data/services -> result",
-    "Identify relevant existing functionality and patterns.",
-    "",
-    "### 3. Identify Constraints and Risks",
-    "Look for architecture and framework constraints, APIs and data models, security and permissions, backwards compatibility, external dependencies, performance concerns, existing conventions, and material implementation risks.",
-    "",
-    "### 4. Identify Unknowns",
-    "For important unknowns, state what is unknown, why it matters, and whether it blocks Planning.",
-    "Ask the user only when the answer cannot be found from available evidence and is necessary for Planning.",
-    "",
-    "### 5. Define Scope",
-    "Identify In scope, Out of scope, and Potentially affected areas.",
-    "Do not expand scope without evidence.",
-    "",
-    "## Evidence",
-    "Classify important findings as Confirmed, Inferred, or Unknown.",
-    "Reference specific files, functions, components, schemas, tests, or configuration when useful.",
-    "",
-    "## Required Output",
-    "Do not narrate what you are about to do.",
-    "Do not stop after a preamble.",
-    "Return only the Discovery Report.",
-    "Produce a concise Discovery Report with exactly these sections:",
-    "### Goal",
-    "### Current State",
-    "### Relevant Components",
-    "### Requirements & Constraints",
-    "### Dependencies & Risks",
-    "### Unknowns / Questions",
-    "### Scope",
-    "### Key Findings",
-    "",
-    "## Rules",
-    "- Base conclusions on evidence.",
-    "- Do not invent requirements.",
-    "- Clearly separate facts, inferences, and unknowns.",
-    "- Do not modify or implement anything.",
-    "- Do not turn Discovery into an implementation plan.",
-    "- Investigate only as far as needed for Planning; do not explore unrelated areas.",
-    "- End with exactly: DISCOVERY_COMPLETE",
+    "If you cannot identify a concrete implementation surface after using the available read-only tools, return exactly:",
+    "DISCOVERY_FAILED: Could not identify the implementation surface.",
   ].filter(Boolean).join("\n");
 }
 
@@ -2372,7 +2397,7 @@ function buildPlannerPrompt(
 ): string {
   return [
     "You are an expert Principal Software Architect and Lead Project Planner.",
-    "Your job is to turn the Discovery Report and project guidance into a clear execution contract for the Builder.",
+    "Your job is to turn the validated Discovery result and project guidance into a clear execution contract for the Builder.",
     `Task: ${goal}`,
     "Do not write implementation code.",
     "Do not perform broad repository discovery here; Discovery already gathered the evidence.",
@@ -2383,9 +2408,13 @@ function buildPlannerPrompt(
     `Repair attempts: ${config.repair.maxAttempts}`,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
-    discoveryReport ? `Discovery Report (authoritative pre-planning evidence):\n${discoveryReport}` : undefined,
+    discoveryReport ? `Validated Discovery result (authoritative pre-planning evidence):\n${discoveryReport}` : undefined,
     "",
-    "Use the Discovery Report as the primary source of repository facts. If it is missing a fact needed for safe implementation, add a bounded pre-implementation verification step for the Builder instead of inventing the fact.",
+    "Discovery has already inspected the repository.",
+    "Use the supplied Discovery evidence as your repository context.",
+    "Do not ask Builder to find, locate, search for, or identify implementation files.",
+    "Create the implementation sequence using the concrete files already identified.",
+    "A narrow inspection of an identified file is allowed when needed before editing.",
     "",
     "Produce the plan with exactly these sections:",
     "",
@@ -2399,7 +2428,8 @@ function buildPlannerPrompt(
     "- Break the work into small, sequential, and testable steps labeled Step 1, Step 2, etc.",
     "- Ensure each step builds logically on the previous one.",
     "- For each step, say exactly what kind of file/component/config change the Builder should make.",
-    "- If a necessary fact is missing, make the first step a narrow evidence check with concrete targets and acceptance criteria.",
+    "- Do not make the first step a broad search, location, or file-identification step.",
+    "- A narrow read/inspection step is allowed only for concrete files named by Discovery.",
     "",
     "3. VERIFICATION CONTRACT",
     "- List the exact checks, commands, or manual assertions that should prove the change works.",
@@ -2414,7 +2444,8 @@ function buildPlannerPrompt(
     "Constraints:",
     "- Be specific. Avoid vague phrases like 'likely touchpoints' when Discovery provided concrete evidence.",
     "- For content/UI tasks, name the discovered files/components/data sources that should change.",
-    "- Do not claim a file, route, dependency, command, or framework exists unless it is supported by the Discovery Report or project guidance context.",
+    "- Do not claim a file, route, dependency, command, or framework exists unless it is supported by the Discovery result or project guidance context.",
+    "- Do not delegate broad discovery to Builder with phrases like 'search for', 'find where', 'locate the', or 'identify the relevant file'.",
     "- Do not broaden scope beyond the requested outcome.",
     "- Do not propose unrelated documentation rewrites or adjacent cleanup unless clearly required.",
     "- Do not repeat the prompt, Discovery Report, or project guidance context.",

@@ -233,7 +233,10 @@ function createBuiltinTools(sdk: PiSdkModule, cwd: string, names: string[]): Arr
   return names
     .map((name) => byName.get(name))
     .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool))
-    .map((tool) => ({ name: tool.name, execute: tool.execute }));
+    .map((tool) => ({
+      name: tool.name,
+      execute: async (args: unknown) => await tool.execute(`factory-${tool.name}-${Date.now()}`, args),
+    }));
 }
 
 function findMissingTools(requested: string[], created: Array<{ name: string }>): string[] {
@@ -273,8 +276,8 @@ interface PiSdkModule {
   SessionManager: {
     inMemory(cwd?: string): unknown;
   };
-  createReadOnlyTools?(cwd?: string): Array<{ name: string; execute: (args: unknown) => Promise<unknown> }>;
-  createCodingTools?(cwd?: string): Array<{ name: string; execute: (args: unknown) => Promise<unknown> }>;
+  createReadOnlyTools?(cwd?: string): Array<{ name: string; execute: (toolCallId: string, args: unknown, signal?: AbortSignal, onUpdate?: unknown, ctx?: unknown) => Promise<unknown> }>;
+  createCodingTools?(cwd?: string): Array<{ name: string; execute: (toolCallId: string, args: unknown, signal?: AbortSignal, onUpdate?: unknown, ctx?: unknown) => Promise<unknown> }>;
   ModelRuntime?: {
     create(): Promise<{
       getModel?: (provider: string, model: string) => unknown;

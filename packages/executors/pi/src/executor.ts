@@ -265,7 +265,7 @@ interface DsmlToolCall {
 
 function parseDsmlToolCalls(text: string): DsmlToolCall[] {
   const calls: DsmlToolCall[] = [];
-  const invokePattern = /<｜｜DSML｜｜invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/｜｜DSML｜｜invoke>/g;
+  const invokePattern = /<｜{1,2}DSML｜{1,2}invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/｜{1,2}DSML｜{1,2}invoke>/g;
   for (const match of text.matchAll(invokePattern)) {
     const name = match[1]?.trim();
     const body = match[2] ?? "";
@@ -283,7 +283,7 @@ function parseDsmlToolCalls(text: string): DsmlToolCall[] {
 
 function parseDsmlParameters(body: string): Record<string, unknown> {
   const args: Record<string, unknown> = {};
-  const parameterPattern = /<｜｜DSML｜｜parameter\s+name="([^"]+)"(?:\s+[^>]*)?>([\s\S]*?)<\/｜｜DSML｜｜parameter>/g;
+  const parameterPattern = /<｜{1,2}DSML｜{1,2}parameter\s+name="([^"]+)"(?:\s+[^>]*)?>([\s\S]*?)<\/｜{1,2}DSML｜{1,2}parameter>/g;
   for (const match of body.matchAll(parameterPattern)) {
     const name = match[1]?.trim();
     if (!name) {

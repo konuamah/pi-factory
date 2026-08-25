@@ -95,6 +95,98 @@ test('requested tools are resolved to Pi SDK tool objects', async () => {
   assert.equal(typeof receivedOptions.tools[0].execute, 'function');
 });
 
+test('Pi SDK tools are invoked with toolCallId and params', async () => {
+  const invocations = [];
+  let receivedOptions;
+  const sdkFactory = createPiSdkSessionFactory({
+    sdkLoader: async () => ({
+      SessionManager: {
+        inMemory(cwd) {
+          return { cwd };
+        },
+      },
+      createReadOnlyTools() {
+        return [];
+      },
+      createCodingTools() {
+        return [
+          {
+            name: 'bash',
+            execute: async (toolCallId, params) => {
+              invocations.push({ toolCallId, params });
+              return { stdout: 'ok' };
+            },
+          },
+        ];
+      },
+      async createAgentSession(options) {
+        receivedOptions = options;
+        return { session: makeSdkSession() };
+      },
+    }),
+  });
+
+  const executor = new PiAgentExecutor({ sessionFactory: sdkFactory });
+  await executor.execute({
+    executionId: 'exec-sdk-tool-shape',
+    cwd: process.cwd(),
+    prompt: 'build',
+    tools: ['bash'],
+  });
+
+  const result = await receivedOptions.tools[0].execute({ command: 'pwd' });
+  assert.deepEqual(result, { stdout: 'ok' });
+  assert.equal(invocations.length, 1);
+  assert.match(invocations[0].toolCallId, /^factory-bash-/);
+  assert.deepEqual(invocations[0].params, { command: 'pwd' });
+});
+
+test('DSML parser accepts single-pipe delimiter variants', async () => {
+  const prompts = [];
+  const toolCalls = [];
+  const session = {
+    listener: undefined,
+    async prompt(text) {
+      prompts.push(text);
+      if (prompts.length === 1) {
+        this.listener?.({
+          type: 'message_update',
+          text: '<｜DSML｜｜tool_calls><｜DSML｜｜invoke name="shell_execute"><｜DSML｜｜parameter name="command" string="true">pwd</｜DSML｜｜parameter></｜DSML｜｜invoke></｜DSML｜｜tool_calls>',
+        });
+        return;
+      }
+      this.listener?.({ type: 'message_update', text: 'done' });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async executeTool(name, args) {
+      toolCalls.push({ name, args });
+      return { stdout: '/tmp/demo\n', exitCode: 0 };
+    },
+    async abort() {},
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: {
+      async create() {
+        return { session };
+      },
+    },
+  });
+
+  const result = await executor.execute({
+    executionId: 'exec-dsml-variant',
+    cwd: process.cwd(),
+    prompt: 'build',
+    tools: ['bash'],
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(toolCalls, [{ name: 'bash', args: { command: 'pwd' } }]);
+});
+
 test('missing requested SDK tools fail loudly', async () => {
   const sdkFactory = createPiSdkSessionFactory({
     sdkLoader: async () => ({

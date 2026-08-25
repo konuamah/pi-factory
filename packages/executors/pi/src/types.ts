@@ -13,6 +13,7 @@ export interface PiSessionLike {
   prompt(text: string): Promise<void>;
   subscribe(listener: (event: PiSessionEvent) => void): () => void;
   abort(): Promise<void>;
+  executeTool?(name: string, args: unknown): Promise<unknown>;
   dispose?(): Promise<void> | void;
 }
 

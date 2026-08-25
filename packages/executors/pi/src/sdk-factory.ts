@@ -32,6 +32,7 @@ export function createPiSdkSessionFactory(
       const diagnostics: PiSessionFactoryResult["diagnostics"] = [];
 
       const tools = input.tools && input.tools.length > 0 ? input.tools : undefined;
+      let executableTools: Array<{ name: string; execute: (args: unknown) => Promise<unknown> }> | undefined;
       if (tools) {
         const createdTools = (options.createTools ?? createBuiltinTools)(sdk, input.cwd, tools);
         const missingTools = findMissingTools(tools, createdTools);
@@ -47,6 +48,7 @@ export function createPiSdkSessionFactory(
         } else {
           createOptions.tools = createdTools;
         }
+        executableTools = createOptions.tools as Array<{ name: string; execute: (args: unknown) => Promise<unknown> }>;
       }
 
       // If caller supplies a model, respect it strictly; otherwise let Pi use
@@ -84,14 +86,18 @@ export function createPiSdkSessionFactory(
 
       const created = await sdk.createAgentSession(createOptions);
       return {
-        session: wrapPiSdkSession(created.session),
+        session: wrapPiSdkSession(created.session, executableTools),
         diagnostics,
       };
     },
   };
 }
 
-function wrapPiSdkSession(session: PiSdkAgentSession): PiSessionLike {
+function wrapPiSdkSession(
+  session: PiSdkAgentSession,
+  tools?: Array<{ name: string; execute: (args: unknown) => Promise<unknown> }>,
+): PiSessionLike {
+  const toolMap = new Map((tools ?? []).map((tool) => [tool.name, tool]));
   return {
     prompt(text: string) {
       return session.prompt(text);
@@ -103,6 +109,13 @@ function wrapPiSdkSession(session: PiSdkAgentSession): PiSessionLike {
     },
     abort() {
       return session.abort();
+    },
+    async executeTool(name: string, args: unknown) {
+      const tool = toolMap.get(name);
+      if (!tool) {
+        throw new Error(`Pi SDK tool '${name}' is not available to this session.`);
+      }
+      return await tool.execute(args);
     },
     dispose() {
       return session.dispose();

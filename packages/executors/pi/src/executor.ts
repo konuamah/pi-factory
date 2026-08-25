@@ -50,25 +50,17 @@ export class PiAgentExecutor implements AgentExecutor {
 
     try {
       await created.session.prompt(input.prompt);
-      const outputText = state.outputChunks.join("");
-      const unexecutedToolMarkup = detectUnexecutedToolMarkup(outputText);
-      if (unexecutedToolMarkup) {
-        const errorMessage = "Pi executor received tool-call markup as assistant text; no tool was executed. Use native Pi tool calls instead of DSML markup.";
-        state.events.push({
-          type: "executor.unexecuted_tool_markup",
-          data: {
-            reason: errorMessage,
-            marker: unexecutedToolMarkup,
-          },
-        });
+      const bridged = await this.bridgeDsmlToolMarkup(input.executionId, created.session, state);
+      if (!bridged.ok) {
         return {
           executionId: input.executionId,
           status: "failed",
-          outputText,
+          outputText: state.outputChunks.join(""),
           events: state.events,
-          errorMessage,
+          errorMessage: bridged.errorMessage,
         };
       }
+      const outputText = state.outputChunks.join("");
       return {
         executionId: input.executionId,
         status: "completed",
@@ -190,15 +182,154 @@ export class PiAgentExecutor implements AgentExecutor {
       });
     }
   }
+
+  private async bridgeDsmlToolMarkup(
+    executionId: string,
+    session: PiSessionLike,
+    state: PiExecutorState,
+  ): Promise<{ ok: true } | { ok: false; errorMessage: string }> {
+    let processedLength = 0;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const outputText = state.outputChunks.join("");
+      const nextText = outputText.slice(processedLength);
+      const calls = parseDsmlToolCalls(nextText);
+      processedLength = outputText.length;
+      if (calls.length === 0) {
+        return { ok: true };
+      }
+      if (!session.executeTool) {
+        const errorMessage = "Pi executor received tool-call markup as assistant text; no executable tool bridge is available.";
+        state.events.push({
+          type: "executor.unexecuted_tool_markup",
+          data: { reason: errorMessage, marker: calls[0]?.raw.slice(0, 80) },
+        });
+        return { ok: false, errorMessage };
+      }
+
+      const results: Array<{ tool: string; args: unknown; result?: unknown; error?: string }> = [];
+      for (const call of calls) {
+        const toolName = normalizeDsmlToolName(call.name);
+        state.events.push({
+          type: "executor.dsml_tool_started",
+          data: {
+            executionId,
+            toolName,
+            originalToolName: call.name,
+            args: call.args as Record<string, unknown>,
+          },
+        });
+        try {
+          const result = await session.executeTool(toolName, call.args);
+          results.push({ tool: toolName, args: call.args, result });
+          state.events.push({
+            type: "executor.dsml_tool_completed",
+            data: {
+              executionId,
+              toolName,
+              originalToolName: call.name,
+              result: summarizeToolResult(result),
+            },
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          results.push({ tool: toolName, args: call.args, error: message });
+          state.events.push({
+            type: "executor.dsml_tool_failed",
+            data: {
+              executionId,
+              toolName,
+              originalToolName: call.name,
+              error: message,
+            },
+          });
+        }
+      }
+
+      await session.prompt(buildDsmlToolResultPrompt(results));
+    }
+
+    const errorMessage = "Pi executor stopped after too many DSML tool-call bridge rounds.";
+    state.events.push({
+      type: "executor.dsml_tool_bridge_limit",
+      data: { reason: errorMessage },
+    });
+    return { ok: false, errorMessage };
+  }
 }
 
-function detectUnexecutedToolMarkup(outputText: string): string | undefined {
-  const markers = [
-    "<｜｜DSML｜｜tool_calls>",
-    "<｜｜DSML｜｜invoke",
-    "</｜｜DSML｜｜tool_calls>",
-  ];
-  return markers.find((marker) => outputText.includes(marker));
+interface DsmlToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  raw: string;
+}
+
+function parseDsmlToolCalls(text: string): DsmlToolCall[] {
+  const calls: DsmlToolCall[] = [];
+  const invokePattern = /<｜｜DSML｜｜invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/｜｜DSML｜｜invoke>/g;
+  for (const match of text.matchAll(invokePattern)) {
+    const name = match[1]?.trim();
+    const body = match[2] ?? "";
+    if (!name) {
+      continue;
+    }
+    calls.push({
+      name,
+      args: parseDsmlParameters(body),
+      raw: match[0],
+    });
+  }
+  return calls;
+}
+
+function parseDsmlParameters(body: string): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  const parameterPattern = /<｜｜DSML｜｜parameter\s+name="([^"]+)"(?:\s+[^>]*)?>([\s\S]*?)<\/｜｜DSML｜｜parameter>/g;
+  for (const match of body.matchAll(parameterPattern)) {
+    const name = match[1]?.trim();
+    if (!name) {
+      continue;
+    }
+    args[name] = decodeDsmlText(match[2] ?? "");
+  }
+  return args;
+}
+
+function decodeDsmlText(value: string): string {
+  return value
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .trim();
+}
+
+function normalizeDsmlToolName(name: string): string {
+  switch (name) {
+    case "shell.execute":
+    case "shell_execute":
+    case "bash.execute":
+    case "bash_execute":
+      return "bash";
+    default:
+      return name;
+  }
+}
+
+function buildDsmlToolResultPrompt(results: Array<{ tool: string; args: unknown; result?: unknown; error?: string }>): string {
+  return [
+    "Factory executed the tool call(s) you emitted as DSML text.",
+    "Use the results below to continue. Use native Pi tools for any further tool calls; do not print DSML/XML/tool-call markup as text.",
+    JSON.stringify(results, null, 2),
+  ].join("\n\n");
+}
+
+function summarizeToolResult(result: unknown): Record<string, unknown> {
+  const text = typeof result === "string" ? result : JSON.stringify(result) ?? String(result);
+  return {
+    preview: text.slice(0, 1000),
+    truncated: text.length > 1000,
+  };
 }
 
 function extractToolName(event: PiSessionEvent): string | undefined {

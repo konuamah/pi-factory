@@ -163,6 +163,73 @@ test('DSML tool markup returned as text fails instead of pretending tools execut
   assert.equal(result.events.some((event) => event.type === 'executor.unexecuted_tool_markup'), true);
 });
 
+test('DSML tool markup is bridged through executable session tools', async () => {
+  const prompts = [];
+  const toolCalls = [];
+  const session = {
+    listener: undefined,
+    async prompt(text) {
+      prompts.push(text);
+      if (prompts.length === 1) {
+        this.listener?.({
+          type: 'message_update',
+          text: [
+            'I need to inspect files.',
+            '<｜｜DSML｜｜tool_calls>',
+            '<｜｜DSML｜｜invoke name="shell.execute">',
+            '<｜｜DSML｜｜parameter name="command" string="true">pwd</｜｜DSML｜｜parameter>',
+            '<｜｜DSML｜｜parameter name="description" string="true">Show cwd</｜｜DSML｜｜parameter>',
+            '</｜｜DSML｜｜invoke>',
+            '</｜｜DSML｜｜tool_calls>',
+          ].join('\n'),
+        });
+        return;
+      }
+      this.listener?.({
+        type: 'message_update',
+        text: 'I used the tool result and finished.',
+      });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async executeTool(name, args) {
+      toolCalls.push({ name, args });
+      return { stdout: '/tmp/demo\n', exitCode: 0 };
+    },
+    async abort() {},
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: {
+      async create() {
+        return { session };
+      },
+    },
+  });
+
+  const result = await executor.execute({
+    executionId: 'exec-dsml-bridge',
+    cwd: process.cwd(),
+    prompt: 'build',
+    tools: ['bash'],
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(prompts.length, 2);
+  assert.deepEqual(toolCalls, [
+    {
+      name: 'bash',
+      args: {
+        command: 'pwd',
+        description: 'Show cwd',
+      },
+    },
+  ]);
+  assert.equal(result.events.some((event) => event.type === 'executor.dsml_tool_completed'), true);
+});
+
 test('configured model without provider throws a loud provider resolution error', async () => {
   const sdkFactory = createPiSdkSessionFactory({
     sdkLoader: async () => ({

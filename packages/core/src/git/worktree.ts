@@ -253,12 +253,39 @@ async function findWorktreeByBranch(
       const worktreePath = worktreeLine?.slice("worktree ".length).trim();
       const branch = branchLine?.slice("branch refs/heads/".length).trim();
       if (worktreePath && branch === branchName) {
+        if (!await isUsableWorktreePath(worktreePath)) {
+          await pruneStaleWorktrees(gitRoot);
+          continue;
+        }
         return { path: worktreePath, branch };
       }
     }
     return undefined;
   } catch {
     return undefined;
+  }
+}
+
+async function isUsableWorktreePath(worktreePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(worktreePath);
+    if (!stat.isDirectory()) {
+      return false;
+    }
+    return await exists(path.join(worktreePath, ".git"));
+  } catch {
+    return false;
+  }
+}
+
+async function pruneStaleWorktrees(gitRoot: string): Promise<void> {
+  try {
+    await execFileAsync("git", ["worktree", "prune"], {
+      cwd: gitRoot,
+      windowsHide: true,
+    });
+  } catch {
+    // Best effort only; callers will avoid reusing the stale path either way.
   }
 }
 

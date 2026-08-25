@@ -68,6 +68,28 @@ test('createGitWorktree falls back to a unique branch when a stale branch alread
   });
 });
 
+test('createGitWorktree does not reuse prunable worktree metadata when the directory is gone', async () => {
+  await withTempRepo(async (root) => {
+    const first = await createGitWorktree({
+      cwd: root,
+      branchName: 'factory-prunable',
+      baseBranch: 'main',
+    });
+
+    await fs.rm(first.path, { recursive: true, force: true });
+
+    const second = await createGitWorktree({
+      cwd: root,
+      branchName: 'factory-prunable',
+      baseBranch: 'main',
+    });
+
+    assert.equal(second.mode, 'created');
+    assert.notEqual(path.normalize(second.path), path.normalize(first.path));
+    assert.ok(await fs.stat(second.path).then((stat) => stat.isDirectory()));
+  });
+});
+
 test('createSiblingGitWorktree created from a linked worktree uses the main worktree storage dir', async () => {
   await withTempRepo(async (root) => {
     const parent = await createGitWorktree({

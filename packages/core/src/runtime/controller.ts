@@ -324,8 +324,24 @@ export async function runFactoryController(
         taskType: runTaskType.id,
       },
     });
-    discoveryOutputText = sanitizeDiscoveryOutput(discoveryResult.outputText);
     discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, discoveryResult);
+    const discoveryValidation = validateDiscoveryOutput(discoveryResult.outputText);
+    if (!discoveryValidation.ok) {
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "discovery.invalid_output",
+        data: {
+          discoveryExecutionPath,
+          reason: discoveryValidation.reason,
+        },
+      });
+      await updateFactoryRunState({
+        statePath: run.statePath,
+        patch: { status: "FAILED", phase: "discovery-failed" },
+      });
+      throw new Error(`Discovery failed: ${discoveryValidation.reason}`);
+    }
+    discoveryOutputText = sanitizeDiscoveryOutput(discoveryResult.outputText);
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
       type: "discovery.executor_completed",
@@ -2228,6 +2244,38 @@ function sanitizeDiscoveryOutput(value: string | undefined): string | undefined 
   return trimmed.replace(/\bDISCOVERY_COMPLETE\b\s*$/m, "").trim() || undefined;
 }
 
+function validateDiscoveryOutput(value: string | undefined): { ok: true } | { ok: false; reason: string } {
+  const text = value?.trim() ?? "";
+  if (!text) {
+    return { ok: false, reason: "Discovery returned no output" };
+  }
+  if (!/\bDISCOVERY_COMPLETE\b/.test(text)) {
+    return { ok: false, reason: "Discovery did not finish with DISCOVERY_COMPLETE" };
+  }
+  const requiredSections = [
+    "Goal",
+    "Current State",
+    "Relevant Components",
+    "Requirements & Constraints",
+    "Dependencies & Risks",
+    "Unknowns / Questions",
+    "Scope",
+    "Key Findings",
+  ];
+  const missing = requiredSections.filter((section) => !new RegExp(`^#{1,3}\\s+${escapeRegExp(section)}\\b`, "im").test(text));
+  if (missing.length > 0) {
+    return { ok: false, reason: `Discovery report missing required section(s): ${missing.join(", ")}` };
+  }
+  if (!/\b(Confirmed|Inferred|Unknown)\b/.test(text)) {
+    return { ok: false, reason: "Discovery report did not classify findings as Confirmed, Inferred, or Unknown" };
+  }
+  return { ok: true };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function buildDiscoveryPrompt(
   goal: string,
   constitutionContext?: string,
@@ -2291,6 +2339,9 @@ function buildDiscoveryPrompt(
     "Reference specific files, functions, components, schemas, tests, or configuration when useful.",
     "",
     "## Required Output",
+    "Do not narrate what you are about to do.",
+    "Do not stop after a preamble.",
+    "Return only the Discovery Report.",
     "Produce a concise Discovery Report with exactly these sections:",
     "### Goal",
     "### Current State",

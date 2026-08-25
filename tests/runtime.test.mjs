@@ -63,7 +63,26 @@ function makeExecutor(label, calls) {
         executionId: input.executionId,
         status: 'completed',
         outputText: actualLabel === 'discovery'
-          ? ['Discovery Report', '### Relevant Components', '- src/index.ts — Confirmed entry file evidence', 'DISCOVERY_COMPLETE'].join('\n')
+          ? [
+              'Discovery Report',
+              '### Goal',
+              '- Confirmed: add a demo feature.',
+              '### Current State',
+              '- Confirmed: repository contains src/index.ts.',
+              '### Relevant Components',
+              '- Confirmed: src/index.ts is relevant entry file evidence.',
+              '### Requirements & Constraints',
+              '- Confirmed: keep scope limited.',
+              '### Dependencies & Risks',
+              '- Inferred: implementation may need focused verification.',
+              '### Unknowns / Questions',
+              '- Unknown: exact final edit until planning.',
+              '### Scope',
+              '- Confirmed: repo-local change only.',
+              '### Key Findings',
+              '- Confirmed: src/index.ts exists.',
+              'DISCOVERY_COMPLETE',
+            ].join('\n')
           : actualLabel === 'planner'
           ? ['Feature Plan', '- Update the target document for clarity', '- Keep scope limited to the requested file', 'WAITING_FOR_APPROVAL'].join('\n')
           : `${actualLabel} completed`,
@@ -153,6 +172,45 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(reviewerPrompt, /Selected skills:/);
     assert.match(reviewerPrompt, /acceptance-review@1\.0\.0/);
     assert.match(reviewerPrompt, /Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly\./);
+  });
+});
+
+test('invalid discovery output fails loudly before planning', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: 'I will inspect the repository now.',
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Add a demo feature',
+        discoveryExecutor,
+        plannerExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Discovery failed: Discovery did not finish with DISCOVERY_COMPLETE/,
+    );
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const state = await readJson(path.join(runDir, 'state.json'));
+    assert.equal(state.status, 'FAILED');
+    assert.equal(state.phase, 'discovery-failed');
   });
 });
 

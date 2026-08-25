@@ -22,6 +22,7 @@ export async function runRuntimeHarness(input: {
   workflowId?: string;
   taskType?: string;
   modelOverrides?: Partial<Record<ModelRole, { provider?: string; model: string }>>;
+  discoveryExecutor?: AgentExecutor;
   plannerExecutor: AgentExecutor;
   builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
@@ -37,6 +38,7 @@ export async function runRuntimeHarness(input: {
     workflowId: input.workflowId,
     taskType: input.taskType,
     modelOverrides: input.modelOverrides,
+    discoveryExecutor: input.discoveryExecutor,
     plannerExecutor: input.plannerExecutor,
     builderExecutor: input.builderExecutor,
     repairExecutor: input.repairExecutor,

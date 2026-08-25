@@ -243,7 +243,7 @@ function buildRoleRules(role: ContextRole): string | undefined {
     case "planner":
       return "Role rules:\n- Produce architecture and execution guidance only; do not implement code.\n- Do not broaden scope beyond the requested outcome.";
     case "builder":
-      return "Role rules:\n- Keep changes tightly scoped to the requested task.\n- Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.";
+      return "Role rules:\n- Keep changes tightly scoped to the requested task.\n- Use the native Pi tools provided to you; do not print DSML/XML/tool-call markup as text.\n- Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.";
     case "reviewer":
       return "Role rules:\n- Focus on acceptance, consistency, risk, and scope control.\n- Flag unrelated edits, scope creep, missing verification, and instruction drift explicitly.";
     case "repair":

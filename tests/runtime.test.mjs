@@ -165,6 +165,7 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(builderPrompt, /Selected skills:/);
     assert.match(builderPrompt, /implementation-task@1\.0\.0/);
     assert.match(builderPrompt, /Likely files: src\/index\.ts/);
+    assert.match(builderPrompt, /Use the native Pi tools provided to you; do not print DSML\/XML\/tool-call markup as text/);
     assert.match(builderPrompt, /Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits/);
     assert.match(reviewerPrompt, /Selected skills:/);
     assert.match(reviewerPrompt, /acceptance-review@1\.0\.0/);

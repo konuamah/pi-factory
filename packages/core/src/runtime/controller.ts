@@ -2805,17 +2805,38 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 function parseDiscoveryJson(text: string): DiscoveryContract | undefined {
-  const stripped = text
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-  try {
-    const parsed = JSON.parse(stripped) as DiscoveryContract;
-    if (parsed && typeof parsed === "object") {
-      return parsed;
-    }
-  } catch {}
+  for (const candidate of discoveryJsonCandidates(text)) {
+    try {
+      const parsed = JSON.parse(candidate) as DiscoveryContract;
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+    } catch {}
+  }
   return undefined;
+}
+
+function discoveryJsonCandidates(text: string): string[] {
+  const trimmed = text.trim();
+  const candidates = [
+    trimmed,
+    trimmed
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim(),
+  ];
+
+  for (const match of trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    candidates.push(match[1].trim());
+  }
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(trimmed.slice(firstBrace, lastBrace + 1).trim());
+  }
+
+  return [...new Set(candidates.filter(Boolean))];
 }
 
 function isConcreteFile(value: string | undefined): boolean {

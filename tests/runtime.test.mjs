@@ -236,6 +236,57 @@ test('invalid discovery output fails loudly before planning', async () => {
   });
 });
 
+test('discovery accepts valid structured JSON wrapped in prose and a fence', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: [
+            'I have completed the read-only discovery pass.',
+            '',
+            '```json',
+            JSON.stringify({
+              status: 'complete',
+              files: ['src/index.ts'],
+              evidence: [
+                {
+                  status: 'confirmed',
+                  file: 'src/index.ts',
+                  finding: 'This file is the concrete implementation surface for the demo feature.',
+                },
+              ],
+              unknowns: [],
+            }, null, 2),
+            '```',
+          ].join('\n'),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      discoveryExecutor,
+      plannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'reject' }),
+      requestApproval: async () => true,
+    });
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 1);
+    const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
+    assert.match(plannerPrompt, /Validated Discovery result \(authoritative pre-planning evidence\):/);
+    assert.match(plannerPrompt, /src\/index\.ts/);
+  });
+});
+
 test('directory-only discovery fails loudly before planning', async () => {
   await withTempProject(async (root) => {
     const calls = [];

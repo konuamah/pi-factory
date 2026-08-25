@@ -28,6 +28,29 @@ import { registerFactoryPiExtension } from "@konuamah/factory";
 
 Pi discovers the extension through the package `pi` manifest and loads `extensions/factory.ts`.
 
+### Local development install
+
+Install this checkout directly while developing:
+
+```bash
+pi install /Users/slammtechnologies/Documents/GitHub/pi-factory
+```
+
+For a single project, install it project-locally from that project:
+
+```bash
+cd /Users/slammtechnologies/Documents/GitHub/slammghana
+pi install -l /Users/slammtechnologies/Documents/GitHub/pi-factory
+```
+
+If `pi` is not on your shell `PATH`, use the full binary path:
+
+```bash
+/Users/slammtechnologies/.nvm/versions/node/v22.22.2/bin/pi install -l /Users/slammtechnologies/Documents/GitHub/pi-factory
+```
+
+Local path installs are references, not copies, so edits in this checkout are picked up without publishing a new npm version. After TypeScript source changes, run `npm run build` and restart Pi; reinstall only when the package path changes or the `package.json` `pi` manifest changes.
+
 ## Current capabilities
 
 - project-authoritative config loading and precedence merge

@@ -4,6 +4,29 @@ This folder is the knowledge library for agents operating Factory. Use it when a
 
 Factory is a Pi-native project automation layer. It keeps project-local configuration, routes work through workflows, uses Pi models and skills, tracks run state, and maintains a repository constitution for agent context.
 
+## Local Factory Install
+
+During development, install the local Factory checkout into Pi:
+
+```bash
+pi install /Users/slammtechnologies/Documents/GitHub/pi-factory
+```
+
+For project-local testing:
+
+```bash
+cd /Users/slammtechnologies/Documents/GitHub/slammghana
+pi install -l /Users/slammtechnologies/Documents/GitHub/pi-factory
+```
+
+If `pi` is not on `PATH`:
+
+```bash
+/Users/slammtechnologies/.nvm/versions/node/v22.22.2/bin/pi install -l /Users/slammtechnologies/Documents/GitHub/pi-factory
+```
+
+Local path installs are references, so Pi sees changes from the checkout without npm publishing. After TypeScript source changes, run `npm run build` and restart Pi; reinstall only when the package path changes or the `package.json` `pi` manifest changes.
+
 ## How Agents Should Use This Library
 
 1. Start with the user's request.

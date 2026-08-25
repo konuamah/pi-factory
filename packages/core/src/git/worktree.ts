@@ -115,17 +115,18 @@ async function createWorktreeAtGitRoot(input: {
     };
   }
 
-  const location = await resolveWorktreeLocation(gitRoot, input.preferredLocation);
-  await ensureWorktreeDirectoryIgnored(gitRoot, location.relativeDir);
+  const worktreeRoot = resolveWorktreeStorageRoot(isolation) ?? gitRoot;
+  const location = await resolveWorktreeLocation(worktreeRoot, input.preferredLocation);
+  await ensureWorktreeDirectoryIgnored(worktreeRoot, location.relativeDir);
 
-  const existing = await findWorktreeByBranch(gitRoot, input.branchName);
+  const existing = await findWorktreeByBranch(worktreeRoot, input.branchName);
   if (existing) {
     return {
       mode: "existing",
       path: existing.path,
       branch: input.branchName,
       reason: `Reusing existing worktree for branch ${input.branchName}`,
-      location: path.relative(gitRoot, path.dirname(existing.path)).replace(/\\/g, "/") || location.relativeDir,
+      location: path.relative(worktreeRoot, path.dirname(existing.path)).replace(/\\/g, "/") || location.relativeDir,
     };
   }
 
@@ -139,7 +140,7 @@ async function createWorktreeAtGitRoot(input: {
     }
 
     try {
-      await execFileAsync("git", args, { cwd: gitRoot, windowsHide: true });
+      await execFileAsync("git", args, { cwd: worktreeRoot, windowsHide: true });
       return {
         mode: "created",
         path: targetPath,
@@ -158,14 +159,14 @@ async function createWorktreeAtGitRoot(input: {
         };
       }
       if (/already exists/i.test(message) && /branch named/i.test(message)) {
-        const currentExisting = await findWorktreeByBranch(gitRoot, branchName);
+        const currentExisting = await findWorktreeByBranch(worktreeRoot, branchName);
         if (currentExisting) {
           return {
             mode: "existing",
             path: currentExisting.path,
             branch: branchName,
             reason: `Reusing existing worktree for branch ${branchName}`,
-            location: path.relative(gitRoot, path.dirname(currentExisting.path)).replace(/\\/g, "/") || location.relativeDir,
+            location: path.relative(worktreeRoot, path.dirname(currentExisting.path)).replace(/\\/g, "/") || location.relativeDir,
           };
         }
         branchName = `${input.branchName}-${Date.now().toString(36).slice(-6)}`;
@@ -177,6 +178,15 @@ async function createWorktreeAtGitRoot(input: {
   }
 
   throw new Error(`Failed to create git worktree for branch ${input.branchName} after retrying branch-name collisions.`);
+}
+
+function resolveWorktreeStorageRoot(isolation: GitIsolationStatus): string | undefined {
+  if (!isolation.isLinkedWorktree || !isolation.gitCommonDir) {
+    return undefined;
+  }
+  return path.basename(isolation.gitCommonDir) === ".git"
+    ? path.dirname(isolation.gitCommonDir)
+    : undefined;
 }
 
 export async function resolveWorktreeLocation(

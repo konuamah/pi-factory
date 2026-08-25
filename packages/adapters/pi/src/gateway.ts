@@ -2098,10 +2098,17 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
   });
 
   const latestShown = await showFactoryRun(path.join((await discoverFactoryProject(ctx.cwd)).paths.runsDir), result.runId);
+  const finalState = await readFactoryRunStateForSummary(result.statePath);
+  const finalStatus = finalState?.status ?? (result.approved ? "COMPLETED" : "FAILED");
+  const finalPhase = finalState?.phase ?? "unknown";
+  const finalTitle = buildFactoryRunResultTitle(finalStatus, finalPhase);
+  const finalTone = finalStatus === "COMPLETED" ? "info" : finalStatus === "CANCELLED" ? "warning" : "error";
 
   renderLines(ctx, [
-    result.approved ? "Factory prototype run complete" : "Factory prototype run cancelled",
+    finalTitle,
     `goal: ${trimmedGoal}`,
+    `status: ${finalStatus}`,
+    `phase: ${finalPhase}`,
     `executor mode: ${effectiveExecutorMode ?? "off"}`,
     `constitution mode: ${constitutionSummary.mode}`,
     `constitution finalized: ${constitutionSummary.finalized ? "yes" : "no"}`,
@@ -2131,7 +2138,38 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
       : []),
   ]);
 
-  ctx.ui.notify(result.approved ? "Factory prototype run complete" : "Factory prototype run cancelled", result.approved ? "info" : "warning");
+  ctx.ui.notify(finalTitle, finalTone);
+}
+
+async function readFactoryRunStateForSummary(statePath: string): Promise<{ status?: string; phase?: string } | undefined> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(statePath, "utf8")) as { status?: string; phase?: string };
+    return parsed && typeof parsed === "object" ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildFactoryRunResultTitle(status: string, phase: string): string {
+  if (status === "COMPLETED") {
+    return "Factory prototype run complete";
+  }
+  if (status === "CANCELLED") {
+    return "Factory prototype run cancelled";
+  }
+  if (phase === "implementation-failed") {
+    return "Factory prototype run failed during implementation";
+  }
+  if (phase === "verification-failed") {
+    return "Factory prototype run failed during verification";
+  }
+  if (phase === "discovery-failed") {
+    return "Factory prototype run failed during discovery";
+  }
+  if (phase === "planning-failed") {
+    return "Factory prototype run failed during planning";
+  }
+  return "Factory prototype run failed";
 }
 
 async function handleFactoryCommandError(error: unknown, ctx: FactoryPiCommandContext): Promise<void> {

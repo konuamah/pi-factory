@@ -292,6 +292,7 @@ export async function runFactoryController(
 
   let discoveryExecutionPath: string | undefined;
   let discoveryOutputText: string | undefined;
+  let discoveryFileHints: string[] = [];
   let plannerExecutionPath: string | undefined;
   let plannerOutputText: string | undefined;
   const discoveryExecutor = input.discoveryExecutor ?? input.plannerExecutor;
@@ -354,6 +355,7 @@ export async function runFactoryController(
       throw new Error(`Discovery failed: ${discoveryValidation.reason}`);
     }
     discoveryOutputText = JSON.stringify(discoveryValidation.discovery, null, 2);
+    discoveryFileHints = normalizeDiscoveryFileHints(discoveryValidation.discovery.files ?? []);
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
       type: "discovery.executor_completed",
@@ -429,6 +431,7 @@ export async function runFactoryController(
     discoveryText: discoveryOutputText,
     planText: plannerOutputText,
   });
+  attachDiscoveryFileHintsToBuildTasks(plan.tasks, discoveryFileHints);
   const planPath = await writePrototypePlanArtifact(run.runDir, plan);
   const taskPaths = await writePrototypeTaskArtifacts(
     run.runDir,
@@ -442,6 +445,7 @@ export async function runFactoryController(
       role: task.role,
       commands: task.commands,
       requiresApproval: task.requiresApproval,
+      context: task.context,
       workspacePath: task.id === "task-1" ? executionCwd : undefined,
       workspaceMode: task.id === "task-1" ? worktree.mode : undefined,
       workspaceBranch: task.id === "task-1" ? worktree.branch : undefined,
@@ -1656,10 +1660,6 @@ async function runImplementationTask(input: {
         },
       });
 
-      if (builderResult.status === "completed") {
-        await commitWorkspaceChanges(workspace.path, input.task);
-      }
-
       const builderExecutionPath = await writePrototypeBuilderExecutionArtifact(input.runDir, {
         taskId: input.task.id,
         workspacePath: workspace.path,
@@ -1667,6 +1667,11 @@ async function runImplementationTask(input: {
         ...builderResult,
       });
       input.builderExecutionPaths.push(builderExecutionPath);
+
+      let committedChange: WorkspaceCommitResult = { committed: false, changedFiles: [] };
+      if (builderResult.status === "completed") {
+        committedChange = await commitWorkspaceChanges(workspace.path, input.task);
+      }
       await appendFactoryRunEvent(input.eventsPath, {
         timestamp: new Date().toISOString(),
         type: "task.executor_completed",
@@ -1677,6 +1682,8 @@ async function runImplementationTask(input: {
           builderStatus: builderResult.status,
           workspacePath: workspace.path,
           workspaceBranch: workspace.branch,
+          committed: committedChange.committed,
+          changedFiles: committedChange.changedFiles,
         },
       });
 
@@ -1695,6 +1702,39 @@ async function runImplementationTask(input: {
             title: input.task.title,
             builderExecutionPath,
             builderStatus: builderResult.status,
+            workspacePath: workspace.path,
+            workspaceBranch: workspace.branch,
+          },
+        });
+        return { ok: false, task: input.task, workspace };
+      }
+      if (!committedChange.committed) {
+        await updatePrototypeTaskArtifact({
+          runDir: input.runDir,
+          taskId: input.task.id,
+          patch: { status: "failed" },
+        });
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.no_changes",
+          data: {
+            taskId: input.task.id,
+            stage: input.task.stage,
+            title: input.task.title,
+            builderExecutionPath,
+            workspacePath: workspace.path,
+            workspaceBranch: workspace.branch,
+          },
+        });
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.failed",
+          data: {
+            taskId: input.task.id,
+            stage: input.task.stage,
+            title: input.task.title,
+            reason: "implementation produced no file changes",
+            builderExecutionPath,
             workspacePath: workspace.path,
             workspaceBranch: workspace.branch,
           },
@@ -1976,15 +2016,39 @@ async function resolveTaskWorkspace(input: {
   };
 }
 
-async function commitWorkspaceChanges(cwd: string, task: PlannerTask): Promise<void> {
+interface WorkspaceCommitResult {
+  committed: boolean;
+  changedFiles: string[];
+}
+
+async function commitWorkspaceChanges(cwd: string, task: PlannerTask): Promise<WorkspaceCommitResult> {
   try {
+    const changedFiles = await readChangedFiles(cwd);
+    if (changedFiles.length === 0) {
+      return { committed: false, changedFiles };
+    }
     await execFileAsync("git", ["add", "-A"], { cwd, windowsHide: true });
-    await execFileAsync("git", ["commit", "--allow-empty", "-m", `Factory task ${task.id}: ${task.title}`], {
+    await execFileAsync("git", ["commit", "-m", `Factory task ${task.id}: ${task.title}`], {
       cwd,
       windowsHide: true,
     });
+    return { committed: true, changedFiles };
   } catch {
-    // Ignore non-git or no-op commit failures in prototype mode.
+    return { committed: false, changedFiles: [] };
+  }
+}
+
+async function readChangedFiles(cwd: string): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd, windowsHide: true });
+    return stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.slice(3).trim())
+      .filter(Boolean);
+  } catch {
+    return [];
   }
 }
 
@@ -2216,6 +2280,40 @@ function resolveNodeRole(task: PlannerTask): ModelRole {
     return role;
   }
   return "builder";
+}
+
+function attachDiscoveryFileHintsToBuildTasks(tasks: PlannerTask[], fileHints: string[]): void {
+  const concreteHints = normalizeDiscoveryFileHints(fileHints);
+  if (concreteHints.length === 0) {
+    return;
+  }
+
+  for (const task of tasks) {
+    if (!isBuildStage(task.stage) && task.role !== "builder") {
+      continue;
+    }
+    task.context = {
+      ...task.context,
+      fileHints: uniqueStrings([...(task.context?.fileHints ?? []), ...concreteHints]),
+    };
+  }
+}
+
+function normalizeDiscoveryFileHints(fileHints: string[]): string[] {
+  return uniqueStrings(
+    fileHints
+      .map(normalizeDiscoveryFilePath)
+      .filter((file): file is string => Boolean(file)),
+  );
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function isBuildStage(stage: string): boolean {
+  const normalized = stage.toLowerCase();
+  return normalized === "build" || normalized === "implementation";
 }
 
 function roleTools(role: ModelRole): string[] {

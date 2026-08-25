@@ -11,6 +11,12 @@ export interface PrototypeTaskArtifact {
   role?: string;
   commands?: string[];
   requiresApproval?: boolean;
+  context?: {
+    fileHints?: string[];
+    constitutionAreas?: number[];
+    requiredCapabilities?: string[];
+    includeDependencyArtifacts?: boolean;
+  };
   workspacePath?: string;
   workspaceMode?: "existing" | "created" | "in-place";
   workspaceBranch?: string;
@@ -39,6 +45,12 @@ export interface PrototypePlanArtifact {
     role?: string;
     commands?: string[];
     requiresApproval?: boolean;
+    context?: {
+      fileHints?: string[];
+      constitutionAreas?: number[];
+      requiredCapabilities?: string[];
+      includeDependencyArtifacts?: boolean;
+    };
   }>;
 }
 

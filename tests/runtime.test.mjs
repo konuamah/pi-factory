@@ -59,6 +59,9 @@ function makeExecutor(label, calls) {
     async execute(input) {
       const actualLabel = input.executionId.includes('discovery') ? 'discovery' : label;
       calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt });
+      if (actualLabel === 'builder') {
+        await fs.writeFile(path.join(input.cwd, 'factory-builder-output.txt'), `${input.executionId}\n`, 'utf8');
+      }
       return {
         executionId: input.executionId,
         status: 'completed',
@@ -93,7 +96,7 @@ test('project instruction files are injected into planner context ahead of const
     const calls = [];
     const plannerExecutor = makeExecutor('planner', calls);
 
-    await runRuntimeHarness({
+    const result = await runRuntimeHarness({
       cwd: root,
       goal: 'Add a demo feature',
       plannerExecutor,
@@ -119,7 +122,7 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     const builderExecutor = makeExecutor('builder', calls);
     const reviewerExecutor = makeExecutor('reviewer', calls);
 
-    await runRuntimeHarness({
+    const result = await runRuntimeHarness({
       cwd: root,
       goal: 'Add a demo feature',
       plannerExecutor,
@@ -161,10 +164,15 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(plannerPrompt, /Do not broaden scope beyond the requested outcome\./);
     assert.match(builderPrompt, /Selected skills:/);
     assert.match(builderPrompt, /implementation-task@1\.0\.0/);
+    assert.match(builderPrompt, /Likely files: src\/index\.ts/);
     assert.match(builderPrompt, /Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits/);
     assert.match(reviewerPrompt, /Selected skills:/);
     assert.match(reviewerPrompt, /acceptance-review@1\.0\.0/);
     assert.match(reviewerPrompt, /Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly\./);
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const plan = await readJson(path.join(root, '.factory', 'runs', runs.at(-1), 'plan.json'));
+    const buildTask = plan.tasks.find((task) => task.stage === 'build');
+    assert.deepEqual(buildTask.context.fileHints, ['src/index.ts']);
   });
 });
 
@@ -803,6 +811,67 @@ test('verification stages are not executed as builder task branches', async () =
 
     assert.equal(calls.filter((call) => call.label === 'builder').length, 1);
     assert.ok((result.builderExecutionPaths?.length ?? 0) === 1);
+  });
+});
+
+test('completed implementation with no file changes fails before verification', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  lint: node -e ""',
+        '  typecheck: node -e ""',
+        '  test: node -e ""',
+        '  build: node -e ""',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: true',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+    await execFile('git', ['add', '.'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'factory setup'], { cwd: root });
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="shell_execute"></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>',
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    assert.equal(calls.filter((call) => call.label === 'builder').length, 1);
+    const runDir = result.runDir;
+    const summary = await readJson(result.summaryPath);
+    assert.equal(summary.status, 'FAILED');
+    assert.equal(summary.phase, 'implementation-failed');
+    const eventsRaw = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /task\.no_changes/);
+    assert.match(eventsRaw, /implementation produced no file changes/);
   });
 });
 

@@ -9,6 +9,7 @@ import { compileAgentContext, type CompiledContext } from "../context/compiler.j
 import { createGitWorktree, createSiblingGitWorktree, inspectGitIsolation } from "../git/worktree.js";
 import { initializeFactorySkills, resolveFactorySkills, type SkillBundleSelection } from "../skills/index.js";
 import { appendFactoryRunEvent, createFactoryRun, updateFactoryRunState } from "../runs/store.js";
+import { removeRunGitIsolation } from "../runs/cleanup.js";
 import { appendRepoLearning } from "../learnings/store.js";
 import {
   writePrototypeBuilderExecutionArtifact,
@@ -23,7 +24,7 @@ import {
   writePrototypeTaskArtifacts,
   writePrototypeVerificationArtifact,
 } from "./artifacts.js";
-import type { AgentExecutor } from "./interfaces.js";
+import type { AgentExecutionResult, AgentExecutor } from "./interfaces.js";
 import { buildPlanArtifact, type PlannerTask } from "./planner.js";
 import type { CapabilityPolicy, EffectiveFactoryConfig, ModelRole, ModelSelection } from "@factory/schemas";
 import {
@@ -116,6 +117,57 @@ export interface RunFactoryControllerResult {
 export async function runFactoryController(
   input: RunFactoryControllerInput,
 ): Promise<RunFactoryControllerResult> {
+  let runDir: string | undefined;
+  let projectRoot: string | undefined;
+  let createdWorktreePath: string | undefined;
+  let baseBranch: string | undefined;
+  try {
+    const result = await runFactoryControllerInner(input, (info) => {
+      runDir = info.runDir;
+      projectRoot = info.projectRoot;
+      createdWorktreePath = info.createdWorktreePath;
+      baseBranch = info.baseBranch;
+    });
+    return result;
+  } finally {
+    if (runDir && projectRoot) {
+      const warnings: string[] = [];
+      const outcome = await removeRunGitIsolation({
+        runDir,
+        projectRoot,
+        pruneWorktrees: true,
+        pruneBranches: true,
+        baseBranch: baseBranch ?? "main",
+      });
+      warnings.push(...outcome.warnings);
+      // The main run worktree is recorded in task-1 artifacts, but remove it
+      // explicitly as well in case task artifacts were never written (early
+      // failure before the planning phase).
+      if (createdWorktreePath) {
+        try {
+          await execFileAsync("git", ["worktree", "remove", "--force", createdWorktreePath], {
+            cwd: projectRoot,
+            windowsHide: true,
+          });
+        } catch {
+          // Best effort; git worktree prune in removeRunGitIsolation clears stale metadata.
+        }
+      }
+      if (warnings.length > 0) {
+        await appendFactoryRunEvent(path.join(runDir, "events.jsonl"), {
+          timestamp: new Date().toISOString(),
+          type: "run.cleanup_warnings",
+          data: { warnings },
+        });
+      }
+    }
+  }
+}
+
+async function runFactoryControllerInner(
+  input: RunFactoryControllerInput,
+  onWorkspaceReady?: (info: { runDir: string; projectRoot: string; createdWorktreePath?: string; baseBranch: string }) => void,
+): Promise<RunFactoryControllerResult> {
   const loaded = await loadEffectiveConfig({
     cwd: input.cwd,
     runOverrides: input.workflowId ? { workflowId: input.workflowId } : undefined,
@@ -143,6 +195,13 @@ export async function runFactoryController(
     initialPhase: "planning",
     effectiveConfig: loaded.effectiveConfig,
     workflowId: loaded.effectiveConfig.resolvedWorkflowId ?? input.workflowId,
+  });
+
+  onWorkspaceReady?.({
+    runDir: run.runDir,
+    projectRoot,
+    createdWorktreePath: worktree.mode === "created" ? worktree.path : undefined,
+    baseBranch: loaded.effectiveConfig.git.baseBranch,
   });
 
   const phases = ["discovery", "planning", "plan-approval", "implementation", "integration", "verification", "repair", "verified", "review", "approval-ready", "merge", "complete"];
@@ -775,7 +834,12 @@ export async function runFactoryController(
     commands: verificationPlan.commands,
   });
   verification.cwdResolution = verificationPlan.cwdResolution;
-  const verificationFailureClassification = classifyVerificationFailure({ plan: verificationPlan, result: verification });
+  const implementationChangedFiles = uniqueStrings(taskWorkspacesChangedFiles(implementationRun.taskWorkspaces));
+  const verificationFailureClassification = classifyVerificationFailure({
+    plan: verificationPlan,
+    result: verification,
+    changedFiles: implementationChangedFiles,
+  });
   let verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
     ...verification,
     selectionSource: verificationPlan.selectionSource,
@@ -800,6 +864,7 @@ export async function runFactoryController(
       verificationSkillSelectionReasons: verificationPlan.skill.selectionReasons,
       verificationFailureKind: verificationFailureClassification?.kind,
       verificationFailureReason: verificationFailureClassification?.reason,
+      implementationChangedFiles,
     },
   });
   await appendFactoryRunEvent(run.eventsPath, {
@@ -808,6 +873,7 @@ export async function runFactoryController(
     data: {
       overallStatus: verification.overallStatus,
       failureClassification: verificationFailureClassification as unknown as Record<string, unknown> | undefined,
+      implementationChangedFiles,
     },
   });
   if (verificationFailureClassification) {
@@ -890,7 +956,24 @@ export async function runFactoryController(
     });
   }
 
-  if (verification.overallStatus === "failed" && input.repairExecutor && loaded.effectiveConfig.repair.enabled) {
+  const repairExecutor = input.repairExecutor;
+  const shouldAttemptVerificationRepair = verification.overallStatus === "failed"
+    && Boolean(repairExecutor)
+    && loaded.effectiveConfig.repair.enabled
+    && verificationFailureClassification?.kind === "real code failure";
+  if (verification.overallStatus === "failed" && !shouldAttemptVerificationRepair) {
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "repair.skipped",
+      data: {
+        reason: verificationFailureClassification?.reason ?? "Verification failure is not eligible for repair.",
+        failureKind: verificationFailureClassification?.kind,
+        implementationChangedFiles,
+      },
+    });
+  }
+
+  if (shouldAttemptVerificationRepair && repairExecutor) {
     for (let attempt = 1; attempt <= loaded.effectiveConfig.repair.maxAttempts; attempt++) {
       await emitProgress(input, {
         runId: run.runId,
@@ -898,7 +981,7 @@ export async function runFactoryController(
         status: "RUNNING",
         message: `Repair attempt ${attempt}`,
       });
-      const repairResult = await input.repairExecutor.execute({
+      const repairResult = await repairExecutor.execute({
         executionId: `${run.runId}-repair-${attempt}`,
         cwd: verification.cwd,
         prompt: buildRepairPrompt(input.goal, verification, repairGuidance.text, renderSkillBundleForPrompt(repairSkills)),
@@ -930,7 +1013,12 @@ export async function runFactoryController(
         commands: verificationPlan.commands,
       });
       verification.cwdResolution = verificationPlan.cwdResolution;
-      const recheckFailureClassification = classifyVerificationFailure({ plan: verificationPlan, result: verification });
+      const changedAfterRepair = await gitChangedFiles(executionCwd);
+      const recheckFailureClassification = classifyVerificationFailure({
+        plan: verificationPlan,
+        result: verification,
+        changedFiles: uniqueStrings([...implementationChangedFiles, ...changedAfterRepair]),
+      });
       await appendFactoryRunEvent(run.eventsPath, {
         timestamp: new Date().toISOString(),
         type: "verification.recheck_completed",
@@ -942,7 +1030,6 @@ export async function runFactoryController(
       });
 
       // Incremental contract re-verification: only re-run requirements affected by changed files.
-      const changedAfterRepair = await gitChangedFiles(executionCwd);
       contractResult = await runVerificationEngine({
         cwd: executionCwd,
         plan: contractPlan,
@@ -1333,6 +1420,7 @@ interface TaskWorkspaceSelection {
   mode: "existing" | "created" | "in-place";
   branch?: string;
   shouldIntegrate: boolean;
+  changedFiles?: string[];
 }
 
 async function runImplementationTasks(input: {
@@ -1641,52 +1729,93 @@ async function runImplementationTask(input: {
         provider: nodeModel.model.provider,
         modelSource: nodeModel.source,
       });
-      const builderResult = await executor.execute({
-        executionId: `${input.runId}-${nodeRole}-${input.task.id}`,
-        cwd: workspace.path,
-        prompt: buildCompiledPrompt(input.goal, compiled),
-        model: nodeModel.model,
-        tools: [...roleTools(nodeRole), ...capabilitiesToToolNames(capabilities.granted)].filter((tool, index, arr) => arr.indexOf(tool) === index),
-        metadata: {
-          role: nodeRole,
-          runId: input.runId,
-          taskId: input.task.id,
-          taskStage: input.task.stage,
+      const executeBuilder = async (attempt: "initial" | "no-change-retry", previousResult?: AgentExecutionResult): Promise<{
+        result: AgentExecutionResult;
+        executionPath: string;
+        committedChange: WorkspaceCommitResult;
+      }> => {
+        const executionId = attempt === "initial"
+          ? `${input.runId}-${nodeRole}-${input.task.id}`
+          : `${input.runId}-${nodeRole}-${input.task.id}-no-change-retry`;
+        const prompt = attempt === "initial"
+          ? buildCompiledPrompt(input.goal, compiled)
+          : buildNoChangeRetryPrompt(input.goal, compiled, previousResult);
+        const result = await executor.execute({
+          executionId,
+          cwd: workspace.path,
+          prompt,
+          model: nodeModel.model,
+          tools: [...roleTools(nodeRole), ...capabilitiesToToolNames(capabilities.granted)].filter((tool, index, arr) => arr.indexOf(tool) === index),
+          metadata: {
+            role: nodeRole,
+            runId: input.runId,
+            taskId: input.task.id,
+            taskStage: input.task.stage,
+            workspacePath: workspace.path,
+            workspaceBranch: workspace.branch,
+            grantedCapabilities: capabilities.granted,
+            deniedCapabilities: capabilities.denied,
+            needsApprovalCapabilities: capabilities.needsApproval,
+            attempt,
+          },
+        });
+
+        const executionPath = await writePrototypeBuilderExecutionArtifact(input.runDir, {
+          taskId: attempt === "initial" ? input.task.id : `${input.task.id}-no-change-retry`,
           workspacePath: workspace.path,
           workspaceBranch: workspace.branch,
-          grantedCapabilities: capabilities.granted,
-          deniedCapabilities: capabilities.denied,
-          needsApprovalCapabilities: capabilities.needsApproval,
-        },
-      });
+          ...result,
+        });
+        input.builderExecutionPaths.push(executionPath);
 
-      const builderExecutionPath = await writePrototypeBuilderExecutionArtifact(input.runDir, {
-        taskId: input.task.id,
-        workspacePath: workspace.path,
-        workspaceBranch: workspace.branch,
-        ...builderResult,
-      });
-      input.builderExecutionPaths.push(builderExecutionPath);
+        let committedChange: WorkspaceCommitResult = { committed: false, changedFiles: [] };
+        if (result.status === "completed") {
+          committedChange = await commitWorkspaceChanges(workspace.path, input.task);
+        }
 
-      let committedChange: WorkspaceCommitResult = { committed: false, changedFiles: [] };
-      if (builderResult.status === "completed") {
-        committedChange = await commitWorkspaceChanges(workspace.path, input.task);
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.executor_completed",
+          data: {
+            taskId: input.task.id,
+            taskStage: input.task.stage,
+            attempt,
+            builderExecutionPath: executionPath,
+            builderStatus: result.status,
+            errorMessage: result.errorMessage,
+            workspacePath: workspace.path,
+            workspaceBranch: workspace.branch,
+            committed: committedChange.committed,
+            changedFiles: committedChange.changedFiles,
+          },
+        });
+
+        return { result, executionPath, committedChange };
+      };
+
+      let builderAttempt = await executeBuilder("initial");
+
+      if (builderAttempt.result.status === "completed" && !builderAttempt.committedChange.committed) {
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.no_changes_retrying",
+          data: {
+            taskId: input.task.id,
+            stage: input.task.stage,
+            title: input.task.title,
+            builderExecutionPath: builderAttempt.executionPath,
+            workspacePath: workspace.path,
+            workspaceBranch: workspace.branch,
+            reason: "builder completed without producing file changes; retrying once with explicit implementation instructions",
+          },
+        });
+        builderAttempt = await executeBuilder("no-change-retry", builderAttempt.result);
       }
-      await appendFactoryRunEvent(input.eventsPath, {
-        timestamp: new Date().toISOString(),
-        type: "task.executor_completed",
-        data: {
-          taskId: input.task.id,
-          taskStage: input.task.stage,
-          builderExecutionPath,
-          builderStatus: builderResult.status,
-          errorMessage: builderResult.errorMessage,
-          workspacePath: workspace.path,
-          workspaceBranch: workspace.branch,
-          committed: committedChange.committed,
-          changedFiles: committedChange.changedFiles,
-        },
-      });
+
+      const builderResult = builderAttempt.result;
+      const builderExecutionPath = builderAttempt.executionPath;
+      const committedChange = builderAttempt.committedChange;
+      workspace.changedFiles = committedChange.changedFiles;
 
       if (builderResult.status !== "completed") {
         await updatePrototypeTaskArtifact({
@@ -2045,9 +2174,9 @@ async function readChangedFiles(cwd: string): Promise<string[]> {
     const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd, windowsHide: true });
     return stdout
       .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
+      .filter((line) => line.trim())
       .map((line) => line.slice(3).trim())
+      .filter(Boolean)
       .filter(Boolean);
   } catch {
     return [];
@@ -2311,6 +2440,10 @@ function normalizeDiscoveryFileHints(fileHints: string[]): string[] {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function taskWorkspacesChangedFiles(workspaces: TaskWorkspaceSelection[]): string[] {
+  return workspaces.flatMap((workspace) => workspace.changedFiles ?? []);
 }
 
 function isBuildStage(stage: string): boolean {
@@ -2847,6 +2980,29 @@ function buildCompiledPrompt(goal: string, compiled: CompiledContext): string {
     `Role: ${compiled.role}`,
   ];
   return sections.join("\n");
+}
+
+function buildNoChangeRetryPrompt(
+  goal: string,
+  compiled: CompiledContext,
+  previousResult?: AgentExecutionResult,
+): string {
+  const previousOutput = previousResult?.outputText?.trim();
+  const previousSummary = previousOutput
+    ? `Previous builder output:\n${previousOutput.slice(0, 2000)}`
+    : "Previous builder output: (empty)";
+  return [
+    buildCompiledPrompt(goal, compiled),
+    "",
+    "Factory implementation retry:",
+    "Your previous implementation turn completed without any file changes.",
+    previousSummary,
+    "",
+    "You are still in the Builder role.",
+    "Do not stop after saying what you will inspect or change.",
+    "Use the available native Pi tools now to edit/write the required files in the current workspace.",
+    "If implementation is impossible, return a clear failure reason instead of completing successfully.",
+  ].join("\n");
 }
 
 function buildBuilderPrompt(

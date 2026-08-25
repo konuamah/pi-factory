@@ -17,6 +17,91 @@ export interface CleanupFactoryRunsResult {
   warnings: string[];
 }
 
+export interface RemoveRunGitIsolationResult {
+  removedWorktrees: string[];
+  removedBranches: string[];
+  warnings: string[];
+}
+
+/**
+ * Remove the git isolation (worktrees and branches) recorded for a single run.
+ * Runs `git worktree prune` afterwards so stale metadata is cleared even when
+ * a worktree directory was already removed externally.
+ */
+export async function removeRunGitIsolation(input: {
+  runDir: string;
+  projectRoot: string;
+  pruneWorktrees: boolean;
+  pruneBranches: boolean;
+  baseBranch: string;
+}): Promise<RemoveRunGitIsolationResult> {
+  const tasks = await readTaskArtifacts(path.join(input.runDir, "tasks"));
+  const removedWorktrees: string[] = [];
+  const removedBranches: string[] = [];
+  const warnings: string[] = [];
+
+  if (input.pruneWorktrees) {
+    // Only remove worktrees Factory actually created (mode === "created").
+    // Pre-existing or in-place workspaces must never be removed.
+    const createdEntries = tasks.filter((task) => task.workspaceMode === "created");
+    const workspacePaths = Array.from(new Set(
+      createdEntries
+        .map((task) => (typeof task.workspacePath === "string" ? task.workspacePath : undefined))
+        .filter((value): value is string => Boolean(value)),
+    ));
+    for (const workspacePath of workspacePaths) {
+      if (workspacePath === input.projectRoot) {
+        continue;
+      }
+      try {
+        await execFileAsync("git", ["worktree", "remove", "--force", workspacePath], {
+          cwd: input.projectRoot,
+          windowsHide: true,
+        });
+        removedWorktrees.push(workspacePath);
+      } catch (error) {
+        warnings.push(`Failed to remove worktree ${workspacePath}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    // Clear stale worktree metadata even when directories were removed externally
+    // (git worktree remove would fail for already-missing paths).
+    try {
+      await execFileAsync("git", ["worktree", "prune"], {
+        cwd: input.projectRoot,
+        windowsHide: true,
+      });
+    } catch (error) {
+      warnings.push(`Failed to prune stale worktrees: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  if (input.pruneBranches) {
+    // Only delete branches Factory created on worktrees it created.
+    const createdEntries = tasks.filter((task) => task.workspaceMode === "created");
+    const branchNames = Array.from(new Set(
+      createdEntries
+        .map((task) => (typeof task.workspaceBranch === "string" ? task.workspaceBranch : undefined))
+        .filter((value): value is string => Boolean(value)),
+    ));
+    for (const branch of branchNames) {
+      if (branch === input.baseBranch) {
+        continue;
+      }
+      try {
+        await execFileAsync("git", ["branch", "-D", branch], {
+          cwd: input.projectRoot,
+          windowsHide: true,
+        });
+        removedBranches.push(branch);
+      } catch (error) {
+        warnings.push(`Failed to delete branch ${branch}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
+  return { removedWorktrees, removedBranches, warnings };
+}
+
 export async function cleanupFactoryRuns(input: {
   cwd: string;
   retainRuns?: number;
@@ -37,51 +122,17 @@ export async function cleanupFactoryRuns(input: {
 
   for (const runId of removedRunIds) {
     const runDir = path.join(runsDir, runId);
-    const tasks = await readTaskArtifacts(path.join(runDir, "tasks"));
 
-    if (loaded.effectiveConfig.git.cleanup.pruneWorktrees) {
-      const workspacePaths = Array.from(new Set(
-        tasks
-          .map((task) => (typeof task.workspacePath === "string" ? task.workspacePath : undefined))
-          .filter((value): value is string => Boolean(value)),
-      ));
-      for (const workspacePath of workspacePaths) {
-        if (workspacePath === projectRoot) {
-          continue;
-        }
-        try {
-          await execFileAsync("git", ["worktree", "remove", "--force", workspacePath], {
-            cwd: projectRoot,
-            windowsHide: true,
-          });
-          removedWorktrees.push(workspacePath);
-        } catch (error) {
-          warnings.push(`Failed to remove worktree ${workspacePath}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-    }
-
-    if (loaded.effectiveConfig.git.cleanup.pruneBranches) {
-      const branchNames = Array.from(new Set(
-        tasks
-          .map((task) => (typeof task.workspaceBranch === "string" ? task.workspaceBranch : undefined))
-          .filter((value): value is string => Boolean(value)),
-      ));
-      for (const branch of branchNames) {
-        if (branch === loaded.effectiveConfig.git.baseBranch) {
-          continue;
-        }
-        try {
-          await execFileAsync("git", ["branch", "-D", branch], {
-            cwd: projectRoot,
-            windowsHide: true,
-          });
-          removedBranches.push(branch);
-        } catch (error) {
-          warnings.push(`Failed to delete branch ${branch}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-    }
+    const isolation = await removeRunGitIsolation({
+      runDir,
+      projectRoot,
+      pruneWorktrees: loaded.effectiveConfig.git.cleanup.pruneWorktrees,
+      pruneBranches: loaded.effectiveConfig.git.cleanup.pruneBranches,
+      baseBranch: loaded.effectiveConfig.git.baseBranch,
+    });
+    removedWorktrees.push(...isolation.removedWorktrees);
+    removedBranches.push(...isolation.removedBranches);
+    warnings.push(...isolation.warnings);
 
     try {
       await fs.rm(runDir, { recursive: true, force: true });

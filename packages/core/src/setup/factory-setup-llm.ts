@@ -90,6 +90,8 @@ async function loadFactorySetupSkillSource(cwd: string): Promise<string> {
     const fsSync = await import("node:fs");
     const candidates2 = [
       path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../skills/factory-setup/SKILL.md"),
+      path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../skills/factory-setup/SKILL.md"),
+      path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../../skills/factory-setup/SKILL.md"),
       path.resolve(cwd, "skills/factory-setup/SKILL.md"),
     ];
     for (const p of candidates2) {

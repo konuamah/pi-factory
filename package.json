@@ -1,28 +1,91 @@
 {
-  "name": "pi-factory",
-  "private": true,
+  "name": "@konuamah/factory",
   "version": "0.1.0",
+  "description": "Pi-native Factory extension for plan-first coding workflows, setup, dashboard, and repository automation.",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "types": "./index.d.ts",
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "factory",
+    "coding-agent",
+    "workflow-automation"
+  ],
+  "license": "UNLICENSED",
+  "publishConfig": {
+    "access": "public"
+  },
   "workspaces": [
     "dashboard",
     "packages/*",
     "packages/adapters/*",
     "packages/executors/*"
   ],
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "extensions/",
+    ".pi/skills/",
+    "skills/",
+    "docs/factory/",
+    "dashboard/dist/",
+    "packages/*/dist/",
+    "packages/*/package.json",
+    "packages/adapters/*/dist/",
+    "packages/adapters/*/package.json",
+    "packages/executors/*/dist/",
+    "packages/executors/*/package.json"
+  ],
+  "pi": {
+    "extensions": [
+      "extensions/factory.ts"
+    ],
+    "skills": [
+      ".pi/skills"
+    ]
+  },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
     "test": "npm run build && node --test tests/**/*.test.mjs",
+    "prepack": "npm run build && npm run dashboard:build",
+    "prepublishOnly": "npm test && npm pack --dry-run",
+    "pack:dry": "npm pack --dry-run",
     "harness:pi-executor": "node packages/executors/pi/dist/harness.js",
     "harness:pi-runtime": "node packages/executors/pi/dist/runtime-harness.js",
     "dashboard:build": "npm --workspace @factory/dashboard run build",
     "dashboard:serve": "npm run dashboard:build && node -e \"import('./packages/adapters/web/dist/index.js').then(async m => { const s = await m.createDashboardServer({ cwd: process.cwd(), staticDir: './dashboard/dist', port: 4199 }); console.log('Factory dashboard: http://127.0.0.1:' + s.port); })\""
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.74.2",
+    "@factory/adapter-pi": "0.1.0",
+    "@factory/adapter-web": "0.1.0",
+    "@factory/core": "0.1.0",
+    "@factory/executor-pi": "0.1.0",
+    "@factory/schemas": "0.1.0",
     "yaml": "^2.5.1"
   },
+  "bundledDependencies": [
+    "@factory/adapter-pi",
+    "@factory/adapter-web",
+    "@factory/core",
+    "@factory/executor-pi",
+    "@factory/schemas"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.2",
     "@microsoft/tui-test": "^0.1.0-beta.2",
     "@types/node": "^22.10.1",
     "typescript": "^5.6.3"

@@ -130,7 +130,7 @@ export interface PrototypeVerificationArtifact {
     canComplete: boolean;
   };
   failureClassification?: {
-    kind: "harness/config" | "repo script/config" | "real code failure" | "unknown";
+    kind: "harness/config" | "repo script/config" | "baseline/unrelated" | "real code failure" | "unknown";
     reason: string;
     retryable: boolean;
     suggestedPhase: string;

@@ -54,7 +54,7 @@ test('resolved provider/model is passed through to the Pi SDK session', async ()
   assert.equal(result.events.some((event) => event.type === 'model.selection_warning'), false);
 });
 
-test('requested tools are resolved to Pi SDK tool objects', async () => {
+test('requested tools are passed to Pi SDK as active tool names', async () => {
   let receivedOptions;
   const sdkFactory = createPiSdkSessionFactory({
     sdkLoader: async () => ({
@@ -91,11 +91,10 @@ test('requested tools are resolved to Pi SDK tool objects', async () => {
   });
 
   assert.equal(result.status, 'completed');
-  assert.deepEqual(receivedOptions.tools.map((tool) => tool.name), ['read', 'bash', 'edit']);
-  assert.equal(typeof receivedOptions.tools[0].execute, 'function');
+  assert.deepEqual(receivedOptions.tools, ['read', 'bash', 'edit']);
 });
 
-test('Pi SDK tools are invoked with toolCallId and params', async () => {
+test('Pi SDK tool objects stay executable through Factory bridge', async () => {
   const invocations = [];
   let receivedOptions;
   const sdkFactory = createPiSdkSessionFactory({
@@ -121,21 +120,39 @@ test('Pi SDK tools are invoked with toolCallId and params', async () => {
       },
       async createAgentSession(options) {
         receivedOptions = options;
-        return { session: makeSdkSession() };
+        const session = {
+          listener: undefined,
+          async prompt(text) {
+            if (!this.listener || text.includes('Factory executed the tool call')) {
+              return;
+            }
+            this.listener({
+              type: 'message_update',
+              text: '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="bash"><｜｜DSML｜｜parameter name="command" string="true">pwd</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>',
+            });
+          },
+          subscribe(listener) {
+            this.listener = listener;
+            return () => {};
+          },
+          async abort() {},
+          async dispose() {},
+        };
+        return { session };
       },
     }),
   });
 
   const executor = new PiAgentExecutor({ sessionFactory: sdkFactory });
-  await executor.execute({
+  const execution = await executor.execute({
     executionId: 'exec-sdk-tool-shape',
     cwd: process.cwd(),
     prompt: 'build',
     tools: ['bash'],
   });
 
-  const result = await receivedOptions.tools[0].execute({ command: 'pwd' });
-  assert.deepEqual(result, { stdout: 'ok' });
+  assert.equal(execution.status, 'completed');
+  assert.deepEqual(receivedOptions.tools, ['bash']);
   assert.equal(invocations.length, 1);
   assert.match(invocations[0].toolCallId, /^factory-bash-/);
   assert.deepEqual(invocations[0].params, { command: 'pwd' });

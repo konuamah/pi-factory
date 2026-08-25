@@ -77,8 +77,10 @@ async function installBundledPiSkill(root: string, skillId: string): Promise<str
   let content: string;
   const sourceCandidates = [
     path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../.pi/skills", skillId, "SKILL.md"),
+    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../../.pi/skills", skillId, "SKILL.md"),
     path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../.pi/skills", skillId, "SKILL.md"),
     path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../skills", skillId, "SKILL.md"),
+    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../../skills", skillId, "SKILL.md"),
     path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../skills", skillId, "SKILL.md"),
     path.join(root, "skills", skillId, "SKILL.md"),
   ];

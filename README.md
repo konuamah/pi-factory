@@ -2,6 +2,32 @@
 
 Pi-native Factory with project-authoritative configuration, deterministic runtime control, Pi-backed agents, and a fact-first constitution pipeline.
 
+## npm package
+
+This repo is prepared as the public Pi package:
+
+```bash
+pi install npm:@konuamah/factory
+```
+
+The unscoped `pi-factory` npm name is already taken, so publish this package under the `@konuamah` scope unless ownership changes.
+
+Before publishing:
+
+```bash
+npm test
+npm pack --dry-run
+npm publish --access public
+```
+
+The package exposes a small public ESM API:
+
+```ts
+import { registerFactoryPiExtension } from "@konuamah/factory";
+```
+
+Pi discovers the extension through the package `pi` manifest and loads `extensions/factory.ts`.
+
 ## Current capabilities
 
 - project-authoritative config loading and precedence merge

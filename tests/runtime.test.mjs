@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { classifyIntegrationFailure, initializeFactoryProject, readLatestFactoryRunLogs, readLatestFactoryRunPlan, resumeLatestFactoryRun, runRuntimeHarness, showFactoryRun } from '../packages/core/dist/index.js';
+import { classifyIntegrationFailure, classifyVerificationFailure, initializeFactoryProject, readLatestFactoryRunLogs, readLatestFactoryRunPlan, resumeLatestFactoryRun, runRuntimeHarness, showFactoryRun } from '../packages/core/dist/index.js';
 
 const execFile = promisify(execFileCb);
 
@@ -119,7 +119,19 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
   await withTempProject(async (root) => {
     const calls = [];
     const plannerExecutor = makeExecutor('planner', calls);
-    const builderExecutor = makeExecutor('builder', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
+        await fs.writeFile(path.join(input.cwd, 'src/index.ts'), 'export const x = 2;\n', 'utf8');
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: 'builder completed',
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
     const reviewerExecutor = makeExecutor('reviewer', calls);
 
     const result = await runRuntimeHarness({
@@ -484,7 +496,19 @@ test('repair prompt focuses on observed failures only', async () => {
   await withTempProject(async (root) => {
     const calls = [];
     const plannerExecutor = makeExecutor('planner', calls);
-    const builderExecutor = makeExecutor('builder', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
+        await fs.writeFile(path.join(input.cwd, 'src/index.ts'), 'export const x = 2;\n', 'utf8');
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: 'builder completed',
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
     const repairExecutor = makeExecutor('repair', calls);
 
     await fs.writeFile(
@@ -493,7 +517,7 @@ test('repair prompt focuses on observed failures only', async () => {
         'project:',
         '  baseBranch: main',
         'commands:',
-        '  lint: node -e "process.exit(1)"',
+        '  lint: npm run lint',
         '  typecheck: node -e ""',
         '  test: node -e ""',
         '  build: node -e ""',
@@ -507,6 +531,17 @@ test('repair prompt focuses on observed failures only', async () => {
         'approval:',
         '  finalMerge: required',
       ].join('\n'),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({
+        name: 'tmp',
+        type: 'module',
+        scripts: {
+          lint: "node -e \"console.log(process.cwd() + '/src/index.ts'); process.exit(1)\"",
+        },
+      }, null, 2),
       'utf8',
     );
 
@@ -682,6 +717,54 @@ test('verification artifacts persist reasoning, classification, and repo learnin
   });
 });
 
+test('verification failure classification distinguishes unrelated baseline lint errors', async () => {
+  const plan = {
+    cwd: '/repo',
+    cwdResolution: 'root-package',
+    commands: { lint: 'npm run lint' },
+    selectionSource: 'deterministic',
+    skill: { id: 'verification-planning', version: '1.0.0', mode: 'verification', selectionReasons: [] },
+    evidence: { rootCwd: '/repo', candidateCwds: [], configuredCommands: {}, rootScripts: [], commandDecisions: [] },
+  };
+  const result = {
+    cwd: '/repo',
+    cwdResolution: 'root-package',
+    overallStatus: 'failed',
+    commands: [{
+      name: 'lint',
+      command: 'npm run lint',
+      status: 'failed',
+      exitCode: 1,
+      stdout: [
+        '/repo/hooks/useRateLimiter.js',
+        '  19:9  error  Avoid calling setState directly',
+      ].join('\n'),
+      stderr: '',
+    }],
+  };
+
+  const unrelated = classifyVerificationFailure({
+    plan,
+    result,
+    changedFiles: ['src/app/courses/components/EvergreenCourseGrid.tsx'],
+  });
+  assert.equal(unrelated?.kind, 'baseline/unrelated');
+  assert.equal(unrelated?.retryable, false);
+
+  const related = classifyVerificationFailure({
+    plan,
+    result: {
+      ...result,
+      commands: [{
+        ...result.commands[0],
+        stdout: '/repo/src/app/courses/components/EvergreenCourseGrid.tsx\n  10:1  error  Example',
+      }],
+    },
+    changedFiles: ['src/app/courses/components/EvergreenCourseGrid.tsx'],
+  });
+  assert.equal(related?.kind, 'real code failure');
+});
+
 test('resume re-plans verification after config-classified verification failures', async () => {
   await withTempProject(async (root) => {
     await fs.writeFile(
@@ -823,7 +906,7 @@ test('verification stages are not executed as builder task branches', async () =
   });
 });
 
-test('completed implementation with no file changes fails before verification', async () => {
+test('completed implementation with no file changes retries once before failing verification', async () => {
   await withTempProject(async (root) => {
     await fs.writeFile(
       path.join(root, '.factory/config.yaml'),
@@ -873,14 +956,81 @@ test('completed implementation with no file changes fails before verification', 
       requestApproval: async () => true,
     });
 
-    assert.equal(calls.filter((call) => call.label === 'builder').length, 1);
+    const builderCalls = calls.filter((call) => call.label === 'builder');
+    assert.equal(builderCalls.length, 2);
+    assert.match(builderCalls[1].prompt, /Factory implementation retry/);
     const runDir = result.runDir;
     const summary = await readJson(result.summaryPath);
     assert.equal(summary.status, 'FAILED');
     assert.equal(summary.phase, 'implementation-failed');
     const eventsRaw = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /task\.no_changes_retrying/);
     assert.match(eventsRaw, /task\.no_changes/);
     assert.match(eventsRaw, /implementation produced no file changes/);
+  });
+});
+
+test('completed implementation with no file changes can recover on retry', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  lint: node -e ""',
+        '  typecheck: node -e ""',
+        '  test: node -e ""',
+        '  build: node -e ""',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: true',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+    await execFile('git', ['add', '.'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'factory setup'], { cwd: root });
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
+        if (calls.filter((call) => call.label === 'builder').length === 2) {
+          await fs.writeFile(path.join(input.cwd, 'retry-output.txt'), 'implemented on retry\n', 'utf8');
+        }
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: 'completed',
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const builderCalls = calls.filter((call) => call.label === 'builder');
+    assert.equal(builderCalls.length, 2);
+    assert.match(builderCalls[1].prompt, /Your previous implementation turn completed without any file changes/);
+    const summary = await readJson(result.summaryPath);
+    assert.equal(summary.status, 'COMPLETED');
+    const eventsRaw = await fs.readFile(path.join(result.runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /task\.no_changes_retrying/);
+    assert.doesNotMatch(eventsRaw, /task\.no_changes","data/);
   });
 });
 

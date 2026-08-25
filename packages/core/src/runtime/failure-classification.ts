@@ -1,6 +1,6 @@
 import type { VerificationCommandResult, VerificationPlan, VerificationRunResult } from "./verification.js";
 
-export type VerificationFailureKind = "harness/config" | "repo script/config" | "real code failure" | "unknown";
+export type VerificationFailureKind = "harness/config" | "repo script/config" | "baseline/unrelated" | "real code failure" | "unknown";
 
 export interface VerificationFailureClassification {
   kind: VerificationFailureKind;
@@ -12,6 +12,7 @@ export interface VerificationFailureClassification {
 export function classifyVerificationFailure(input: {
   plan: VerificationPlan;
   result: VerificationRunResult;
+  changedFiles?: string[];
 }): VerificationFailureClassification | undefined {
   if (input.result.overallStatus !== "failed") {
     return undefined;
@@ -58,6 +59,21 @@ export function classifyVerificationFailure(input: {
 
   const failedScripts = failed.filter((command) => isDeclaredScriptCommand(command.command));
   if (failedScripts.length > 0) {
+    const changedFiles = normalizePathSet(input.changedFiles ?? []);
+    if (changedFiles.size > 0) {
+      const failureFiles = normalizePathSet(
+        failedScripts.flatMap((command) => extractReferencedFiles(command, input.result.cwd)),
+      );
+      const intersectsChangedFiles = [...failureFiles].some((file) => changedFiles.has(file));
+      if (failureFiles.size > 0 && !intersectsChangedFiles) {
+        return {
+          kind: "baseline/unrelated",
+          reason: `Repository verification failed outside the implemented files: ${[...failureFiles].slice(0, 5).join(", ")}.`,
+          retryable: false,
+          suggestedPhase: "verification",
+        };
+      }
+    }
     return {
       kind: "real code failure",
       reason: `Repository verification script failed: ${failedScripts.map((command) => command.name).join(", ")}.`,
@@ -95,4 +111,36 @@ function looksLikeHarnessMismatch(command: VerificationCommandResult): boolean {
 
 function isDeclaredScriptCommand(command: string): boolean {
   return /^(pnpm|npm|yarn)\s+(run\s+)?[a-z0-9:_-]+$/i.test(command.trim());
+}
+
+function extractReferencedFiles(command: VerificationCommandResult, cwd: string): string[] {
+  const text = `${command.stdout ?? ""}\n${command.stderr ?? ""}`;
+  const files = new Set<string>();
+  const escapedCwd = escapeRegExp(cwd.replace(/\\/g, "/"));
+  const absolutePattern = new RegExp(`${escapedCwd}/([^:\\n]+?\\.(?:js|jsx|ts|tsx|mjs|cjs))(?:[:\\n]|$)`, "g");
+  for (const match of text.replace(/\\/g, "/").matchAll(absolutePattern)) {
+    if (match[1]) {
+      files.add(match[1]);
+    }
+  }
+
+  const relativePattern = /(?:^|\n)\s*((?:\.\/)?(?:src|app|hooks|components|pages|lib|utils|server|services|slammservices|docs)\/[^:\n]+?\.(?:js|jsx|ts|tsx|mjs|cjs))(?:[:\n]|$)/g;
+  for (const match of text.replace(/\\/g, "/").matchAll(relativePattern)) {
+    if (match[1]) {
+      files.add(match[1].replace(/^\.\//, ""));
+    }
+  }
+  return [...files];
+}
+
+function normalizePathSet(files: string[]): Set<string> {
+  return new Set(
+    files
+      .map((file) => file.replace(/\\/g, "/").replace(/^\.\//, "").trim())
+      .filter(Boolean),
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

@@ -138,6 +138,7 @@ async function loadFactoryConciergeSkillSource(cwd: string): Promise<string> {
   const fs = await import("node:fs/promises");
   const candidates = [
     path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../skills/factory-concierge/SKILL.md"),
+    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../../skills/factory-concierge/SKILL.md"),
     path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../skills/factory-concierge/SKILL.md"),
     path.resolve(cwd, "..", "skills", "factory-concierge", "SKILL.md"),
     path.join(cwd, "skills", "factory-concierge", "SKILL.md"),

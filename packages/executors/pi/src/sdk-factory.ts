@@ -39,16 +39,19 @@ export function createPiSdkSessionFactory(
         if (missingTools.length > 0) {
           throw new Error(`Pi SDK did not provide required Factory tool(s): ${missingTools.join(", ")}`);
         }
+        // Pi SDK's `tools` option is an allowlist of active built-in tool
+        // names, not tool definition objects. Keep executable objects only for
+        // Factory's DSML/manual bridge path.
+        createOptions.tools = tools;
         if (options.toolGate) {
           const gateContext = buildGateContext(input, options.toolGate);
-          createOptions.tools = wrapToolsWithGate(createdTools as Parameters<typeof wrapToolsWithGate>[0], {
+          executableTools = wrapToolsWithGate(createdTools as Parameters<typeof wrapToolsWithGate>[0], {
             ...options.toolGate,
             context: gateContext,
           });
         } else {
-          createOptions.tools = createdTools;
+          executableTools = createdTools;
         }
-        executableTools = createOptions.tools as Array<{ name: string; execute: (args: unknown) => Promise<unknown> }>;
       }
 
       // If caller supplies a model, respect it strictly; otherwise let Pi use

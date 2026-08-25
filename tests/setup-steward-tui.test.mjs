@@ -131,16 +131,19 @@ test("fail-loud: recommendViaFactorySetupSkill without executor throws", async (
   });
 });
 
-test("fail-loud: missing factory-setup SKILL.md throws", async () => {
+test("packaged setup uses bundled factory-setup skill when project has none", async () => {
   await withRepo({ "package.json": JSON.stringify({ name: "app", type: "module" }, null, 2) }, async (root) => {
     const ctx = await buildFactorySetupContext(root);
-    const factory = piExecutors.createPiSdkSessionFactory({});
-    const exec = new piExecutors.PiAgentExecutor({ sessionFactory: factory });
-    // Point to /tmp where skill does not exist
+    const exec = {
+      async execute() { return { executionId: "x", status: "completed", outputText: "", events: [] }; },
+      async cancel() {},
+    };
+    // Point to /tmp where a project-local skill does not exist; packaged Factory
+    // should still find its bundled skill and then fail loudly on empty LLM output.
     await assert.rejects(
       () => recommendViaFactorySetupSkill({ cwd: "/tmp", context: ctx, executor: exec }),
       (err) => {
-        assert.match(String(err.message), /factory-setup skill not found/);
+        assert.match(String(err.message), /FACTORY_SETUP_LLM_INVALID_JSON/);
         return true;
       }
     );
@@ -238,7 +241,15 @@ test("live SDK via your Pi default (if auth present) — skip gracefully if 401/
     assert.equal(slides.length, 14);
   } catch (e) {
     const msg = String(e.message);
-    if (msg.includes("401") || msg.includes("402") || msg.includes("PROVIDER_AUTH") || msg.includes("INVALID_JSON")) {
+    if (
+      msg.includes("401") ||
+      msg.includes("402") ||
+      msg.includes("PROVIDER_AUTH") ||
+      msg.includes("INVALID_JSON") ||
+      msg.includes("EACCES") ||
+      msg.includes("permission denied") ||
+      msg.includes("npm install -g")
+    ) {
       // Invalid/billed-out key in this env — not a code failure. Log and skip.
       console.log(`Skipping live SDK test: ${msg.slice(0, 200)}`);
       return;

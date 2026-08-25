@@ -195,6 +195,15 @@ export class PiAgentExecutor implements AgentExecutor {
       const calls = parseDsmlToolCalls(nextText);
       processedLength = outputText.length;
       if (calls.length === 0) {
+        const marker = detectDsmlMarkup(nextText);
+        if (marker) {
+          const errorMessage = "Pi executor received malformed DSML tool-call markup that could not be executed.";
+          state.events.push({
+            type: "executor.malformed_dsml_tool_markup",
+            data: { reason: errorMessage, marker },
+          });
+          return { ok: false, errorMessage };
+        }
         return { ok: true };
       }
       if (!session.executeTool) {
@@ -279,6 +288,11 @@ function parseDsmlToolCalls(text: string): DsmlToolCall[] {
     });
   }
   return calls;
+}
+
+function detectDsmlMarkup(text: string): string | undefined {
+  const match = text.match(/<｜{1,2}DSML｜{1,2}(?:tool_calls|invoke|parameter)/);
+  return match?.[0];
 }
 
 function parseDsmlParameters(body: string): Record<string, unknown> {

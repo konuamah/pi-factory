@@ -187,6 +187,45 @@ test('DSML parser accepts single-pipe delimiter variants', async () => {
   assert.deepEqual(toolCalls, [{ name: 'bash', args: { command: 'pwd' } }]);
 });
 
+test('malformed DSML markup fails clearly instead of completing as no-op', async () => {
+  const session = {
+    listener: undefined,
+    async prompt() {
+      this.listener?.({
+        type: 'message_update',
+        text: '<｜DSML｜｜tool_calls><｜DSML｜parameter name="command" string="true">pwd</｜DSML｜parameter>',
+      });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async executeTool() {
+      throw new Error('should not execute malformed markup');
+    },
+    async abort() {},
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: {
+      async create() {
+        return { session };
+      },
+    },
+  });
+
+  const result = await executor.execute({
+    executionId: 'exec-malformed-dsml',
+    cwd: process.cwd(),
+    prompt: 'build',
+    tools: ['bash'],
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.match(result.errorMessage, /malformed DSML/);
+  assert.equal(result.events.some((event) => event.type === 'executor.malformed_dsml_tool_markup'), true);
+});
+
 test('missing requested SDK tools fail loudly', async () => {
   const sdkFactory = createPiSdkSessionFactory({
     sdkLoader: async () => ({

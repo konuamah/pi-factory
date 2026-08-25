@@ -2,6 +2,7 @@ import type { FactoryBuiltInDefaults } from "@factory/schemas";
 
 export const builtInDefaults: FactoryBuiltInDefaults = {
   models: {
+    discovery: { model: "sonnet" },
     planner: { model: "opus" },
     builder: { model: "sonnet" },
     reviewer: { model: "opus" },

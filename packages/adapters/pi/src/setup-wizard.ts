@@ -7,7 +7,7 @@ export interface FactorySetupChoices {
   modelAssignments: Partial<Record<ModelRole, ModelSelection>>;
 }
 
-const MODEL_ROLES: ModelRole[] = ["planner", "builder", "reviewer", "repair"];
+const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
 
 export async function promptFactorySetupChoices(
   ui: FactoryPiUi,
@@ -48,7 +48,7 @@ async function selectModelAssignments(
     ...(defaultSelection
       ? [`Use Pi default for all roles — ${defaultSelection.provider}/${defaultSelection.model}`]
       : []),
-    "Choose per role — Assign or skip models for planner, builder, reviewer, and repair",
+    "Choose per role — Assign or skip models for discovery, planner, builder, reviewer, and repair",
     "Skip Factory role model config — Leave role models unset in project config",
   ];
   const mode = await ui.select?.("Factory role model setup", modeOptions);

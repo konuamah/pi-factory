@@ -18,7 +18,7 @@ export async function validateFactorySetup(cwd: string): Promise<SetupValidation
   let configDetail = "Config loads";
   try {
     const loaded = await loadEffectiveConfig({ cwd });
-    const modelRoles = ["planner", "builder", "reviewer", "repair"] as const;
+    const modelRoles = ["discovery", "planner", "builder", "reviewer", "repair"] as const;
     const missingModels = modelRoles.filter((role) => !loaded.effectiveConfig.models[role]?.model);
     if (missingModels.length > 0) {
       configOk = false;

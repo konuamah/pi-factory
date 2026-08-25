@@ -29,6 +29,7 @@ function makePreview() {
 test('plan approval preview includes decision guidance and truncation summary', () => {
   const lines = buildPlanApprovalPreviewLines(makePreview());
   assert.ok(lines.includes('Decision options'));
+  assert.ok(lines.includes('Discovery report'));
   assert.ok(lines.includes('Feature plan'));
   assert.ok(lines.includes('- Improve the target area'));
   assert.ok(lines.includes('- Approve: continue to implementation'));
@@ -56,6 +57,52 @@ test('custom approval dialog can approve directly', async () => {
 
   assert.equal(decision.decision, 'approve');
 });
+
+test('custom approval dialog uses Pi theme colors without overflowing width', async () => {
+  const theme = {
+    fg(color, text) {
+      const codes = { accent: 36, muted: 90, dim: 2, success: 32, warning: 33, error: 31 };
+      return `\u001b[${codes[color] ?? 37}m${text}\u001b[0m`;
+    },
+    bold(text) {
+      return `\u001b[1m${text}\u001b[22m`;
+    },
+  };
+
+  const decision = await requestPlanApprovalDecision(
+    {
+      notify() {},
+      setWidget() {},
+      custom: async (factory) => {
+        let result;
+        const component = factory({ requestRender() {} }, theme, undefined, (value) => {
+          result = value;
+        });
+        const lines = component.render(72);
+        assert.ok(lines.some((line) => /\u001b\[36m/.test(line)));
+        assert.ok(lines.some((line) => /\u001b\[32m/.test(line)));
+        assert.ok(lines.every((line) => visibleWidth(line) <= 72));
+        component.handleInput?.('a');
+        return result;
+      },
+    },
+    {
+      ...makePreview(),
+      goal: 'Remove a very long upcoming courses entry with enough text to wrap inside the approval dialog',
+    },
+  );
+
+  assert.equal(decision.decision, 'approve');
+});
+
+function visibleWidth(value) {
+  let width = 0;
+  for (const char of value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")) {
+    const codePoint = char.codePointAt(0) ?? 0;
+    width += codePoint >= 0x1100 ? 2 : codePoint < 32 || (codePoint >= 0x7f && codePoint < 0xa0) ? 0 : 1;
+  }
+  return width;
+}
 
 test('custom approval dialog can request revisions with feedback', async () => {
   const decision = await requestPlanApprovalDecision(

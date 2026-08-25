@@ -114,9 +114,9 @@ function buildFactorySetupPrompt(context: FactorySetupContext, skillSource: stri
   const workflowPrimitives = `
 ## Workflow primitives (Factory already supports these — you may emit a custom DAG)
 Stages: { name, dependsOn?: string[], type?: "agent"|"command"|"approval", role?: ModelRole, commands?: string[], requiresApproval?: boolean, requiredCapabilities?: Capability[] }
-Roles: planner|builder|reviewer|repair  · Keep DAG acyclic, 2-7 stages.
+Roles: discovery|planner|builder|reviewer|repair  · Keep DAG acyclic, 2-7 stages.
 Example simple docs repo: plan -> build -> verify
-Example mature app: plan -> implementation{builder} -> verification{command} -> review{reviewer} -> approval
+Example mature app: discover{discovery} -> plan{planner} -> implementation{builder} -> verification{command} -> review{reviewer} -> approval
 Example DB repo (recommended here): plan -> build -> migration-check{command} -> integration-verify{command} -> review -> approval — Why: DB changes affect app+deploy, verify before review.
 You may return workflow as { kind:"preset", preset:"balanced"|"fast"|"safe" } or { kind:"custom", workflow: WorkflowDefinition }.
 `;
@@ -285,12 +285,13 @@ function normalizeCommands(
     if (!entry || typeof entry.value !== "string") continue;
     const value = String(entry.value).trim();
     const isDiscovered = discovered.has(value);
-    const source = isDiscovered ? "DISCOVERED" : "AI_SUGGESTED";
+    const inferredSource = isDiscovered ? "DISCOVERED" : "AI_SUGGESTED";
+    const source = (entry.source as import("@factory/schemas").RecommendationSource) ?? inferredSource;
     const requiresConfirmation = source === "AI_SUGGESTED" ? true : undefined;
     out[field] = {
       value,
       reason: String(entry.reason ?? (isDiscovered ? `Discovered: ${value}` : `Suggested: ${value}`)),
-      source: (entry.source as import("@factory/schemas").RecommendationSource) ?? source,
+      source,
       confidence: (entry.confidence as import("@factory/schemas").RecommendationConfidence) ?? (isDiscovered ? "HIGH" : "MEDIUM"),
       ...(requiresConfirmation ? { requiresConfirmation } : {}),
     };
@@ -363,7 +364,8 @@ export function buildDeterministicRecommendation(ctx: FactorySetupContext): Fact
           id: "default-dev",
           name: "DB-aware development",
           stages: [
-            { name: "plan", type: "agent", role: "planner" },
+            { name: "discover", type: "agent", role: "discovery" },
+            { name: "plan", type: "agent", role: "planner", dependsOn: ["discover"] },
             { name: "build", type: "agent", role: "builder", dependsOn: ["plan"] },
             { name: "migration-check", type: "command", commands: ["pnpm check:migrations"], dependsOn: ["build"] },
             { name: "integration-verify", type: "command", commands: ["pnpm test"], dependsOn: ["migration-check"] },
@@ -381,6 +383,7 @@ export function buildDeterministicRecommendation(ctx: FactorySetupContext): Fact
   const defaultModel = resolveDefaultModel(ctx);
   const models: FactorySetupRecommendation["models"] | undefined = defaultModel
     ? {
+        discovery: { value: defaultModel, reason: "Detected from your Pi model configuration; used for read-only discovery." },
         planner: { value: defaultModel, reason: "Detected from your Pi model configuration; used for planning." },
         builder: { value: defaultModel, reason: "Detected from your Pi model configuration; used for implementation." },
         reviewer: { value: defaultModel, reason: "Detected from your Pi model configuration; used for review." },

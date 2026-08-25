@@ -1,5 +1,7 @@
 import type { FactoryPiUi } from "./types.js";
 
+const STREAM_RENDER_GUTTER = 6;
+
 export interface FactoryStreamingPanelState {
   title: string;
   goal?: string;
@@ -113,12 +115,13 @@ class FactoryStreamingPanelComponent {
       return this.cachedLines;
     }
 
+    const renderWidth = Math.max(1, width - STREAM_RENDER_GUTTER);
     const header = [
-      this.state.title,
-      ...(this.state.goal ? [truncate(`Goal: ${this.state.goal}`, width)] : []),
-      ...(this.state.phase ? [truncate(`Phase: ${this.state.phase}`, width)] : []),
-      ...(this.state.role ? [truncate(`Role: ${this.state.role}`, width)] : []),
-      ...(this.state.status ? [truncate(`Status: ${this.state.status}`, width)] : []),
+      truncate(this.state.title, renderWidth),
+      ...(this.state.goal ? [truncate(`Goal: ${this.state.goal}`, renderWidth)] : []),
+      ...(this.state.phase ? [truncate(`Phase: ${this.state.phase}`, renderWidth)] : []),
+      ...(this.state.role ? [truncate(`Role: ${this.state.role}`, renderWidth)] : []),
+      ...(this.state.status ? [truncate(`Status: ${this.state.status}`, renderWidth)] : []),
       "",
     ];
 
@@ -126,10 +129,10 @@ class FactoryStreamingPanelComponent {
       Math.max(0, this.state.lines.length - 16 - this.scrollOffset),
       this.state.lines.length - this.scrollOffset,
     );
-    const body = visibleBody.length > 0 ? visibleBody.flatMap((line) => wrap(line, width)) : ["(waiting for output)"];
-    const footer = this.state.footer ? ["", truncate(this.state.footer, width)] : [];
+    const body = visibleBody.length > 0 ? visibleBody.flatMap((line) => wrap(line, renderWidth)) : ["(waiting for output)"];
+    const footer = this.state.footer ? ["", truncate(this.state.footer, renderWidth)] : [];
 
-    this.cachedLines = [...header, ...body, ...footer].map((line) => truncate(line, width));
+    this.cachedLines = [...header, ...body, ...footer].map((line) => truncate(line, renderWidth));
     this.cachedWidth = width;
     return this.cachedLines;
   }
@@ -173,13 +176,14 @@ class FactoryStreamingPanelComponent {
 }
 
 function truncate(value: string, width: number): string {
-  if (value.length <= width) {
-    return value;
+  const plain = stripAnsi(value);
+  if (visibleWidth(plain) <= width) {
+    return plain;
   }
   if (width <= 1) {
-    return value.slice(0, width);
+    return sliceToWidth(plain, width);
   }
-  return `${value.slice(0, width - 1)}…`;
+  return `${sliceToWidth(plain, width - 1)}…`;
 }
 
 function wrap(value: string, width: number): string[] {
@@ -187,11 +191,69 @@ function wrap(value: string, width: number): string[] {
     return [""];
   }
   const results: string[] = [];
-  let remaining = value;
-  while (remaining.length > width) {
-    results.push(remaining.slice(0, width));
-    remaining = remaining.slice(width);
+  let remaining = stripAnsi(value);
+  while (visibleWidth(remaining) > width) {
+    const chunk = sliceToWidth(remaining, width);
+    results.push(chunk);
+    remaining = remaining.slice(chunk.length);
   }
   results.push(remaining);
   return results;
+}
+
+function visibleWidth(value: string): number {
+  let width = 0;
+  for (const char of stripAnsi(value)) {
+    width += charWidth(char);
+  }
+  return width;
+}
+
+function sliceToWidth(value: string, maxWidth: number): string {
+  if (maxWidth <= 0) {
+    return "";
+  }
+  let width = 0;
+  let result = "";
+  for (const char of value) {
+    const nextWidth = width + charWidth(char);
+    if (nextWidth > maxWidth) {
+      break;
+    }
+    result += char;
+    width = nextWidth;
+  }
+  return result;
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+function charWidth(char: string): number {
+  const codePoint = char.codePointAt(0) ?? 0;
+  if (codePoint === 0) {
+    return 0;
+  }
+  if (codePoint < 32 || (codePoint >= 0x7f && codePoint < 0xa0)) {
+    return 0;
+  }
+  if (
+    codePoint >= 0x1100 && (
+      codePoint <= 0x115f ||
+      codePoint === 0x2329 ||
+      codePoint === 0x232a ||
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x1f300 && codePoint <= 0x1faff)
+    )
+  ) {
+    return 2;
+  }
+  return 1;
 }

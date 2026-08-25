@@ -4,7 +4,7 @@ import { selectConstitutionContext } from "../constitution/context.js";
 import { findFactorySkills } from "../skills/registry.js";
 import type { SkillSelectionResult } from "../skills/types.js";
 
-export type ContextRole = "planner" | "builder" | "reviewer" | "repair" | "verification";
+export type ContextRole = "discovery" | "planner" | "builder" | "reviewer" | "repair" | "verification";
 
 export interface ContextFile {
   path: string;
@@ -124,6 +124,8 @@ export async function compileAgentContext(input: ContextCompileRequest): Promise
 
 function toGuidanceRole(role: ContextRole): "planner" | "builder" | "reviewer" | "repair" {
   switch (role) {
+    case "discovery":
+      return "planner";
     case "planner":
       return "planner";
     case "builder":
@@ -227,6 +229,8 @@ function fitBudget(sections: string[], maxChars: number): string[] {
 
 function buildRoleRules(role: ContextRole): string | undefined {
   switch (role) {
+    case "discovery":
+      return "Role rules:\n- Produce discovery guidance only; do not implement code.\n- Inspect enough repository evidence for planning.\n- Do not broaden scope beyond the requested outcome.";
     case "planner":
       return "Role rules:\n- Produce architecture and execution guidance only; do not implement code.\n- Do not broaden scope beyond the requested outcome.";
     case "builder":

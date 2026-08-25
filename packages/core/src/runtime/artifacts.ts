@@ -19,6 +19,7 @@ export interface PrototypeTaskArtifact {
 export interface PrototypePlanArtifact {
   goal: string;
   summary: string;
+  discoveryText?: string;
   planText?: string;
   workflowStages: Array<{
     name: string;
@@ -135,6 +136,17 @@ export interface PrototypePlannerExecutionArtifact {
   errorMessage?: string;
 }
 
+export interface PrototypeDiscoveryExecutionArtifact {
+  executionId: string;
+  status: "completed" | "failed" | "cancelled";
+  outputText: string;
+  events: Array<{
+    type: string;
+    data?: Record<string, unknown>;
+  }>;
+  errorMessage?: string;
+}
+
 export interface PrototypeRepairExecutionArtifact {
   attempt: number;
   executionId: string;
@@ -201,6 +213,7 @@ export interface PrototypeSummaryArtifact {
   candidateSha?: string;
   planPath: string;
   taskPaths: string[];
+  discoveryExecutionPath?: string;
   plannerExecutionPath?: string;
   builderExecutionPaths?: string[];
   integrationPath?: string;
@@ -251,6 +264,15 @@ export async function writePrototypePlannerExecutionArtifact(
   artifact: PrototypePlannerExecutionArtifact,
 ): Promise<string> {
   const filePath = path.join(runDir, "planner-execution.json");
+  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
+export async function writePrototypeDiscoveryExecutionArtifact(
+  runDir: string,
+  artifact: PrototypeDiscoveryExecutionArtifact,
+): Promise<string> {
+  const filePath = path.join(runDir, "discovery-execution.json");
   await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
   return filePath;
 }

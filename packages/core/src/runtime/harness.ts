@@ -7,6 +7,7 @@ export interface RuntimeHarnessResult {
   runId: string;
   runDir: string;
   summaryPath: string;
+  discoveryExecutionPath?: string;
   plannerExecutionPath?: string;
   builderExecutionPaths?: string[];
   integrationPath?: string;
@@ -26,7 +27,7 @@ export async function runRuntimeHarness(input: {
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
   verificationPlannerExecutor?: AgentExecutor;
-  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; planText?: string; tasks: Array<{ id: string; title: string; stage: string; status: "pending" | "done"; dependsOn: string[]; type?: string; role?: string; commands?: string[]; requiresApproval?: boolean }> }) => Promise<PlanApprovalResult>;
+  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: Array<{ id: string; title: string; stage: string; status: "pending" | "done"; dependsOn: string[]; type?: string; role?: string; commands?: string[]; requiresApproval?: boolean }> }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string }) => Promise<boolean>;
   requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
 }): Promise<RuntimeHarnessResult> {
@@ -50,6 +51,7 @@ export async function runRuntimeHarness(input: {
     runId: result.runId,
     runDir: result.runDir,
     summaryPath: result.summaryPath,
+    discoveryExecutionPath: result.discoveryExecutionPath,
     plannerExecutionPath: result.plannerExecutionPath,
     builderExecutionPaths: result.builderExecutionPaths,
     integrationPath: result.integrationPath,

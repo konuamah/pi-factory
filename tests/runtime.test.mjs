@@ -57,13 +57,16 @@ async function initGitRepo(root) {
 function makeExecutor(label, calls) {
   return {
     async execute(input) {
-      calls.push({ label, executionId: input.executionId, prompt: input.prompt });
+      const actualLabel = input.executionId.includes('discovery') ? 'discovery' : label;
+      calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt });
       return {
         executionId: input.executionId,
         status: 'completed',
-        outputText: label === 'planner'
+        outputText: actualLabel === 'discovery'
+          ? ['Discovery Report', '### Relevant Components', '- src/index.ts — Confirmed entry file evidence', 'DISCOVERY_COMPLETE'].join('\n')
+          : actualLabel === 'planner'
           ? ['Feature Plan', '- Update the target document for clarity', '- Keep scope limited to the requested file', 'WAITING_FOR_APPROVAL'].join('\n')
-          : `${label} completed`,
+          : `${actualLabel} completed`,
         events: [],
       };
     },
@@ -120,12 +123,29 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     });
 
     const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
+    const discoveryPrompt = calls.find((call) => call.label === 'discovery')?.prompt ?? '';
+    assert.match(discoveryPrompt, /Role: Discovery/);
+    assert.match(discoveryPrompt, /You are in Discovery only/);
+    assert.match(discoveryPrompt, /Do not:\n- implement anything\n- modify files\n- write code\n- create an implementation plan/);
+    assert.match(discoveryPrompt, /Produce a concise Discovery Report/);
+    assert.match(discoveryPrompt, /DISCOVERY_COMPLETE/);
     const builderPrompt = calls.find((call) => call.label === 'builder')?.prompt ?? '';
     const reviewerPrompt = calls.find((call) => call.label === 'reviewer')?.prompt ?? '';
 
+    assert.ok(calls.findIndex((call) => call.label === 'discovery') < calls.findIndex((call) => call.label === 'planner'));
     assert.match(plannerPrompt, /Selected skills:/);
     assert.match(plannerPrompt, /repo-interpretation@1\.0\.0/);
     assert.match(plannerPrompt, /architecture-planning@1\.0\.0/);
+    assert.match(plannerPrompt, /Discovery Report \(authoritative pre-planning evidence\):/);
+    assert.match(plannerPrompt, /src\/index\.ts/);
+    assert.match(plannerPrompt, /execution contract for the Builder/);
+    assert.match(plannerPrompt, /Do not perform broad repository discovery here/);
+    assert.match(plannerPrompt, /PLANNING DECISIONS/);
+    assert.match(plannerPrompt, /IMPLEMENTATION SEQUENCE/);
+    assert.match(plannerPrompt, /VERIFICATION CONTRACT/);
+    assert.match(plannerPrompt, /RISKS AND BLOCKERS/);
+    assert.match(plannerPrompt, /Name the confirmed files, components, data sources, commands, or config surfaces/);
+    assert.match(plannerPrompt, /make the first step a narrow evidence check/);
     assert.match(plannerPrompt, /Do not broaden scope beyond the requested outcome\./);
     assert.match(builderPrompt, /Selected skills:/);
     assert.match(builderPrompt, /implementation-task@1\.0\.0/);

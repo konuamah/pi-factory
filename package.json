@@ -5,7 +5,9 @@
   "type": "module",
   "workspaces": [
     "dashboard",
-    "packages/*"
+    "packages/*",
+    "packages/adapters/*",
+    "packages/executors/*"
   ],
   "scripts": {
     "build": "tsc -b",

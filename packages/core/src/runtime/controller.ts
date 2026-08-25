@@ -12,6 +12,7 @@ import { appendFactoryRunEvent, createFactoryRun, updateFactoryRunState } from "
 import { appendRepoLearning } from "../learnings/store.js";
 import {
   writePrototypeBuilderExecutionArtifact,
+  writePrototypeDiscoveryExecutionArtifact,
   writePrototypeFinalMergeArtifact,
   writePrototypeIntegrationArtifact,
   writePrototypePlanArtifact,
@@ -68,13 +69,14 @@ export interface RunFactoryControllerInput {
   workflowId?: string;
   taskType?: string;
   modelOverrides?: Partial<Record<ModelRole, ModelSelection>>;
+  discoveryExecutor?: AgentExecutor;
   plannerExecutor?: AgentExecutor;
   builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
   verificationPlannerExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
-  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
+  requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string; candidateSha?: string }) => Promise<boolean>;
   requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
   delayMs?: number;
@@ -99,6 +101,7 @@ export interface RunFactoryControllerResult {
   approved: boolean;
   planPath: string;
   taskPaths: string[];
+  discoveryExecutionPath?: string;
   plannerExecutionPath?: string;
   builderExecutionPaths: string[];
   integrationPath?: string;
@@ -142,7 +145,7 @@ export async function runFactoryController(
     workflowId: loaded.effectiveConfig.resolvedWorkflowId ?? input.workflowId,
   });
 
-  const phases = ["planning", "plan-approval", "implementation", "integration", "verification", "repair", "verified", "review", "approval-ready", "merge", "complete"];
+  const phases = ["discovery", "planning", "plan-approval", "implementation", "integration", "verification", "repair", "verified", "review", "approval-ready", "merge", "complete"];
   const delayMs = input.delayMs ?? 150;
   const builderExecutionPaths: string[] = [];
   let integrationPath: string | undefined;
@@ -174,8 +177,9 @@ export async function runFactoryController(
     message: `Starting run for: ${input.goal}`,
   });
 
-  await movePhase(run.statePath, run.eventsPath, run.runId, input, "planning", "Building plan");
+  await movePhase(run.statePath, run.eventsPath, run.runId, input, "discovery", "Discovering relevant system context");
 
+  const discoveryGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "planner", goal: input.goal });
   const plannerGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "planner", goal: input.goal });
   const builderGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "builder", goal: input.goal });
   const repairGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "repair", goal: input.goal });
@@ -183,6 +187,14 @@ export async function runFactoryController(
 
   await initializeFactorySkills(projectRoot);
   const repoSkillSignals = await collectRuntimeSkillSignals(projectRoot);
+  const discoverySkills = resolveFactorySkills({
+    goal: input.goal,
+    stage: "discover",
+    taskKinds: ["repo-interpretation", "planning"],
+    requiredCapabilities: ["repo-interpretation"],
+    availableTools: ["read", "grep", "find", "ls"],
+    ...repoSkillSignals,
+  });
   const plannerSkills = resolveFactorySkills({
     goal: input.goal,
     stage: "plan",
@@ -221,22 +233,27 @@ export async function runFactoryController(
     type: "guidance.context_selected",
     data: {
       plannerInstructionFiles: plannerGuidance.instructionFiles,
+      discoveryInstructionFiles: discoveryGuidance.instructionFiles,
       builderInstructionFiles: builderGuidance.instructionFiles,
       repairInstructionFiles: repairGuidance.instructionFiles,
       reviewerInstructionFiles: reviewerGuidance.instructionFiles,
       plannerInstructionDetails: plannerGuidance.instructionDetails,
+      discoveryInstructionDetails: discoveryGuidance.instructionDetails,
       builderInstructionDetails: builderGuidance.instructionDetails,
       repairInstructionDetails: repairGuidance.instructionDetails,
       reviewerInstructionDetails: reviewerGuidance.instructionDetails,
       plannerHasConstitution: plannerGuidance.hasConstitution,
+      discoveryHasConstitution: discoveryGuidance.hasConstitution,
       builderHasConstitution: builderGuidance.hasConstitution,
       repairHasConstitution: repairGuidance.hasConstitution,
       reviewerHasConstitution: reviewerGuidance.hasConstitution,
       plannerUsedConstitution: plannerGuidance.usedConstitution,
+      discoveryUsedConstitution: discoveryGuidance.usedConstitution,
       builderUsedConstitution: builderGuidance.usedConstitution,
       repairUsedConstitution: repairGuidance.usedConstitution,
       reviewerUsedConstitution: reviewerGuidance.usedConstitution,
       plannerGuidanceChars: plannerGuidance.approxChars,
+      discoveryGuidanceChars: discoveryGuidance.approxChars,
       builderGuidanceChars: builderGuidance.approxChars,
       repairGuidanceChars: repairGuidance.approxChars,
       reviewerGuidanceChars: reviewerGuidance.approxChars,
@@ -246,6 +263,7 @@ export async function runFactoryController(
     timestamp: new Date().toISOString(),
     type: "skills.selected",
     data: {
+      discovery: summarizeSkillBundle(discoverySkills),
       planner: summarizeSkillBundle(plannerSkills),
       builder: summarizeSkillBundle(builderSkills),
       repair: summarizeSkillBundle(repairSkills),
@@ -271,8 +289,54 @@ export async function runFactoryController(
     },
   });
 
+  let discoveryExecutionPath: string | undefined;
+  let discoveryOutputText: string | undefined;
   let plannerExecutionPath: string | undefined;
   let plannerOutputText: string | undefined;
+  const discoveryExecutor = input.discoveryExecutor ?? input.plannerExecutor;
+  if (discoveryExecutor) {
+    const discoveryModel = resolveModelForRole({
+      role: "discovery",
+      taskType: runTaskType.id,
+      config: loaded.effectiveConfig,
+      runModelOverride: input.modelOverrides?.discovery,
+    });
+    await appendModelLedgerEntry(run.runDir, {
+      operationId: `${run.runId}-discovery`,
+      role: "discovery",
+      taskType: runTaskType.id,
+      taskTypeSource: runTaskType.source,
+      taskTypeConfidence: runTaskType.confidence,
+      requestedModel: discoveryModel.model.model,
+      resolvedModel: discoveryModel.model.model,
+      provider: discoveryModel.model.provider,
+      modelSource: discoveryModel.source,
+    });
+    const discoveryResult = await discoveryExecutor.execute({
+      executionId: `${run.runId}-discovery`,
+      cwd: executionCwd,
+      prompt: buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills)),
+      model: discoveryModel.model,
+      tools: ["read", "grep", "find", "ls"],
+      metadata: {
+        role: "discovery",
+        runId: run.runId,
+        taskType: runTaskType.id,
+      },
+    });
+    discoveryOutputText = sanitizeDiscoveryOutput(discoveryResult.outputText);
+    discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, discoveryResult);
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "discovery.executor_completed",
+      data: {
+        discoveryExecutionPath,
+        discoveryStatus: discoveryResult.status,
+      },
+    });
+  }
+
+  await movePhase(run.statePath, run.eventsPath, run.runId, input, "planning", "Building plan");
   if (input.plannerExecutor) {
     const plannerModel = resolveModelForRole({
       role: "planner",
@@ -294,7 +358,7 @@ export async function runFactoryController(
     const plannerResult = await input.plannerExecutor.execute({
       executionId: `${run.runId}-planner`,
       cwd: executionCwd,
-      prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text, renderSkillBundleForPrompt(plannerSkills)),
+      prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text, renderSkillBundleForPrompt(plannerSkills), discoveryOutputText),
       model: plannerModel.model,
       tools: ["read", "grep", "find", "ls"],
       metadata: {
@@ -318,6 +382,7 @@ export async function runFactoryController(
   const plan = buildPlanArtifact({
     goal: input.goal,
     config: loaded.effectiveConfig,
+    discoveryText: discoveryOutputText,
     planText: plannerOutputText,
   });
   const planPath = await writePrototypePlanArtifact(run.runDir, plan);
@@ -346,6 +411,7 @@ export async function runFactoryController(
       taskCount: plan.tasks.length,
       workflowStages: plan.workflowStages.map((stage) => stage.name),
       tasksDir: taskPaths.length > 0 ? path.dirname(taskPaths[0]!) : undefined,
+      discoveryExecutionPath,
       plannerExecutionPath,
     },
   });
@@ -375,6 +441,7 @@ export async function runFactoryController(
     taskCount: plan.tasks.length,
     workflowStages: plan.workflowStages.map((stage) => stage.name),
     summary: plan.summary,
+    discoveryText: discoveryOutputText,
     planText: plan.planText,
     tasks: plan.tasks,
   })) ?? { decision: "approve" as const };
@@ -412,6 +479,7 @@ export async function runFactoryController(
       approved: false,
       planPath,
       taskPaths,
+      discoveryExecutionPath,
       plannerExecutionPath,
       builderExecutionPaths,
       integrationPath,
@@ -431,6 +499,7 @@ export async function runFactoryController(
       approved: false,
       planPath,
       taskPaths,
+      discoveryExecutionPath,
       plannerExecutionPath,
       builderExecutionPaths,
       integrationPath,
@@ -500,6 +569,7 @@ export async function runFactoryController(
       approved: false,
       planPath,
       taskPaths,
+      discoveryExecutionPath,
       plannerExecutionPath,
       builderExecutionPaths,
       integrationPath,
@@ -519,6 +589,7 @@ export async function runFactoryController(
       approved: false,
       planPath,
       taskPaths,
+      discoveryExecutionPath,
       plannerExecutionPath,
       builderExecutionPaths,
       integrationPath,
@@ -576,6 +647,7 @@ export async function runFactoryController(
       approved: false,
       planPath,
       taskPaths,
+      discoveryExecutionPath,
       plannerExecutionPath,
       builderExecutionPaths,
       integrationPath,
@@ -595,6 +667,7 @@ export async function runFactoryController(
       approved: false,
       planPath,
       taskPaths,
+      discoveryExecutionPath,
       plannerExecutionPath,
       builderExecutionPaths,
       integrationPath,
@@ -1016,6 +1089,7 @@ export async function runFactoryController(
         approved: false,
         planPath,
         taskPaths,
+        discoveryExecutionPath,
         plannerExecutionPath,
         builderExecutionPaths,
         integrationPath,
@@ -1096,6 +1170,7 @@ export async function runFactoryController(
       candidateSha,
       planPath,
       taskPaths,
+      discoveryExecutionPath,
       plannerExecutionPath,
       builderExecutionPaths,
       integrationPath,
@@ -1170,6 +1245,7 @@ export async function runFactoryController(
     candidateSha,
     planPath,
     taskPaths,
+    discoveryExecutionPath,
     plannerExecutionPath,
     builderExecutionPaths,
     integrationPath,
@@ -2091,7 +2167,7 @@ async function gitChangedFiles(cwd: string): Promise<string[]> {
 
 function resolveNodeRole(task: PlannerTask): ModelRole {
   const role = task.role as ModelRole | undefined;
-  if (role === "planner" || role === "reviewer" || role === "repair" || role === "builder") {
+  if (role === "discovery" || role === "planner" || role === "reviewer" || role === "repair" || role === "builder") {
     return role;
   }
   return "builder";
@@ -2105,6 +2181,12 @@ function roleTools(role: ModelRole): string[] {
 }
 
 function isExecutableWorkflowNode(task: PlannerTask): boolean {
+  // Built-in phases are handled by dedicated controller code, regardless of
+  // whether the workflow node is typed as an agent or command.
+  const normalized = task.stage.toLowerCase();
+  if (RESERVED_PHASE_STAGES.has(normalized)) {
+    return false;
+  }
   const type = task.type;
   if (type === "command" || type === "task-graph") {
     return true;
@@ -2112,13 +2194,12 @@ function isExecutableWorkflowNode(task: PlannerTask): boolean {
   if (type === "approval") {
     return false;
   }
-  // Agent/untyped nodes are executable unless they are reserved built-in phases
-  // (planning, verification, review, approval, merge) handled by dedicated runtime steps.
-  const normalized = task.stage.toLowerCase();
-  return !RESERVED_PHASE_STAGES.has(normalized);
+  return true;
 }
 
 const RESERVED_PHASE_STAGES = new Set([
+  "discover",
+  "discovery",
   "plan",
   "planning",
   "verify",
@@ -2139,39 +2220,154 @@ function sanitizePlannerOutput(value: string | undefined): string | undefined {
   return trimmed.replace(/\bWAITING_FOR_APPROVAL\b\s*$/m, "").trim() || undefined;
 }
 
+function sanitizeDiscoveryOutput(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return trimmed.replace(/\bDISCOVERY_COMPLETE\b\s*$/m, "").trim() || undefined;
+}
+
+function buildDiscoveryPrompt(
+  goal: string,
+  constitutionContext?: string,
+  skillBundleText?: string,
+): string {
+  return [
+    "Role: Discovery",
+    "",
+    "Your job is to understand the task and the relevant existing system well enough for a separate Planning phase to make sound implementation decisions.",
+    "",
+    "You are in Discovery only.",
+    "",
+    "Do not:",
+    "- implement anything",
+    "- modify files",
+    "- write code",
+    "- create an implementation plan",
+    "- recommend a solution prematurely",
+    "",
+    "## Objective",
+    "",
+    "Determine:",
+    "- what the user wants to achieve",
+    "- how the relevant system currently works",
+    "- which components are involved",
+    "- existing patterns and architecture",
+    "- requirements and constraints",
+    "- dependencies and risks",
+    "- unknowns",
+    "- task scope",
+    "",
+    `User task: ${goal}`,
+    skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
+    constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    "",
+    "## Discovery Process",
+    "",
+    "### 1. Understand the Goal",
+    "Identify the desired outcome, problem, explicit requirements, reasonable implicit requirements, and acceptance criteria.",
+    "Do not invent unclear requirements.",
+    "",
+    "### 2. Investigate the Current System",
+    "Inspect relevant code, files, configuration, schemas, APIs, tests, and documentation.",
+    "Trace the actual behavior where possible:",
+    "Entry point -> components -> data/services -> result",
+    "Identify relevant existing functionality and patterns.",
+    "",
+    "### 3. Identify Constraints and Risks",
+    "Look for architecture and framework constraints, APIs and data models, security and permissions, backwards compatibility, external dependencies, performance concerns, existing conventions, and material implementation risks.",
+    "",
+    "### 4. Identify Unknowns",
+    "For important unknowns, state what is unknown, why it matters, and whether it blocks Planning.",
+    "Ask the user only when the answer cannot be found from available evidence and is necessary for Planning.",
+    "",
+    "### 5. Define Scope",
+    "Identify In scope, Out of scope, and Potentially affected areas.",
+    "Do not expand scope without evidence.",
+    "",
+    "## Evidence",
+    "Classify important findings as Confirmed, Inferred, or Unknown.",
+    "Reference specific files, functions, components, schemas, tests, or configuration when useful.",
+    "",
+    "## Required Output",
+    "Produce a concise Discovery Report with exactly these sections:",
+    "### Goal",
+    "### Current State",
+    "### Relevant Components",
+    "### Requirements & Constraints",
+    "### Dependencies & Risks",
+    "### Unknowns / Questions",
+    "### Scope",
+    "### Key Findings",
+    "",
+    "## Rules",
+    "- Base conclusions on evidence.",
+    "- Do not invent requirements.",
+    "- Clearly separate facts, inferences, and unknowns.",
+    "- Do not modify or implement anything.",
+    "- Do not turn Discovery into an implementation plan.",
+    "- Investigate only as far as needed for Planning; do not explore unrelated areas.",
+    "- End with exactly: DISCOVERY_COMPLETE",
+  ].filter(Boolean).join("\n");
+}
+
 function buildPlannerPrompt(
   goal: string,
   config: { git: { baseBranch: string }; approval: { finalMerge: string }; repair: { maxAttempts: number } },
   constitutionContext?: string,
   skillBundleText?: string,
+  discoveryReport?: string,
 ): string {
   return [
-    "Act as a Principal Software Architect.",
-    `I want to build: ${goal}`,
+    "You are an expert Principal Software Architect and Lead Project Planner.",
+    "Your job is to turn the Discovery Report and project guidance into a clear execution contract for the Builder.",
+    `Task: ${goal}`,
     "Do not write implementation code.",
-    "Do not inspect or modify files unless absolutely necessary.",
-    "Produce a short architecture plan for this repository and then stop.",
+    "Do not perform broad repository discovery here; Discovery already gathered the evidence.",
+    "Produce a concrete, repository-grounded implementation plan and then stop.",
     "",
     `Base branch: ${config.git.baseBranch}`,
     `Approval policy: ${config.approval.finalMerge}`,
     `Repair attempts: ${config.repair.maxAttempts}`,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    discoveryReport ? `Discovery Report (authoritative pre-planning evidence):\n${discoveryReport}` : undefined,
     "",
-    "Return exactly these sections and keep each section concise:",
-    "1. Requirements Breakdown",
-    "2. Technical Stack & Libraries",
-    "3. Architecture & File Structure",
-    "4. Step-by-Step Implementation Plan",
-    "5. Trade-offs & Edge Cases",
+    "Use the Discovery Report as the primary source of repository facts. If it is missing a fact needed for safe implementation, add a bounded pre-implementation verification step for the Builder instead of inventing the fact.",
+    "",
+    "Produce the plan with exactly these sections:",
+    "",
+    "1. PLANNING DECISIONS",
+    "- Restate the outcome in one sentence.",
+    "- Name the confirmed files, components, data sources, commands, or config surfaces the Builder should use.",
+    "- State the chosen approach and why it fits the existing system.",
+    "- Call out any non-negotiable constraints from the user, config, or project guidance.",
+    "",
+    "2. IMPLEMENTATION SEQUENCE",
+    "- Break the work into small, sequential, and testable steps labeled Step 1, Step 2, etc.",
+    "- Ensure each step builds logically on the previous one.",
+    "- For each step, say exactly what kind of file/component/config change the Builder should make.",
+    "- If a necessary fact is missing, make the first step a narrow evidence check with concrete targets and acceptance criteria.",
+    "",
+    "3. VERIFICATION CONTRACT",
+    "- List the exact checks, commands, or manual assertions that should prove the change works.",
+    "- Tie each check to the risk or requirement it covers.",
+    "- If a configured command is not appropriate, explain why and choose the weakest valid verification that still gives useful signal.",
+    "",
+    "4. RISKS AND BLOCKERS",
+    "- List concrete risks, such as stale content, bad selectors, broken links, unavailable models, invalid commands, dependency issues, or verification gaps.",
+    "- Provide a mitigation or fallback for each risk.",
+    "- Mark user decisions as blockers only when Builder cannot safely proceed without them.",
     "",
     "Constraints:",
-    "- Maximum 20 bullet points total across the whole response.",
-    "- Maximum 6 implementation steps.",
-    "- Reference likely files/modules only when strongly justified by repository evidence.",
+    "- Be specific. Avoid vague phrases like 'likely touchpoints' when Discovery provided concrete evidence.",
+    "- For content/UI tasks, name the discovered files/components/data sources that should change.",
+    "- Do not claim a file, route, dependency, command, or framework exists unless it is supported by the Discovery Report or project guidance context.",
     "- Do not broaden scope beyond the requested outcome.",
     "- Do not propose unrelated documentation rewrites or adjacent cleanup unless clearly required.",
-    "- Do not repeat the prompt or project guidance context.",
+    "- Do not repeat the prompt, Discovery Report, or project guidance context.",
+    "- Keep the plan concise but operational: the Builder should know where to start, what to change, and how to verify.",
     "- End with exactly: WAITING_FOR_APPROVAL",
   ].filter(Boolean).join("\n");
 }

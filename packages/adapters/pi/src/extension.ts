@@ -49,9 +49,8 @@ async function autoStartDashboardIfEnabled(): Promise<void> {
 
 async function loadWebAdapter(): Promise<{ ensureDashboardServer?: (o: unknown) => Promise<unknown> } | undefined> {
   try {
-    // Dynamic to avoid hard dependency cycle; @factory/adapter-web may not be built yet
-    // @ts-ignore - dynamic import
-    const m = await import("../../../adapters/web/dist/index.js");
+    // Dynamic so installations that do not include the web adapter can still use Pi.
+    const m = await import("@factory/adapter-web");
     return m as { ensureDashboardServer?: (o: unknown) => Promise<unknown> };
   } catch {}
   return undefined;

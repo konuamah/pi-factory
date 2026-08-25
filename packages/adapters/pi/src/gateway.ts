@@ -36,6 +36,9 @@ import {
   validateCapabilityDefinition,
   parseCapabilityFile,
   judgeConstitutionRefreshForTask,
+  recommendViaFactoryConciergeSkill,
+  type FactoryConciergeAction,
+  type FactoryConciergeRecommendation,
   planFactorySetup,
   applyFactorySetup,
   validateFactorySetup,
@@ -44,7 +47,7 @@ import {
   type AgentExecutor,
   type FactoryRunProgressEvent,
 } from "@factory/core";
-import * as piExecutors from "../../../executors/pi/dist/index.js";
+import * as piExecutors from "@factory/executor-pi";
 import { buildPlanApprovalPreviewLines, requestPlanApprovalDecision } from "./approval.js";
 import { requestDecisionInput } from "./decision-dialog.js";
 import { promptFactorySetupChoices } from "./setup-wizard.js";
@@ -55,7 +58,7 @@ import type { ModelRole, ModelSelection, WorkflowNodeType, WorkflowStage } from 
 
 const execFileAsync = promisify(execFile);
 const FACTORY_WIDGET_ID = "factory-status";
-const FACTORY_SUBCOMMANDS = ["setup", "status", "doctor", "logs", "list", "show", "plan", "resume", "cancel", "worktree", "workflow", "capabilities", "models", "cleanup", "constitution", "dashboard"];
+const FACTORY_SUBCOMMANDS = ["ask", "setup", "status", "doctor", "logs", "list", "show", "plan", "resume", "cancel", "worktree", "workflow", "capabilities", "models", "cleanup", "constitution", "dashboard"];
 
 export async function getFactoryCommandCompletions(
   prefix: string,
@@ -106,6 +109,7 @@ export async function handleFactoryCommand(
         "Factory",
         "",
         "/factory dashboard [start|stop|status|open] [--port N] [--host H]  dashboard control (opt-in via dashboard.enabled)",
+        "/factory ask <question>  ask Factory Concierge what to do next",
         "/factory setup   initialize project-local Factory files",
         "/factory status [run-id] inspect config and latest or specific run state",
         "/factory doctor  validate repo and config readiness",
@@ -132,6 +136,9 @@ export async function handleFactoryCommand(
     switch (subcommand) {
       case "setup":
         await handleSetup(rest, ctx);
+        return;
+      case "ask":
+        await handleAsk(rest.join(" "), ctx);
         return;
       case "status":
         await handleStatus(ctx, rest[0]);
@@ -244,13 +251,13 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
   // Step 3: Steward walk — project understanding + review of every area before writing
   // Uses buildStewardSlides from @factory/core; falls back to simple choice when no interactive UI.
   const { buildStewardSlides } = await import("@factory/core");
-  const slides = (buildStewardSlides as unknown as (c: unknown, r: unknown) => Array<{ id: string; title: string; simpleTitle: string; lines: string[]; kind: string }>)(setupContext, recommendation!);
+  const slides = (buildStewardSlides as unknown as (c: unknown, r: unknown) => StewardReviewSlide[])(setupContext, recommendation!);
   let stewardCancelled = false;
   const answers: Record<string, string> = {};
   let slideIndex = 0;
   while (slideIndex < slides.length) {
     const slide = slides[slideIndex]!;
-    renderLines(ctx, [slide.simpleTitle, `(${slide.title} — ${slide.kind})`, "", ...slide.lines]);
+    renderLines(ctx, stewardSlideSummaryLines(slide));
     if (!ctx.ui.select) { slideIndex++; continue; } // non-interactive: auto-accept recommendation
     const opts = stewardSlideOptions(slide.id, slideIndex);
     const choice = await ctx.ui.select(slide.title, opts);
@@ -260,7 +267,7 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
       continue;
     }
     if (choice === "Show details") {
-      renderLines(ctx, ["Details — raw key:", `id: ${slide.id}`, ...slide.lines]);
+      await showStewardSlideDetails(ctx, slide);
       const c2 = await ctx.ui.select(slide.title, stewardSlideDetailOptions(slide.id, slideIndex));
       if (!c2 || c2 === "Cancel") { stewardCancelled = true; break; }
       if (c2 === "Back") {
@@ -342,6 +349,231 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
   ctx.ui.notify(`Factory setup complete — ${validation.readiness}`, isHealthy ? "info" : "warning");
 }
 
+async function handleAsk(questionText: string, ctx: FactoryPiCommandContext): Promise<void> {
+  const question = questionText.trim();
+  if (!question) {
+    renderLines(ctx, [
+      "Factory Concierge",
+      "",
+      "Ask a question, for example:",
+      "/factory ask how does Factory work?",
+      "/factory ask set everything up for this repo",
+      "/factory ask why is my model failing?",
+    ]);
+    ctx.ui.notify("Ask Factory Concierge a question", "info");
+    return;
+  }
+
+  renderIntro(ctx, [
+    "Factory Concierge will answer using this repo’s Factory setup, models, skills, commands, and readiness.",
+    "It recommends first and asks before setup, workflow changes, or constitution refreshes.",
+  ]);
+
+  const panel = mountFactoryStreamingWidget(ctx.ui, FACTORY_WIDGET_ID, {
+    title: "Factory Concierge",
+    goal: question,
+    phase: "ask",
+    role: "factory-concierge",
+    status: "thinking",
+    lines: ["Reading Factory setup context..."],
+    footer: "Factory Concierge routes to existing Factory commands after approval.",
+  });
+
+  const executor = await createOptionalSetupExecutor(ctx, (_executionId, event) => {
+    panel.setStatus("streaming");
+    if (event.text) panel.appendStream(event.text);
+  });
+  const recommendation = await recommendViaFactoryConciergeSkill({
+    cwd: ctx.cwd,
+    question,
+    executor,
+    onEvent: (text) => panel.append(text),
+  });
+
+  panel.setStatus("completed");
+  renderLines(ctx, factoryConciergeLines(recommendation));
+  await handleConciergeRecommendationAction(recommendation, ctx);
+}
+
+function factoryConciergeLines(rec: FactoryConciergeRecommendation): string[] {
+  return [
+    "Factory Concierge",
+    "",
+    rec.answer,
+    "",
+    `Recommended action: ${formatConciergeAction(rec.recommendedAction)}`,
+    `Why: ${rec.why}`,
+    ...(rec.suggestedCommand ? [`Command: ${rec.suggestedCommand}`] : []),
+    ...(rec.handoff ? [`Handoff: ${rec.handoff}`] : []),
+    ...(rec.details?.length ? ["", "Details", ...rec.details.map((line) => `- ${line}`)] : []),
+  ];
+}
+
+async function handleConciergeRecommendationAction(
+  rec: FactoryConciergeRecommendation,
+  ctx: FactoryPiCommandContext,
+): Promise<void> {
+  if (rec.recommendedAction === "answer-only") {
+    ctx.ui.notify("Factory Concierge answered", "info");
+    return;
+  }
+
+  if (rec.recommendedAction === "import-skills") {
+    ctx.ui.notify("Factory Concierge recommended skill import/review", "info");
+    return;
+  }
+
+  const command = rec.suggestedCommand ?? conciergeCommandForAction(rec.recommendedAction);
+  if (!command) {
+    ctx.ui.notify("Factory Concierge recommendation shown", "info");
+    return;
+  }
+
+  const shouldRun = rec.needsApproval
+    ? await ctx.ui.confirm?.("Run recommended Factory action?", `${command}\n\n${rec.why}`)
+    : true;
+  if (rec.needsApproval && !shouldRun) {
+    ctx.ui.notify("Factory Concierge action not run", "info");
+    return;
+  }
+
+  await runConciergeAction(rec.recommendedAction, ctx);
+}
+
+async function runConciergeAction(action: FactoryConciergeAction, ctx: FactoryPiCommandContext): Promise<void> {
+  switch (action) {
+    case "run-setup":
+      await handleSetup([], ctx);
+      return;
+    case "run-doctor":
+      await handleDoctor(ctx);
+      return;
+    case "create-workflow":
+      await handleWorkflow(["create"], ctx);
+      return;
+    case "inspect-models":
+      await handleModels([], ctx);
+      return;
+    case "refresh-constitution":
+      await handleConstitution([], ctx);
+      return;
+    case "show-status":
+      await handleStatus(ctx, undefined);
+      return;
+    default:
+      ctx.ui.notify("Factory Concierge recommendation shown", "info");
+  }
+}
+
+function conciergeCommandForAction(action: FactoryConciergeAction): string | undefined {
+  switch (action) {
+    case "run-setup": return "/factory setup";
+    case "run-doctor": return "/factory doctor";
+    case "create-workflow": return "/factory workflow create";
+    case "inspect-models": return "/factory models";
+    case "refresh-constitution": return "/factory constitution";
+    case "show-status": return "/factory status";
+    default: return undefined;
+  }
+}
+
+function formatConciergeAction(action: FactoryConciergeAction): string {
+  return action.replace(/-/g, " ");
+}
+
+interface StewardReviewSlide {
+  id: string;
+  title: string;
+  simpleTitle: string;
+  lines: string[];
+  details?: string[];
+  kind: string;
+  recommended?: unknown;
+}
+
+function stewardSlideSummaryLines(slide: StewardReviewSlide): string[] {
+  const body = slide.lines.filter((line) => !/widget truncated/i.test(line));
+  const maxBodyLines = 9;
+  const visible = body.slice(0, maxBodyLines);
+  const hidden = Math.max(0, body.length - visible.length);
+  return [
+    slide.simpleTitle,
+    `(${slide.title} — ${slide.kind})`,
+    "",
+    ...visible,
+    ...(hidden > 0 ? ["", `${hidden} more line(s). Choose Show details to read the full section.`] : []),
+  ];
+}
+
+async function showStewardSlideDetails(ctx: FactoryPiCommandContext, slide: StewardReviewSlide): Promise<void> {
+  const detailLines = stewardSlideDetailLines(slide);
+  if (ctx.ui.custom) {
+    await ctx.ui.custom<void>((tui, _theme, _keybindings, done) => {
+      let scrollOffset = 0;
+      return {
+        render(width: number): string[] {
+          const safeWidth = Math.max(20, width);
+          const header = [
+            `${slide.title} details`,
+            `id: ${slide.id} · kind: ${slide.kind}`,
+            "",
+          ];
+          const footer = [
+            "",
+            "↑↓ scroll · enter/escape close",
+          ];
+          const wrapped = detailLines.flatMap((line) => wrapWidgetLine(line, safeWidth));
+          const availableRows = Math.max(6, 22 - header.length - footer.length - 1);
+          const maxOffset = Math.max(0, wrapped.length - availableRows);
+          scrollOffset = Math.min(scrollOffset, maxOffset);
+          const visible = wrapped.slice(scrollOffset, scrollOffset + availableRows);
+          const position = wrapped.length > availableRows
+            ? [`Showing ${scrollOffset + 1}-${Math.min(wrapped.length, scrollOffset + availableRows)} of ${wrapped.length}`]
+            : [];
+          return [...header, ...position, ...visible, ...footer].map((line) => truncateWidgetLine(line, width));
+        },
+        handleInput(data: string) {
+          if (data === "\r" || data === "\n" || data === "\u001b") {
+            done();
+            return;
+          }
+          if (data === "\u001b[A") {
+            scrollOffset = Math.max(0, scrollOffset - 1);
+            tui.requestRender();
+          } else if (data === "\u001b[B") {
+            scrollOffset += 1;
+            tui.requestRender();
+          }
+        },
+        invalidate() {},
+      };
+    });
+    return;
+  }
+
+  renderLines(ctx, [
+    `${slide.title} details`,
+    `id: ${slide.id}`,
+    "",
+    ...detailLines.slice(0, 24),
+    ...(detailLines.length > 24 ? ["", `${detailLines.length - 24} more line(s) hidden by this shell. Use an interactive Pi TUI for scrollable details.`] : []),
+  ]);
+}
+
+function stewardSlideDetailLines(slide: StewardReviewSlide): string[] {
+  const lines = [
+    "Recommendation view",
+    ...slide.lines.filter((line) => !/widget truncated/i.test(line)),
+  ];
+  if (slide.details?.length) {
+    lines.push("", "Additional detail", ...slide.details);
+  }
+  if (slide.recommended !== undefined) {
+    lines.push("", "Raw recommendation", ...JSON.stringify(slide.recommended, null, 2).split(/\r?\n/));
+  }
+  return lines;
+}
+
 function stewardSlideOptions(slideId: string, slideIndex: number): string[] {
   return [
     slideId === "understanding" ? "Looks right" : "Next / Use this",
@@ -367,6 +599,25 @@ function stewardSlideCanCustomize(slideId: string): boolean {
 
 function isCustomizeChoice(choice: string): boolean {
   return choice === "Customize" || choice === "Correct something";
+}
+
+function truncateWidgetLine(value: string, width: number): string {
+  if (value.length <= width) return value;
+  if (width <= 1) return value.slice(0, width);
+  return `${value.slice(0, width - 1)}…`;
+}
+
+function wrapWidgetLine(value: string, width: number): string[] {
+  if (width <= 0) return [""];
+  if (value.length === 0) return [""];
+  const out: string[] = [];
+  let remaining = value;
+  while (remaining.length > width) {
+    out.push(remaining.slice(0, width));
+    remaining = remaining.slice(width);
+  }
+  out.push(remaining);
+  return out;
 }
 
 function renderSetupSummary(
@@ -473,7 +724,7 @@ async function runSetupCustomize(
         current.workflow = { value: { kind: "preset", preset, workflowId: curWf?.workflowId ?? "default-dev" }, reason: `User chose ${preset}` };
       }
     } else if (section === "Models") {
-      for (const role of ["planner", "builder", "reviewer", "repair"] as const) {
+      for (const role of ["discovery", "planner", "builder", "reviewer", "repair"] as const) {
         const cur = current.models?.[role]?.value;
         const curLabel = cur ? `${cur.provider ? `${cur.provider}/` : ""}${cur.model}` : "unset";
         const choice = await uiCtx.ui.select?.(`Model for ${role} (now: ${curLabel})`, [
@@ -581,7 +832,7 @@ async function createOptionalSetupExecutor(
   if (!pi.hasAuth) {
     throw new Error("FACTORY_SETUP_REQUIRES_PI_EXECUTOR: pi.hasAuth is false — no auth.json or provider mismatch. Configure auth and re-run /factory setup.");
   }
-  const piExecutors = await import("../../../executors/pi/dist/index.js");
+  const piExecutors = await import("@factory/executor-pi");
   const factory = (piExecutors as unknown as { createPiSdkSessionFactory: (opts: unknown) => unknown }).createPiSdkSessionFactory({ packageName: process.env.FACTORY_PI_SDK_PACKAGE });
   const { PiAgentExecutor } = piExecutors as unknown as { PiAgentExecutor: new (opts: unknown) => import("@factory/core").AgentExecutor };
   return new PiAgentExecutor({ sessionFactory: factory, onEvent });
@@ -1196,7 +1447,7 @@ async function handleModels(rest: string[], ctx: FactoryPiCommandContext): Promi
 
   const loaded = await loadEffectiveConfig({ cwd: ctx.cwd });
   const taskTypes = loaded.effectiveConfig.taskTypes ?? {};
-  const roles = ["planner", "builder", "reviewer", "repair"] as const;
+  const roles = ["discovery", "planner", "builder", "reviewer", "repair"] as const;
 
   const lines: string[] = ["Factory model routing", ""];
   lines.push("Role defaults");
@@ -1383,17 +1634,21 @@ async function handleWorkflowCreate(ctx: FactoryPiCommandContext, registry: Awai
       `Models found: ${modelOptions.length || "none"}`,
       pi?.defaultProvider && pi.defaultModel ? `Pi default: ${pi.defaultProvider}/${pi.defaultModel}` : "Pi default: not configured",
       "",
-      "Next, add workflow nodes. Advanced model overrides are optional per agent node.",
+      "Next, add workflow steps. Advanced model overrides are optional for AI steps.",
     ]);
 
-    stages = await collectWorkflowStages(ctx, modelOptions);
+    stages = await collectWorkflowStages(ctx, {
+      workflowName: name.trim(),
+      modelOptions,
+      piDefault: pi?.defaultProvider && pi.defaultModel ? { provider: pi.defaultProvider, model: pi.defaultModel } : undefined,
+    });
     const defaultChoice = await ctx.ui.select("Use this workflow as the Factory default?", ["No", "Yes"]);
     setAsDefault = defaultChoice === "Yes";
   } else {
     const stageNames: string[] = [];
     let nextName: string | undefined;
     do {
-      nextName = await ctx.ui.input("Add workflow node", "Node name, or blank to finish");
+      nextName = await ctx.ui.input("Add workflow step", "Step name, or blank to finish");
       if (nextName?.trim()) {
         stageNames.push(slugifyWorkflowPart(nextName.trim()));
       }
@@ -1407,7 +1662,7 @@ async function handleWorkflowCreate(ctx: FactoryPiCommandContext, registry: Awai
   }
 
   if (stages.length === 0) {
-    ctx.ui.notify("Workflow needs at least one node", "error");
+    ctx.ui.notify("Workflow needs at least one step", "error");
     return;
   }
 
@@ -1426,14 +1681,15 @@ async function handleWorkflowCreate(ctx: FactoryPiCommandContext, registry: Awai
     `id: ${id}`,
     `name: ${name.trim()}`,
     `default: ${setAsDefault ? "yes" : "no"}`,
-    `nodes: ${stages.length}`,
+    `steps: ${stages.length}`,
     "",
     ...stages.map((stage) => {
       const role = stage.role ? ` role=${stage.role}` : "";
       const model = stage.model ? ` model=${formatModelSelection(stage.model)}` : "";
       const commands = stage.commands?.length ? ` commands=${stage.commands.join(", ")}` : "";
       const depends = stage.dependsOn?.length ? ` after=${stage.dependsOn.join(", ")}` : "";
-      return `- ${stage.name} [${stage.type ?? "agent"}]${role}${model}${commands}${depends}`;
+      const description = stage.description ? ` — ${stage.description}` : "";
+      return `- ${stage.name} [${stage.type ?? "agent"}]${role}${model}${commands}${depends}${description}`;
     }),
   ]);
   ctx.ui.notify(`Workflow ${name.trim()} created`, "info");
@@ -1441,55 +1697,70 @@ async function handleWorkflowCreate(ctx: FactoryPiCommandContext, registry: Awai
 
 async function collectWorkflowStages(
   ctx: FactoryPiCommandContext,
-  modelOptions: ModelSelection[],
+  options: {
+    workflowName: string;
+    modelOptions: ModelSelection[];
+    piDefault?: ModelSelection;
+  },
 ): Promise<WorkflowStage[]> {
   const stages: WorkflowStage[] = [];
 
   while (true) {
+    renderLines(ctx, workflowPreviewLines(stages, options));
     const addChoice = await ctx.ui.select?.(
-      stages.length === 0 ? "Add the first workflow node?" : "Add another workflow node?",
-      stages.length === 0 ? ["Add node", "Cancel"] : ["Add node", "Finish workflow"],
+      stages.length === 0 ? "Add the first workflow step?" : "Add another workflow step?",
+      stages.length === 0 ? ["Add step", "Cancel"] : ["Add step", "Finish workflow"],
     );
-    if (addChoice !== "Add node") break;
+    if (addChoice !== "Add step") break;
 
-    const rawName = await ctx.ui.input?.("Workflow node name", "e.g. plan, build, verify, approval");
+    const rawName = await ctx.ui.input?.("Workflow step name", "e.g. plan, build, verify, approval");
     const name = slugifyWorkflowPart(rawName ?? "");
     if (!name) {
-      ctx.ui.notify("Node name is required", "warning");
+      ctx.ui.notify("Step name is required", "warning");
       continue;
     }
 
-    const typeChoice = await ctx.ui.select?.("Node type", [
-      "Agent — Factory asks a model to reason or do work",
-      "Command — Factory runs project commands",
-      "Approval — Factory asks a human before continuing",
-      "Task graph — Factory expands this node into sub-tasks",
+    const description = (await ctx.ui.input?.(
+      "What should this step accomplish?",
+      "e.g. plan the change, update code, run frontend checks, review risk",
+    ))?.trim();
+
+    const typeChoice = await ctx.ui.select?.("What kind of step is this?", [
+      "AI step — ask a model to plan, build, review, or repair",
+      "Command step — run saved project checks like lint, typecheck, test, or build",
+      "Approval step — pause and ask you before Factory continues",
+      "Task graph step — split larger work into smaller sub-tasks",
     ]);
     const type = workflowNodeTypeFromChoice(typeChoice);
     const previous = stages.at(-1)?.name;
     const stage: WorkflowStage = {
       name,
       type,
+      ...(description ? { description } : {}),
       dependsOn: previous ? [previous] : [],
     };
 
     if (type === "agent") {
-      const roleChoice = await ctx.ui.select?.("Agent role", [
+      const roleChoice = await ctx.ui.select?.("AI role for this step", [
         "builder — implementation work",
+        "discovery — read-only repo understanding before planning",
         "planner — planning and repo reasoning",
         "reviewer — review and risk spotting",
         "repair — fix failed checks",
-        "No role override",
+        "Use workflow default role — rely on this step name and purpose",
       ]);
       const role = workflowRoleFromChoice(roleChoice);
       if (role) stage.role = role;
 
-      const model = await selectWorkflowStageModel(ctx, modelOptions);
+      const model = await selectWorkflowStageModel(ctx, options.modelOptions);
       if (model) stage.model = model;
     }
 
     if (type === "command") {
-      const rawCommands = await ctx.ui.input?.("Commands for this node", "comma-separated, e.g. lint, typecheck, test");
+      const rawCommands = await ctx.ui.input?.(
+        "Project commands for this step",
+        "comma-separated command ids or shell commands, e.g. lint, typecheck, npm test",
+      );
       const commands = splitWorkflowCommands(rawCommands ?? "");
       if (commands.length > 0) {
         stage.commands = commands;
@@ -1501,6 +1772,7 @@ async function collectWorkflowStages(
     }
 
     stages.push(stage);
+    renderLines(ctx, workflowPreviewLines(stages, options));
   }
 
   return stages;
@@ -1532,6 +1804,57 @@ async function selectWorkflowStageModel(
   return modelOptions.find((model) => formatModelSelection(model) === label);
 }
 
+function workflowPreviewLines(
+  stages: WorkflowStage[],
+  options: {
+    workflowName: string;
+    modelOptions: ModelSelection[];
+    piDefault?: ModelSelection;
+  },
+): string[] {
+  const latest = stages.at(-1);
+  return [
+    "Factory workflow builder",
+    `Workflow: ${options.workflowName} | models: ${options.modelOptions.length || "none"}`,
+    options.piDefault ? `Default: ${formatModelSelection(options.piDefault)}` : "Default: not configured",
+    `Preview: ${renderWorkflowStepChain(stages)}`,
+    ...(latest
+      ? [
+          `Latest: ${renderWorkflowStepPreview(latest)}`,
+          ...(latest.description ? [`Purpose: ${truncatePreviewLine(latest.description, 92)}`] : []),
+        ]
+      : ["Next: add steps such as plan -> build -> verify -> approval."]),
+    "Command step = run checks like lint, typecheck, test, or build.",
+  ];
+}
+
+function renderWorkflowStepChain(stages: WorkflowStage[]): string {
+  if (stages.length === 0) {
+    return "(empty)";
+  }
+  const names = stages.map((stage) => stage.name);
+  const chain = names.length > 5
+    ? [...names.slice(0, 2), "...", ...names.slice(-2)].join(" -> ")
+    : names.join(" -> ");
+  return truncatePreviewLine(chain, 100);
+}
+
+function renderWorkflowStepPreview(stage: WorkflowStage): string {
+  const type = stage.type ?? "agent";
+  const role = stage.role ?? (type === "agent" ? "workflow default" : undefined);
+  const model = stage.model ? formatModelSelection(stage.model) : undefined;
+  const commands = stage.commands?.length ? stage.commands.join(", ") : undefined;
+  const summary = [stage.name, type, role, model, commands].filter(Boolean).join(" | ");
+  return truncatePreviewLine(summary, 100);
+}
+
+function truncatePreviewLine(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
 function workflowModelOptions(pi: Awaited<ReturnType<typeof detectPiModelConfiguration>> | undefined): ModelSelection[] {
   const models: ModelSelection[] = [];
   const seen = new Set<string>();
@@ -1561,13 +1884,14 @@ function slugifyWorkflowPart(value: string): string {
 }
 
 function workflowNodeTypeFromChoice(choice: string | undefined): WorkflowNodeType {
-  if (choice?.startsWith("Command")) return "command";
-  if (choice?.startsWith("Approval")) return "approval";
-  if (choice?.startsWith("Task graph")) return "task-graph";
+  if (choice?.startsWith("Command step")) return "command";
+  if (choice?.startsWith("Approval step")) return "approval";
+  if (choice?.startsWith("Task graph step")) return "task-graph";
   return "agent";
 }
 
 function workflowRoleFromChoice(choice: string | undefined): ModelRole | undefined {
+  if (choice?.startsWith("discovery")) return "discovery";
   if (choice?.startsWith("planner")) return "planner";
   if (choice?.startsWith("reviewer")) return "reviewer";
   if (choice?.startsWith("repair")) return "repair";
@@ -1702,7 +2026,9 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
   const executorBundle = await createOptionalExecutorBundle(effectiveExecutorMode, (executionId, event) => {
 
     panel.setStatus("streaming");
-    if (executionId.includes("planner")) {
+    if (executionId.includes("discovery")) {
+      panel.setRole("discovery");
+    } else if (executionId.includes("planner")) {
       panel.setRole("planner");
     } else if (executionId.includes("builder")) {
       panel.setRole("builder");
@@ -1722,6 +2048,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     workflowId: parsed.workflowId,
     taskType: parsed.taskType,
     branchName: `factory-${trimmedGoal.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "run"}`,
+    discoveryExecutor: executorBundle?.discoveryExecutor,
     plannerExecutor: executorBundle?.plannerExecutor,
     builderExecutor: executorBundle?.builderExecutor,
     repairExecutor: executorBundle?.repairExecutor,
@@ -1731,8 +2058,8 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
       panel.setStatus(event.status.toLowerCase());
       panel.append(`${event.phase}: ${event.message}`);
     },
-    requestPlanApproval: async ({ runId, goal, planPath, taskCount, workflowStages, summary, planText, tasks }) => {
-      const preview = { runId, goal, planPath, taskCount, workflowStages, summary, planText, tasks };
+    requestPlanApproval: async ({ runId, goal, planPath, taskCount, workflowStages, summary, discoveryText, planText, tasks }) => {
+      const preview = { runId, goal, planPath, taskCount, workflowStages, summary, discoveryText, planText, tasks };
       panel.setPhase("plan-approval");
       panel.setStatus("waiting-for-approval");
       panel.setLines(buildPlanApprovalPreviewLines(preview));
@@ -2297,8 +2624,7 @@ async function handleDashboard(rest: string[], ctx: FactoryPiCommandContext): Pr
 
 async function loadDashboardWeb(): Promise<unknown> {
   try {
-    // @ts-ignore - dynamic import, may not have types until built
-    return await import("../../../adapters/web/dist/index.js");
+    return await import("@factory/adapter-web");
   } catch {}
   return undefined;
 }
@@ -2377,6 +2703,7 @@ async function createOptionalExecutorBundle(
   ctx?: FactoryPiCommandContext,
 ): Promise<
   | {
+      discoveryExecutor: AgentExecutor;
       plannerExecutor: AgentExecutor;
       builderExecutor: AgentExecutor;
       repairExecutor: AgentExecutor;
@@ -2407,6 +2734,7 @@ async function createOptionalExecutorBundle(
       : piExecutors.createFakePiSessionFactory();
 
   return {
+    discoveryExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
     plannerExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
     builderExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
     repairExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),

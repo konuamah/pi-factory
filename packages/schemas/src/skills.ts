@@ -1,4 +1,4 @@
-export type SkillExecutionStage = "plan" | "build" | "verification" | "review" | "repair";
+export type SkillExecutionStage = "discover" | "plan" | "build" | "verification" | "review" | "repair";
 
 export interface SkillApplicability {
   filePatterns?: string[];

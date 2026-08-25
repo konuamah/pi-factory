@@ -17,6 +17,7 @@ function configWith(taskTypes, models = {}) {
   return {
     taskTypes,
     models: {
+      discovery: { model: 'sonnet' },
       planner: { model: 'sonnet' },
       builder: { model: 'sonnet' },
       reviewer: { model: 'opus' },
@@ -91,7 +92,7 @@ test('preflightModelRouting reports missing models across task types and roles',
   );
   const errors = preflightModelRouting({
     taskTypes: ['database-evolution', 'docs'],
-    roles: ['planner', 'builder', 'reviewer', 'repair'],
+    roles: ['discovery', 'planner', 'builder', 'reviewer', 'repair'],
     config,
   });
   assert.ok(errors.some((e) => e.taskType === 'database-evolution' && e.role === 'reviewer'));

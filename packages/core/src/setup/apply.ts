@@ -58,9 +58,40 @@ export async function applyFactorySetup(plan: FactorySetupPlan, options: ApplySe
       await fs.writeFile(extensionPath, content, "utf8");
       written.push(extensionPath);
     }
+    const skillPath = await installBundledPiSkill(root, "factory-concierge");
+    if (skillPath) {
+      written.push(skillPath);
+    }
   }
 
   return written;
+}
+
+async function installBundledPiSkill(root: string, skillId: string): Promise<string | undefined> {
+  const skillDir = path.join(root, ".pi", "skills", skillId);
+  const skillPath = path.join(skillDir, "SKILL.md");
+  if (await exists(skillPath)) {
+    return undefined;
+  }
+
+  let content: string;
+  const sourceCandidates = [
+    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../.pi/skills", skillId, "SKILL.md"),
+    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../.pi/skills", skillId, "SKILL.md"),
+    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../skills", skillId, "SKILL.md"),
+    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../skills", skillId, "SKILL.md"),
+    path.join(root, "skills", skillId, "SKILL.md"),
+  ];
+  for (const sourcePath of sourceCandidates) {
+    try {
+      content = await fs.readFile(sourcePath, "utf8");
+      await fs.mkdir(skillDir, { recursive: true });
+      await fs.writeFile(skillPath, content, "utf8");
+      return skillPath;
+    } catch {}
+  }
+
+  return undefined;
 }
 
 async function readLines(filePath: string): Promise<string[]> {

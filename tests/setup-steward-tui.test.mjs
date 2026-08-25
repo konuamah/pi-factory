@@ -171,6 +171,7 @@ test("fail-loud: LLM garbage JSON throws, not silent fallback", async () => {
 test("validate: tolerate Spark-style questions without id/options (normalized)", async () => {
   await withRepo({ "package.json": JSON.stringify({ name: "app", type: "module" }, null, 2) }, async (root) => {
     const ctx = await buildFactorySetupContext(root);
+    assert.ok(ctx.availableSkills.some((skill) => skill.id === "factory-concierge"));
     const rec = buildDeterministicRecommendation(ctx);
     // Spark emits {kind, question} without id/options
     rec.questions = [

@@ -15,9 +15,10 @@ export function defaultWorkflowDefinition(): WorkflowDefinition {
   return {
     id: DEFAULT_WORKFLOW_ID,
     name: "Default Development",
-    description: "Plan, implement, verify, and approve changes.",
+    description: "Discover, plan, implement, verify, and approve changes.",
     stages: [
-      { name: "plan", type: "agent", role: "planner" },
+      { name: "discover", type: "agent", role: "discovery" },
+      { name: "plan", type: "agent", role: "planner", dependsOn: ["discover"] },
       { name: "implementation", type: "agent", role: "builder", dependsOn: ["plan"] },
       { name: "verification", type: "command", commands: ["lint", "typecheck", "test", "build"], dependsOn: ["implementation"] },
       { name: "approval", type: "approval", dependsOn: ["verification"] },
@@ -101,6 +102,7 @@ function flattenWorkflows(workflows: WorkflowDefinition[]): string[] {
     lines.push("    stages:");
     for (const stage of workflow.stages) {
       lines.push(`      - name: ${stage.name}`);
+      if (stage.description) lines.push(`        description: ${JSON.stringify(stage.description)}`);
       if (stage.type) lines.push(`        type: ${stage.type}`);
       if (stage.role) lines.push(`        role: ${stage.role}`);
       if (stage.dependsOn?.length) lines.push(`        dependsOn: [${stage.dependsOn.join(", ")}]`);
@@ -203,6 +205,11 @@ function parseSimpleWorkflowYaml(raw: string): WorkflowConfig {
 
     if (currentStage && indent === 8 && /^type:/.test(trimmed)) {
       currentStage.type = String(parseValue(trimmed.slice("type:".length))) as WorkflowStage["type"];
+      continue;
+    }
+
+    if (currentStage && indent === 8 && /^description:/.test(trimmed)) {
+      currentStage.description = String(parseValue(trimmed.slice("description:".length)));
       continue;
     }
 

@@ -19,7 +19,7 @@ export function validateSetupRecommendation(
       const wf = (v as { workflow: import("@factory/schemas").WorkflowDefinition }).workflow;
       if (!wf?.stages || wf.stages.length < 2 || wf.stages.length > 10) throw new Error("custom workflow must have 2-10 stages");
       if (wf.stages.some((s) => !s.name?.trim())) throw new Error("workflow stage missing name");
-      if (wf.stages.some((s) => s.role && !["planner","builder","reviewer","repair"].includes(s.role))) throw new Error("workflow stage has unknown role");
+      if (wf.stages.some((s) => s.role && !["discovery","planner","builder","reviewer","repair"].includes(s.role))) throw new Error("workflow stage has unknown role");
       if (hasCycle(wf.stages)) throw new Error("workflow DAG has a cycle");
       for (const st of wf.stages) if (st.requiredCapabilities?.some((c) => !allowedCaps.has(c as unknown as import("@factory/schemas").Capability))) throw new Error(`workflow stage requires unknown capability`);
       // model overrides must be allowlisted

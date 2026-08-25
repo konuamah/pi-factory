@@ -133,6 +133,7 @@ export function toolsToRequiredCapabilities(tools: string[]): Capability[] {
 export function defaultCapabilitiesForRole(role: string): Capability[] {
   switch (role) {
     case "planner":
+    case "discovery":
     case "reviewer":
       return ["repo.read", "ci.read"];
     case "repair":

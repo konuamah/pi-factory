@@ -95,7 +95,7 @@ function collectAvailableModels(pi: Awaited<ReturnType<typeof detectPiModelConfi
     add(model);
   }
   // Keep built-ins last; configured Pi models should be preferred.
-  for (const role of ["planner", "builder", "reviewer", "repair"] as const) {
+  for (const role of ["discovery", "planner", "builder", "reviewer", "repair"] as const) {
     add(builtInDefaults.models[role]);
   }
 
@@ -107,7 +107,7 @@ async function collectAvailableSkills(gitRoot: string): Promise<SkillSummary[]> 
   const summaries: SkillSummary[] = [];
 
   // Hardcoded factory stage skills (registered at runtime but not yet discovered via files)
-  const builtInIds = ["repo-interpretation", "architecture-planning", "implementation-task", "acceptance-review", "failure-triage", "verification-repair", "verification-planning"];
+  const builtInIds = ["repo-interpretation", "architecture-planning", "implementation-task", "acceptance-review", "failure-triage", "verification-repair", "verification-planning", "factory-concierge"];
   for (const id of builtInIds) {
     ids.add(id);
     summaries.push({ id });

@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "dependencies": {
+    "@factory/adapter-web": "0.1.0",
     "@factory/core": "0.1.0",
     "@factory/executor-pi": "0.1.0",
     "@factory/schemas": "0.1.0"

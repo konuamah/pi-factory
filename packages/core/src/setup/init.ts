@@ -141,14 +141,14 @@ export function defaultConstitutionTemplate(): string {
 
 export function defaultWorkflowTemplate(preset: FactoryWorkflowPreset = "balanced"): string {
   if (preset === "fast") {
-    return `defaultWorkflowId: default-dev\nworkflows:\n  - id: default-dev\n    name: Fast Development\n    stages:\n      - name: plan\n      - name: build\n        dependsOn: [plan]\n      - name: approval\n        dependsOn: [build]\n      - name: merge\n        dependsOn: [approval]\n`;
+    return `defaultWorkflowId: default-dev\nworkflows:\n  - id: default-dev\n    name: Fast Development\n    stages:\n      - name: discover\n        type: agent\n        role: discovery\n      - name: plan\n        type: agent\n        role: planner\n        dependsOn: [discover]\n      - name: build\n        type: agent\n        role: builder\n        dependsOn: [plan]\n      - name: approval\n        type: approval\n        dependsOn: [build]\n      - name: merge\n        dependsOn: [approval]\n`;
   }
 
   if (preset === "safe") {
-    return `defaultWorkflowId: default-dev\nworkflows:\n  - id: default-dev\n    name: Safe Development\n    stages:\n      - name: plan\n      - name: build\n        dependsOn: [plan]\n      - name: verify\n        dependsOn: [build]\n      - name: approval\n        dependsOn: [verify]\n      - name: merge\n        dependsOn: [approval]\n`;
+    return `defaultWorkflowId: default-dev\nworkflows:\n  - id: default-dev\n    name: Safe Development\n    stages:\n      - name: discover\n        type: agent\n        role: discovery\n      - name: plan\n        type: agent\n        role: planner\n        dependsOn: [discover]\n      - name: build\n        type: agent\n        role: builder\n        dependsOn: [plan]\n      - name: verify\n        type: command\n        dependsOn: [build]\n      - name: approval\n        type: approval\n        dependsOn: [verify]\n      - name: merge\n        dependsOn: [approval]\n`;
   }
 
-  return `defaultWorkflowId: default-dev\nworkflows:\n  - id: default-dev\n    name: Balanced Development\n    stages:\n      - name: plan\n      - name: build\n        dependsOn: [plan]\n      - name: verify\n        dependsOn: [build]\n      - name: approval\n        dependsOn: [verify]\n      - name: merge\n        dependsOn: [approval]\n`;
+  return `defaultWorkflowId: default-dev\nworkflows:\n  - id: default-dev\n    name: Balanced Development\n    stages:\n      - name: discover\n        type: agent\n        role: discovery\n      - name: plan\n        type: agent\n        role: planner\n        dependsOn: [discover]\n      - name: build\n        type: agent\n        role: builder\n        dependsOn: [plan]\n      - name: verify\n        type: command\n        dependsOn: [build]\n      - name: approval\n        type: approval\n        dependsOn: [verify]\n      - name: merge\n        dependsOn: [approval]\n`;
 }
 
 export function defaultProjectConfigTemplate(modelAssignments?: Partial<Record<ModelRole, ModelSelection>>): string {
@@ -157,7 +157,7 @@ export function defaultProjectConfigTemplate(modelAssignments?: Partial<Record<M
 }
 
 function renderModelAssignments(modelAssignments?: Partial<Record<ModelRole, ModelSelection>>): string {
-  const orderedRoles: ModelRole[] = ["planner", "builder", "reviewer", "repair"];
+  const orderedRoles: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
   const lines = orderedRoles.flatMap((role) => {
     const selection = modelAssignments?.[role];
     if (!selection?.model) {

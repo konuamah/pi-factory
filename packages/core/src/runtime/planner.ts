@@ -25,6 +25,7 @@ export interface PlannerTask {
 export interface PlannerArtifact {
   goal: string;
   summary: string;
+  discoveryText?: string;
   planText?: string;
   workflowStages: Array<{
     name: string;
@@ -43,6 +44,7 @@ export interface PlannerArtifact {
 export function buildPlanArtifact(input: {
   goal: string;
   config: EffectiveFactoryConfig;
+  discoveryText?: string;
   planText?: string;
 }): PlannerArtifact {
   const workflowStages = normalizeWorkflowStages(input.config.resolvedWorkflow?.stages ?? []);
@@ -65,6 +67,7 @@ export function buildPlanArtifact(input: {
   return {
     goal: input.goal,
     summary: buildSummary(input.goal, input.config, workflowStages),
+    discoveryText: input.discoveryText,
     planText: input.planText,
     workflowStages,
     tasks,

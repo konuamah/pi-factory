@@ -248,7 +248,7 @@ function readNumberArray(value: unknown): number[] {
 }
 
 function isSkillStage(value: string): value is SkillExecutionStage {
-  return value === "plan" || value === "build" || value === "verification" || value === "review" || value === "repair";
+  return value === "discover" || value === "plan" || value === "build" || value === "verification" || value === "review" || value === "repair";
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {

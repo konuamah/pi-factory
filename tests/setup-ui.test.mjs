@@ -34,6 +34,10 @@ test('promptFactorySetupChoices can apply the Pi default model to all roles', as
   );
 
   assert.equal(choices.workflowPreset, 'balanced');
+  assert.deepEqual(choices.modelAssignments.discovery, {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514',
+  });
   assert.deepEqual(choices.modelAssignments.planner, {
     provider: 'anthropic',
     model: 'claude-sonnet-4-20250514',
@@ -55,11 +59,12 @@ test('promptFactorySetupChoices can apply the Pi default model to all roles', as
 test('promptFactorySetupChoices can collect per-role manual models', async () => {
   const selections = [
     'Fast — Lighter-weight plan, build, approve, merge flow',
-    'Choose per role — Assign or skip models for planner, builder, reviewer, and repair',
+    'Choose per role — Assign or skip models for discovery, planner, builder, reviewer, and repair',
+    'Enter provider/model manually',
     'Enter provider/model manually',
     'Skip this role',
-    'Enter provider/model manually',
     'Use Pi default — anthropic/claude-sonnet-4-20250514',
+    'Enter provider/model manually',
   ];
   const inputs = ['openai', 'gpt-5', 'anthropic', 'claude-opus-4-20250514', 'openai', 'gpt-5-mini'];
   const ui = {
@@ -71,8 +76,9 @@ test('promptFactorySetupChoices can collect per-role manual models', async () =>
 
   const choices = await promptFactorySetupChoices(ui, piStatus);
   assert.equal(choices.workflowPreset, 'fast');
-  assert.deepEqual(choices.modelAssignments.planner, { provider: 'openai', model: 'gpt-5' });
+  assert.deepEqual(choices.modelAssignments.discovery, { provider: 'openai', model: 'gpt-5' });
+  assert.deepEqual(choices.modelAssignments.planner, { provider: 'anthropic', model: 'claude-opus-4-20250514' });
   assert.equal(choices.modelAssignments.builder, undefined);
-  assert.deepEqual(choices.modelAssignments.reviewer, { provider: 'anthropic', model: 'claude-opus-4-20250514' });
-  assert.deepEqual(choices.modelAssignments.repair, { provider: 'anthropic', model: 'claude-sonnet-4-20250514' });
+  assert.deepEqual(choices.modelAssignments.reviewer, { provider: 'anthropic', model: 'claude-sonnet-4-20250514' });
+  assert.deepEqual(choices.modelAssignments.repair, { provider: 'openai', model: 'gpt-5-mini' });
 });

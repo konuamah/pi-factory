@@ -1,6 +1,12 @@
 import type { PlanApprovalDecision, PlanApprovalResult } from "@factory/core";
 import type { FactoryPiUi } from "./types.js";
 
+type PiThemeLike = {
+  fg?: (color: string, text: string) => string;
+  bg?: (color: string, text: string) => string;
+  bold?: (text: string) => string;
+};
+
 export interface PlanApprovalPreviewInput {
   runId: string;
   goal: string;
@@ -8,11 +14,13 @@ export interface PlanApprovalPreviewInput {
   taskCount: number;
   workflowStages: string[];
   summary: string;
+  discoveryText?: string;
   planText?: string;
   tasks: Array<{ title: string; stage: string }>;
 }
 
 export function buildPlanApprovalPreviewLines(input: PlanApprovalPreviewInput): string[] {
+  const discoveryLines = sanitizePlanText(input.discoveryText).split(/\r?\n/).filter(Boolean).slice(0, 18);
   const planLines = sanitizePlanText(input.planText).split(/\r?\n/).filter(Boolean).slice(0, 16);
   const summaryLines = input.summary.split(/\r?\n/).filter(Boolean).slice(0, 6);
   const taskLines = input.tasks.slice(0, 6).map((task) => `- [${task.stage}] ${task.title}`);
@@ -31,6 +39,9 @@ export function buildPlanApprovalPreviewLines(input: PlanApprovalPreviewInput): 
     "- Request revisions: pause before implementation",
     "- Reject: cancel this run",
     "",
+    "Discovery report",
+    ...(discoveryLines.length > 0 ? discoveryLines : ["(discovery output unavailable)"]),
+    "",
     "Feature plan",
     ...(planLines.length > 0 ? planLines : ["(planner output unavailable; showing fallback summary below)"]),
     "",
@@ -48,8 +59,8 @@ export async function requestPlanApprovalDecision(
   input: PlanApprovalPreviewInput,
 ): Promise<PlanApprovalResult> {
   if (ui.custom) {
-    const selected = await ui.custom<PlanApprovalDecision | undefined>((tui, _theme, _keybindings, done) => {
-      const dialog = new PlanApprovalDialog(input, (decision) => done(decision), () => done(undefined), () => tui.requestRender());
+    const selected = await ui.custom<PlanApprovalDecision | undefined>((tui, theme, _keybindings, done) => {
+      const dialog = new PlanApprovalDialog(input, theme, (decision) => done(decision), () => done(undefined), () => tui.requestRender());
       return {
         render: (width) => dialog.render(width),
         handleInput: (data) => dialog.handleInput(data),
@@ -136,6 +147,7 @@ class PlanApprovalDialog {
 
   constructor(
     input: PlanApprovalPreviewInput,
+    private readonly theme: unknown,
     private readonly onSelect: (decision: PlanApprovalDecision) => void,
     private readonly onCancel: () => void,
     private readonly onChange: () => void,
@@ -180,13 +192,13 @@ class PlanApprovalDialog {
       return this.cachedLines;
     }
     const rendered = [
-      ...this.lines.flatMap((line) => wrap(line, width)),
+      ...this.lines.flatMap((line) => wrapStyledLine(styleApprovalLine(line, this.theme), width)),
       "",
-      "Decision",
-      ...this.options.map((option, index) => `${index === this.selectedIndex ? ">" : " "} ${option.label}`),
+      styleHeading("Decision", this.theme),
+      ...this.options.map((option, index) => styleDecisionOption(option, index === this.selectedIndex, this.theme)),
       "",
-      "↑↓ navigate  enter select  a approve  r revise  x reject  esc cancel",
-    ].map((line) => truncate(line, width));
+      color(this.theme, "dim", "↑↓ navigate  enter select  a approve  r revise  x reject  esc cancel"),
+    ].map((line) => truncateStyledLine(line, width));
     this.cachedLines = rendered;
     this.cachedWidth = width;
     return rendered;
@@ -201,6 +213,73 @@ class PlanApprovalDialog {
     this.invalidate();
     this.onChange();
   }
+}
+
+function styleApprovalLine(line: string, theme: unknown): string {
+  if (!line) {
+    return line;
+  }
+
+  if (line === "Factory plan approval") {
+    return color(theme, "accent", bold(theme, line));
+  }
+  if (["Decision options", "Discovery report", "Feature plan", "Runtime summary", "Workflow tasks"].includes(line)) {
+    return styleHeading(line, theme);
+  }
+
+  const keyValue = /^([^:]{2,24}):\s*(.+)$/.exec(line);
+  if (keyValue) {
+    return `${color(theme, "muted", `${keyValue[1]}:`)} ${keyValue[2]}`;
+  }
+
+  if (line.startsWith("- Approve:")) {
+    return color(theme, "success", line);
+  }
+  if (line.startsWith("- Request revisions:")) {
+    return color(theme, "warning", line);
+  }
+  if (line.startsWith("- Reject:")) {
+    return color(theme, "error", line);
+  }
+  if (line.startsWith("- [")) {
+    const match = /^- \[([^\]]+)\]\s*(.+)$/.exec(line);
+    if (match) {
+      return `${color(theme, "dim", "-")} ${color(theme, "accent", `[${match[1]}]`)} ${match[2]}`;
+    }
+  }
+  if (line.startsWith("- ")) {
+    return `${color(theme, "dim", "-")} ${line.slice(2)}`;
+  }
+  if (/^\d+\.\s/.test(line)) {
+    return color(theme, "accent", bold(theme, line));
+  }
+  return line;
+}
+
+function styleHeading(line: string, theme: unknown): string {
+  return color(theme, "accent", bold(theme, line));
+}
+
+function styleDecisionOption(
+  option: { label: string; decision: PlanApprovalDecision },
+  selected: boolean,
+  theme: unknown,
+): string {
+  const token = option.decision === "approve" ? "success" : option.decision === "revise" ? "warning" : "error";
+  const marker = selected ? ">" : " ";
+  const label = selected ? bold(theme, option.label) : option.label;
+  const line = `${marker} ${label}`;
+  return selected ? color(theme, token, line) : color(theme, "muted", line);
+}
+
+function color(theme: unknown, token: string, value: string): string {
+  const piTheme = theme as PiThemeLike | undefined;
+  return typeof piTheme?.fg === "function" ? piTheme.fg(token, value) : value;
+}
+
+function bold(theme: unknown, value: string): string {
+  const piTheme = theme as PiThemeLike | undefined;
+  return typeof piTheme?.bold === "function" ? piTheme.bold(value) : value;
 }
 
 function sanitizePlanText(value: string | undefined): string {
@@ -220,26 +299,110 @@ export function isPlanApprovalDecision(value: string | undefined): value is Plan
   return value === "approve" || value === "reject" || value === "revise";
 }
 
-function truncate(value: string, width: number): string {
-  if (value.length <= width) {
+function truncateStyledLine(value: string, width: number): string {
+  if (visibleWidth(value) <= width) {
     return value;
   }
   if (width <= 1) {
-    return value.slice(0, width);
+    return sliceStyledLine(value, width).text;
   }
-  return `${value.slice(0, width - 1)}…`;
+  return `${sliceStyledLine(value, width - 1).text}…${resetAnsi(value)}`;
 }
 
-function wrap(value: string, width: number): string[] {
+function wrapStyledLine(value: string, width: number): string[] {
   if (width <= 0) {
     return [""];
   }
   const results: string[] = [];
   let remaining = value;
-  while (remaining.length > width) {
-    results.push(remaining.slice(0, width));
-    remaining = remaining.slice(width);
+  while (visibleWidth(remaining) > width) {
+    const sliced = sliceStyledLine(remaining, width);
+    results.push(`${sliced.text}${resetAnsi(remaining)}`);
+    remaining = sliced.remaining;
   }
   results.push(remaining);
   return results;
+}
+
+function sliceStyledLine(value: string, maxWidth: number): { text: string; remaining: string } {
+  let width = 0;
+  let index = 0;
+  for (const part of ansiAwareParts(value)) {
+    if (part.ansi) {
+      index += part.text.length;
+      continue;
+    }
+    for (const char of part.text) {
+      const nextWidth = width + charWidth(char);
+      if (nextWidth > maxWidth) {
+        return { text: value.slice(0, index), remaining: value.slice(index) };
+      }
+      width = nextWidth;
+      index += char.length;
+    }
+  }
+  return { text: value, remaining: "" };
+}
+
+function visibleWidth(value: string): number {
+  let width = 0;
+  for (const part of ansiAwareParts(value)) {
+    if (part.ansi) {
+      continue;
+    }
+    for (const char of part.text) {
+      width += charWidth(char);
+    }
+  }
+  return width;
+}
+
+function ansiAwareParts(value: string): Array<{ text: string; ansi: boolean }> {
+  const parts: Array<{ text: string; ansi: boolean }> = [];
+  const ansiPattern = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+  let lastIndex = 0;
+  for (const match of value.matchAll(ansiPattern)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      parts.push({ text: value.slice(lastIndex, index), ansi: false });
+    }
+    parts.push({ text: match[0], ansi: true });
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < value.length) {
+    parts.push({ text: value.slice(lastIndex), ansi: false });
+  }
+  return parts;
+}
+
+function resetAnsi(value: string): string {
+  return /\u001b\[[0-?]*[ -/]*m/.test(value) ? "\u001b[0m" : "";
+}
+
+function charWidth(char: string): number {
+  const codePoint = char.codePointAt(0) ?? 0;
+  if (codePoint === 0) {
+    return 0;
+  }
+  if (codePoint < 32 || (codePoint >= 0x7f && codePoint < 0xa0)) {
+    return 0;
+  }
+  if (
+    codePoint >= 0x1100 && (
+      codePoint <= 0x115f ||
+      codePoint === 0x2329 ||
+      codePoint === 0x232a ||
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x1f300 && codePoint <= 0x1faff)
+    )
+  ) {
+    return 2;
+  }
+  return 1;
 }

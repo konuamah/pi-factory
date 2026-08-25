@@ -284,7 +284,7 @@ function renderTaskTypes(taskTypes: string[] | undefined): string {
 function renderModelBlock(pi?: Awaited<ReturnType<typeof detectPiModelConfiguration>>, rec?: FactorySetupRecommendation): string {
   if (rec?.models && Object.keys(rec.models).length > 0) {
     const lines: string[] = ["", "models:"];
-    for (const role of ["planner", "builder", "reviewer", "repair"] as const) {
+    for (const role of ["discovery", "planner", "builder", "reviewer", "repair"] as const) {
       const entry = rec.models[role];
       if (!entry) continue;
       const provider = entry.value.provider ? `provider: ${entry.value.provider}, ` : "";

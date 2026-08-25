@@ -1,4 +1,4 @@
-export type ModelRole = "planner" | "builder" | "reviewer" | "repair";
+export type ModelRole = "discovery" | "planner" | "builder" | "reviewer" | "repair";
 
 export interface ModelSelection {
   provider?: string;
@@ -26,6 +26,7 @@ export interface CapabilityPolicy {
 
 export interface WorkflowStage {
   name: string;
+  description?: string;
   dependsOn?: string[];
   type?: WorkflowNodeType;
   role?: ModelRole;

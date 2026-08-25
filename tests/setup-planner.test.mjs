@@ -98,6 +98,24 @@ test('applyFactorySetup writes files and validateFactorySetup returns READY', as
   });
 });
 
+test('applyFactorySetup installs Pi-visible Factory Concierge skill with extension', async () => {
+  await withRepo({ 'package.json': JSON.stringify({ name: 'app', type: 'module', scripts: { test: 'node -e ""' } }, null, 2) }, async (root) => {
+    const plan = await planFactorySetup({ cwd: root, answers: { 'workflow-preset': 'balanced' } });
+    const written = await applyFactorySetup(plan, { extensionSource: '@factory/adapters/pi' });
+    const extensionPath = path.join(root, '.pi/extensions/factory/index.ts');
+    const skillPath = path.join(root, '.pi/skills/factory-concierge/SKILL.md');
+
+    assert.ok(written.includes(extensionPath));
+    assert.ok(written.includes(skillPath));
+    const skill = await fs.readFile(skillPath, 'utf8');
+    assert.match(skill, /name: factory-concierge/);
+    assert.match(skill, /operator brain for Factory inside Pi/);
+    assert.match(skill, /You may directly edit Factory-owned\/project-agent files/);
+    assert.match(skill, /edit `factory.yaml` directly/);
+    assert.doesNotMatch(skill, /Return JSON only/);
+  });
+});
+
 test('proposed setup uses the detected package manager for commands', async () => {
   await withRepo({ 'package.json': JSON.stringify({ name: 'app', type: 'module', scripts: { test: 'node --test', build: 'node build.js' } }, null, 2), 'package-lock.json': '' }, async (root) => {
     const plan = await planFactorySetup({ cwd: root, answers: { 'workflow-preset': 'balanced' } });

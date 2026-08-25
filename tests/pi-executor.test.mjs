@@ -54,6 +54,115 @@ test('resolved provider/model is passed through to the Pi SDK session', async ()
   assert.equal(result.events.some((event) => event.type === 'model.selection_warning'), false);
 });
 
+test('requested tools are resolved to Pi SDK tool objects', async () => {
+  let receivedOptions;
+  const sdkFactory = createPiSdkSessionFactory({
+    sdkLoader: async () => ({
+      SessionManager: {
+        inMemory(cwd) {
+          return { cwd };
+        },
+      },
+      createReadOnlyTools() {
+        return [
+          { name: 'read', execute: async () => ({ ok: true }) },
+          { name: 'grep', execute: async () => ({ ok: true }) },
+        ];
+      },
+      createCodingTools() {
+        return [
+          { name: 'bash', execute: async () => ({ ok: true }) },
+          { name: 'edit', execute: async () => ({ ok: true }) },
+        ];
+      },
+      async createAgentSession(options) {
+        receivedOptions = options;
+        return { session: makeSdkSession() };
+      },
+    }),
+  });
+
+  const executor = new PiAgentExecutor({ sessionFactory: sdkFactory });
+  const result = await executor.execute({
+    executionId: 'exec-tools',
+    cwd: process.cwd(),
+    prompt: 'build',
+    tools: ['read', 'bash', 'edit'],
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(receivedOptions.tools.map((tool) => tool.name), ['read', 'bash', 'edit']);
+  assert.equal(typeof receivedOptions.tools[0].execute, 'function');
+});
+
+test('missing requested SDK tools fail loudly', async () => {
+  const sdkFactory = createPiSdkSessionFactory({
+    sdkLoader: async () => ({
+      SessionManager: {
+        inMemory(cwd) {
+          return { cwd };
+        },
+      },
+      createReadOnlyTools() {
+        return [{ name: 'read', execute: async () => ({ ok: true }) }];
+      },
+      createCodingTools() {
+        return [];
+      },
+      async createAgentSession() {
+        return { session: makeSdkSession() };
+      },
+    }),
+  });
+
+  const executor = new PiAgentExecutor({ sessionFactory: sdkFactory });
+  await assert.rejects(
+    executor.execute({
+      executionId: 'exec-missing-tools',
+      cwd: process.cwd(),
+      prompt: 'build',
+      tools: ['read', 'bash'],
+    }),
+    /required Factory tool\(s\): bash/,
+  );
+});
+
+test('DSML tool markup returned as text fails instead of pretending tools executed', async () => {
+  const session = {
+    listener: undefined,
+    async prompt() {
+      this.listener?.({
+        type: 'message_update',
+        text: '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="shell.execute"></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>',
+      });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {},
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: {
+      async create() {
+        return { session };
+      },
+    },
+  });
+
+  const result = await executor.execute({
+    executionId: 'exec-dsml',
+    cwd: process.cwd(),
+    prompt: 'build',
+    tools: ['bash'],
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.match(result.errorMessage, /tool-call markup/);
+  assert.equal(result.events.some((event) => event.type === 'executor.unexecuted_tool_markup'), true);
+});
+
 test('configured model without provider throws a loud provider resolution error', async () => {
   const sdkFactory = createPiSdkSessionFactory({
     sdkLoader: async () => ({

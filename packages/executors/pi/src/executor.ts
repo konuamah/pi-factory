@@ -50,10 +50,29 @@ export class PiAgentExecutor implements AgentExecutor {
 
     try {
       await created.session.prompt(input.prompt);
+      const outputText = state.outputChunks.join("");
+      const unexecutedToolMarkup = detectUnexecutedToolMarkup(outputText);
+      if (unexecutedToolMarkup) {
+        const errorMessage = "Pi executor received tool-call markup as assistant text; no tool was executed. Use native Pi tool calls instead of DSML markup.";
+        state.events.push({
+          type: "executor.unexecuted_tool_markup",
+          data: {
+            reason: errorMessage,
+            marker: unexecutedToolMarkup,
+          },
+        });
+        return {
+          executionId: input.executionId,
+          status: "failed",
+          outputText,
+          events: state.events,
+          errorMessage,
+        };
+      }
       return {
         executionId: input.executionId,
         status: "completed",
-        outputText: state.outputChunks.join(""),
+        outputText,
         events: state.events,
       };
     } catch (error) {
@@ -171,6 +190,15 @@ export class PiAgentExecutor implements AgentExecutor {
       });
     }
   }
+}
+
+function detectUnexecutedToolMarkup(outputText: string): string | undefined {
+  const markers = [
+    "<｜｜DSML｜｜tool_calls>",
+    "<｜｜DSML｜｜invoke",
+    "</｜｜DSML｜｜tool_calls>",
+  ];
+  return markers.find((marker) => outputText.includes(marker));
 }
 
 function extractToolName(event: PiSessionEvent): string | undefined {

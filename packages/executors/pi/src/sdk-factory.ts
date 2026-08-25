@@ -33,15 +33,19 @@ export function createPiSdkSessionFactory(
 
       const tools = input.tools && input.tools.length > 0 ? input.tools : undefined;
       if (tools) {
+        const createdTools = (options.createTools ?? createBuiltinTools)(sdk, input.cwd, tools);
+        const missingTools = findMissingTools(tools, createdTools);
+        if (missingTools.length > 0) {
+          throw new Error(`Pi SDK did not provide required Factory tool(s): ${missingTools.join(", ")}`);
+        }
         if (options.toolGate) {
           const gateContext = buildGateContext(input, options.toolGate);
-          const createdTools = (options.createTools ?? createBuiltinTools)(sdk, input.cwd, tools);
           createOptions.tools = wrapToolsWithGate(createdTools as Parameters<typeof wrapToolsWithGate>[0], {
             ...options.toolGate,
             context: gateContext,
           });
         } else {
-          createOptions.tools = tools;
+          createOptions.tools = createdTools;
         }
       }
 
@@ -217,6 +221,11 @@ function createBuiltinTools(sdk: PiSdkModule, cwd: string, names: string[]): Arr
     .map((name) => byName.get(name))
     .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool))
     .map((tool) => ({ name: tool.name, execute: tool.execute }));
+}
+
+function findMissingTools(requested: string[], created: Array<{ name: string }>): string[] {
+  const available = new Set(created.map((tool) => tool.name));
+  return [...new Set(requested)].filter((name) => !available.has(name));
 }
 
 function stringArray(value: unknown): string[] {

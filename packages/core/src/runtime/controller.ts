@@ -313,10 +313,21 @@ export async function runFactoryController(
       provider: discoveryModel.model.provider,
       modelSource: discoveryModel.source,
     });
+    const discoveryEvidence = await buildDiscoveryEvidencePacket(executionCwd, input.goal);
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "discovery.evidence_collected",
+      data: {
+        observedFileCount: discoveryEvidence.observedFiles.length,
+        candidateFileCount: discoveryEvidence.candidateFiles.length,
+        snippetCount: discoveryEvidence.snippets.length,
+        truncated: discoveryEvidence.truncated,
+      },
+    });
     const discoveryResult = await discoveryExecutor.execute({
       executionId: `${run.runId}-discovery`,
       cwd: executionCwd,
-      prompt: buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills)),
+      prompt: buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills), discoveryEvidence),
       model: discoveryModel.model,
       tools: ["read", "grep", "find", "ls"],
       metadata: {
@@ -326,7 +337,7 @@ export async function runFactoryController(
       },
     });
     discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, discoveryResult);
-    const discoveryValidation = validateDiscoveryOutput(discoveryResult.outputText);
+    const discoveryValidation = await validateDiscoveryOutput(discoveryResult.outputText, executionCwd, discoveryEvidence);
     if (!discoveryValidation.ok) {
       await appendFactoryRunEvent(run.eventsPath, {
         timestamp: new Date().toISOString(),
@@ -2283,7 +2294,21 @@ interface DiscoveryContract {
   reason?: string;
 }
 
-function validateDiscoveryOutput(value: string | undefined): { ok: true; discovery: DiscoveryContract } | { ok: false; reason: string } {
+interface DiscoveryEvidencePacket {
+  root: string;
+  observedFiles: string[];
+  candidateFiles: string[];
+  snippets: Array<{
+    file: string;
+    line: number;
+    text: string;
+    matched: string;
+  }>;
+  terms: string[];
+  truncated: boolean;
+}
+
+async function validateDiscoveryOutput(value: string | undefined, cwd: string, evidencePacket: DiscoveryEvidencePacket): Promise<{ ok: true; discovery: DiscoveryContract } | { ok: false; reason: string }> {
   const text = value?.trim() ?? "";
   if (!text) {
     return { ok: false, reason: "Discovery returned no output" };
@@ -2307,13 +2332,243 @@ function validateDiscoveryOutput(value: string | undefined): { ok: true; discove
   if (!files.some(isConcreteFile)) {
     return { ok: false, reason: "Discovery did not identify any concrete implementation file" };
   }
+  const missingFiles = await findMissingDiscoveryFiles(cwd, files);
+  if (missingFiles.length > 0) {
+    return { ok: false, reason: `Discovery identified files that do not exist: ${missingFiles.join(", ")}` };
+  }
+  const unobservedFiles = findUnobservedDiscoveryFiles(files, evidencePacket);
+  if (unobservedFiles.length > 0) {
+    return { ok: false, reason: `Discovery referenced files not observed by Factory evidence: ${unobservedFiles.join(", ")}` };
+  }
 
   const evidence = Array.isArray(parsed.evidence) ? parsed.evidence : [];
   if (!evidence.some((item) => item?.status === "confirmed" && isConcreteFile(item.file) && item.finding?.trim())) {
     return { ok: false, reason: "Discovery did not provide confirmed evidence tied to a concrete file" };
   }
+  const evidenceFiles = evidence
+    .filter((item) => item?.status === "confirmed" && item.finding?.trim())
+    .map((item) => item.file)
+    .filter((file): file is string => isConcreteFile(file));
+  const missingEvidenceFiles = await findMissingDiscoveryFiles(cwd, evidenceFiles);
+  if (missingEvidenceFiles.length > 0) {
+    return { ok: false, reason: `Discovery evidence references files that do not exist: ${missingEvidenceFiles.join(", ")}` };
+  }
+  const unobservedEvidenceFiles = findUnobservedDiscoveryFiles(evidenceFiles, evidencePacket);
+  if (unobservedEvidenceFiles.length > 0) {
+    return { ok: false, reason: `Discovery evidence references files not observed by Factory evidence: ${unobservedEvidenceFiles.join(", ")}` };
+  }
 
   return { ok: true, discovery: parsed };
+}
+
+function findUnobservedDiscoveryFiles(files: string[], evidencePacket: DiscoveryEvidencePacket): string[] {
+  const observed = new Set(evidencePacket.observedFiles);
+  return [...new Set(files
+    .map(normalizeDiscoveryFilePath)
+    .filter((file): file is string => Boolean(file))
+    .filter((file) => !observed.has(file)))];
+}
+
+async function buildDiscoveryEvidencePacket(cwd: string, goal: string): Promise<DiscoveryEvidencePacket> {
+  const terms = extractDiscoveryTerms(goal);
+  const observedFiles = await collectDiscoveryFiles(cwd);
+  const scored = new Map<string, { score: number; snippets: DiscoveryEvidencePacket["snippets"] }>();
+
+  for (const file of observedFiles) {
+    const pathScore = scoreDiscoveryPath(file, terms);
+    if (pathScore > 0) {
+      scored.set(file, { score: pathScore, snippets: [] });
+    }
+  }
+
+  for (const file of observedFiles) {
+    if (!shouldInspectDiscoveryFile(file)) {
+      continue;
+    }
+    const snippets = await collectDiscoverySnippets(path.join(cwd, file), file, terms);
+    if (snippets.length === 0) {
+      continue;
+    }
+    const existing = scored.get(file) ?? { score: 0, snippets: [] };
+    existing.score += 10 + snippets.length;
+    existing.snippets.push(...snippets);
+    scored.set(file, existing);
+  }
+
+  const candidateFiles = [...scored.entries()]
+    .sort((a, b) => b[1].score - a[1].score || a[0].localeCompare(b[0]))
+    .slice(0, 60)
+    .map(([file]) => file);
+  const candidateSet = new Set(candidateFiles);
+  const snippets = [...scored.entries()]
+    .filter(([file]) => candidateSet.has(file))
+    .flatMap(([, value]) => value.snippets)
+    .slice(0, 120);
+
+  return {
+    root: cwd,
+    observedFiles,
+    candidateFiles,
+    snippets,
+    terms,
+    truncated: observedFiles.length >= DISCOVERY_MAX_FILES,
+  };
+}
+
+const DISCOVERY_MAX_FILES = 5000;
+const DISCOVERY_MAX_FILE_BYTES = 240_000;
+
+async function collectDiscoveryFiles(cwd: string): Promise<string[]> {
+  const files: string[] = [];
+  await walk(cwd, "");
+  return files.sort();
+
+  async function walk(current: string, relativeDir: string): Promise<void> {
+    if (files.length >= DISCOVERY_MAX_FILES) {
+      return;
+    }
+
+    let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (!shouldSkipDiscoveryDirectory(entry.name, relativePath)) {
+          await walk(path.join(current, entry.name), relativePath);
+        }
+        continue;
+      }
+      if (!entry.isFile() || !isConcreteFile(relativePath)) {
+        continue;
+      }
+      files.push(relativePath);
+      if (files.length >= DISCOVERY_MAX_FILES) {
+        return;
+      }
+    }
+  }
+}
+
+function shouldSkipDiscoveryDirectory(name: string, relativePath: string): boolean {
+  return name === ".git"
+    || name === ".factory"
+    || name === ".worktrees"
+    || name === "node_modules"
+    || name === ".next"
+    || name === "dist"
+    || name === "build"
+    || name === "coverage"
+    || relativePath === "vendor/pi-factory";
+}
+
+function extractDiscoveryTerms(goal: string): string[] {
+  const stopwords = new Set([
+    "the", "and", "for", "with", "from", "into", "that", "this", "those", "these", "make", "add", "run", "use",
+    "using", "update", "remove", "delete", "change", "fix", "create", "show", "hide", "page", "site", "app",
+  ]);
+  const terms = new Set<string>();
+  for (const raw of goal.toLowerCase().match(/[a-z0-9]+/g) ?? []) {
+    if (raw.length < 3 || stopwords.has(raw)) {
+      continue;
+    }
+    terms.add(raw);
+    if (raw.endsWith("ies") && raw.length > 4) {
+      terms.add(`${raw.slice(0, -3)}y`);
+    } else if (raw.endsWith("s") && raw.length > 3) {
+      terms.add(raw.slice(0, -1));
+    }
+  }
+  return [...terms];
+}
+
+function scoreDiscoveryPath(file: string, terms: string[]): number {
+  const lower = file.toLowerCase();
+  let score = /(^|\/)(package\.json|factory\.yaml|\.factory\/config\.yaml)$/.test(lower) ? 1 : 0;
+  for (const term of terms) {
+    if (lower.includes(term)) {
+      score += lower.split("/").at(-1)?.includes(term) ? 8 : 4;
+    }
+  }
+  return score;
+}
+
+function shouldInspectDiscoveryFile(file: string): boolean {
+  return /\.(ts|tsx|js|jsx|json|md|mdx|yaml|yml|css|scss|html)$/i.test(file);
+}
+
+async function collectDiscoverySnippets(
+  absolutePath: string,
+  relativePath: string,
+  terms: string[],
+): Promise<DiscoveryEvidencePacket["snippets"]> {
+  if (terms.length === 0) {
+    return [];
+  }
+  try {
+    const stat = await fs.stat(absolutePath);
+    if (!stat.isFile() || stat.size > DISCOVERY_MAX_FILE_BYTES) {
+      return [];
+    }
+    const raw = await fs.readFile(absolutePath, "utf8");
+    if (raw.includes("\u0000")) {
+      return [];
+    }
+    const snippets: DiscoveryEvidencePacket["snippets"] = [];
+    const lines = raw.split(/\r?\n/);
+    for (let index = 0; index < lines.length && snippets.length < 4; index += 1) {
+      const line = lines[index] ?? "";
+      const matched = terms.find((term) => line.toLowerCase().includes(term));
+      if (!matched) {
+        continue;
+      }
+      snippets.push({
+        file: relativePath,
+        line: index + 1,
+        text: line.trim().slice(0, 220),
+        matched,
+      });
+    }
+    return snippets;
+  } catch {
+    return [];
+  }
+}
+
+async function findMissingDiscoveryFiles(cwd: string, files: string[]): Promise<string[]> {
+  const missing: string[] = [];
+  for (const file of files) {
+    const normalized = normalizeDiscoveryFilePath(file);
+    if (!normalized) {
+      continue;
+    }
+    if (!await fileExists(path.join(cwd, normalized))) {
+      missing.push(normalized);
+    }
+  }
+  return [...new Set(missing)];
+}
+
+function normalizeDiscoveryFilePath(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const filePath = value.trim().replace(/`/g, "");
+  if (!isConcreteFile(filePath)) {
+    return undefined;
+  }
+  return filePath;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile();
+  } catch {
+    return false;
+  }
 }
 
 function parseDiscoveryJson(text: string): DiscoveryContract | undefined {
@@ -2334,6 +2589,7 @@ function isConcreteFile(value: string | undefined): boolean {
   if (!value) return false;
   const filePath = value.trim().replace(/`/g, "");
   if (!filePath || filePath.endsWith("/")) return false;
+  if (path.isAbsolute(filePath) || filePath.split(/[\\/]/).includes("..")) return false;
   if (/^(src|components|frontend|backend|course files)$/i.test(filePath)) return false;
   if (/^(AGENTS|README|CONSTITUTION)\.md$/i.test(filePath)) return false;
   if (filePath.includes("node_modules/")) return false;
@@ -2346,12 +2602,13 @@ function buildDiscoveryPrompt(
   goal: string,
   constitutionContext?: string,
   skillBundleText?: string,
+  evidencePacket?: DiscoveryEvidencePacket,
 ): string {
   return [
     "Role: Discovery",
     "",
     "Your job is to identify the concrete repository files/components/data/config surfaces needed for a separate Planning phase.",
-    "You are in Discovery only. Use only read-only repository tools.",
+    "You are in Discovery only. Use the repository evidence packet as authoritative filesystem truth.",
     "",
     "Do not:",
     "- implement anything",
@@ -2360,16 +2617,20 @@ function buildDiscoveryPrompt(
     "- create an implementation plan",
     "- recommend a solution prematurely",
     "- return likely candidates, possible sources, or searches for Builder to run",
+    "- invent file paths",
+    "- mark a finding confirmed unless it is supported by the evidence packet",
     "- stop after a preamble",
     "",
     "Objective:",
     "- Find the concrete files involved.",
     "- Return evidence from those files.",
     "- Capture only unknowns that remain after read-only inspection.",
+    "- Prefer files from candidate_files. You may list another file only if it appears in observed_files.",
     "",
     `User task: ${goal}`,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    evidencePacket ? `Repository evidence packet (authoritative):\n${renderDiscoveryEvidencePacket(evidencePacket)}` : undefined,
     "",
     "Return JSON only, with this exact shape:",
     "{",
@@ -2384,9 +2645,32 @@ function buildDiscoveryPrompt(
     "A concrete file is a real file path like src/data/courses.ts, src/components/UpcomingCourses.tsx, package.json, factory.yaml, or .factory/config.yaml.",
     "A directory such as src/, components/, frontend/, backend/, or course files is not a concrete file.",
     "Evidence must include at least one confirmed item tied to a concrete file.",
+    "Every file in files[] must appear in observed_files from the repository evidence packet.",
+    "Every confirmed evidence file must appear in observed_files from the repository evidence packet.",
     "",
     "If you cannot identify a concrete implementation surface after using the available read-only tools, return exactly:",
     "DISCOVERY_FAILED: Could not identify the implementation surface.",
+  ].filter(Boolean).join("\n");
+}
+
+function renderDiscoveryEvidencePacket(packet: DiscoveryEvidencePacket): string {
+  const observedForPrompt = packet.observedFiles.slice(0, 700);
+  return [
+    `root: ${packet.root}`,
+    `terms: ${packet.terms.join(", ") || "none"}`,
+    `observed_file_count: ${packet.observedFiles.length}`,
+    packet.truncated ? "observed_files_truncated: true" : "observed_files_truncated: false",
+    "candidate_files:",
+    ...(packet.candidateFiles.length > 0 ? packet.candidateFiles.map((file) => `- ${file}`) : ["- none"]),
+    "matching_snippets:",
+    ...(packet.snippets.length > 0
+      ? packet.snippets.map((snippet) => `- ${snippet.file}:${snippet.line} [${snippet.matched}] ${snippet.text}`)
+      : ["- none"]),
+    "observed_files:",
+    ...observedForPrompt.map((file) => `- ${file}`),
+    packet.observedFiles.length > observedForPrompt.length
+      ? `- ... ${packet.observedFiles.length - observedForPrompt.length} more observed files omitted from prompt`
+      : undefined,
   ].filter(Boolean).join("\n");
 }
 

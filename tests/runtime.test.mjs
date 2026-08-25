@@ -137,6 +137,9 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(discoveryPrompt, /Return JSON only/);
     assert.match(discoveryPrompt, /"status": "complete"/);
     assert.match(discoveryPrompt, /DISCOVERY_FAILED/);
+    assert.match(discoveryPrompt, /Repository evidence packet \(authoritative\):/);
+    assert.match(discoveryPrompt, /candidate_files:/);
+    assert.match(discoveryPrompt, /observed_files:/);
     const builderPrompt = calls.find((call) => call.label === 'builder')?.prompt ?? '';
     const reviewerPrompt = calls.find((call) => call.label === 'reviewer')?.prompt ?? '';
 
@@ -238,6 +241,99 @@ test('directory-only discovery fails loudly before planning', async () => {
         requestApproval: async () => true,
       }),
       /Discovery failed: Discovery did not identify any concrete implementation file/,
+    );
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
+  });
+});
+
+test('discovery with missing files fails loudly before planning', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: JSON.stringify({
+            status: 'complete',
+            files: ['src/components/courses/UpcomingCourses.tsx'],
+            evidence: [
+              {
+                status: 'confirmed',
+                file: 'src/components/courses/UpcomingCourses.tsx',
+                finding: 'This component renders the upcoming courses list.',
+              },
+            ],
+            unknowns: [],
+          }),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Remove outdated upcoming courses',
+        discoveryExecutor,
+        plannerExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Discovery failed: Discovery identified files that do not exist: src\/components\/courses\/UpcomingCourses\.tsx/,
+    );
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
+  });
+});
+
+test('discovery with existing but unobserved files fails loudly before planning', async () => {
+  await withTempProject(async (root) => {
+    await fs.mkdir(path.join(root, 'vendor/pi-factory/packages/core/src'), { recursive: true });
+    await fs.writeFile(path.join(root, 'vendor/pi-factory/packages/core/src/index.ts'), 'export const vendored = true;\n', 'utf8');
+
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: JSON.stringify({
+            status: 'complete',
+            files: ['vendor/pi-factory/packages/core/src/index.ts'],
+            evidence: [
+              {
+                status: 'confirmed',
+                file: 'vendor/pi-factory/packages/core/src/index.ts',
+                finding: 'This vendored Factory file exists but should not be part of project Discovery evidence.',
+              },
+            ],
+            unknowns: [],
+          }),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Add a demo feature',
+        discoveryExecutor,
+        plannerExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Discovery failed: Discovery referenced files not observed by Factory evidence: vendor\/pi-factory\/packages\/core\/src\/index\.ts/,
     );
 
     assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);

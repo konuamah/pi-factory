@@ -72,6 +72,9 @@ export function mergeConfigLayers(input: {
       enabled: project?.repair?.enabled ?? builtIns.repair.enabled,
       maxAttempts: project?.repair?.maxAttempts ?? builtIns.repair.maxAttempts,
     },
+    constitution: {
+      enabled: project?.constitution?.enabled ?? global?.constitution?.enabled ?? builtIns.constitution.enabled,
+    },
     approval: {
       finalMerge:
         runOverrides?.approval?.finalMerge ??

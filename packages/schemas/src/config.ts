@@ -78,6 +78,9 @@ export interface FactoryBuiltInDefaults {
     enabled: boolean;
     maxAttempts: number;
   };
+  constitution: {
+    enabled: boolean;
+  };
   approval: {
     finalMerge: "required" | "not-required";
   };
@@ -107,6 +110,9 @@ export interface GlobalFactoryConfig {
   defaults?: {
     autonomy?: string;
     workflow?: string;
+  };
+  constitution?: {
+    enabled?: boolean;
   };
   dashboard?: {
     enabled?: boolean;
@@ -162,6 +168,9 @@ export interface ProjectFactoryConfig {
   repair?: {
     enabled?: boolean;
     maxAttempts?: number;
+  };
+  constitution?: {
+    enabled?: boolean;
   };
   approval?: {
     finalMerge?: "required" | "not-required";
@@ -223,6 +232,9 @@ export interface EffectiveFactoryConfig {
   repair: {
     enabled: boolean;
     maxAttempts: number;
+  };
+  constitution: {
+    enabled: boolean;
   };
   approval: {
     finalMerge: "required" | "not-required";

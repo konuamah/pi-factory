@@ -109,3 +109,25 @@ test('loadEffectiveConfig resolves requested workflow via run override', async (
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('loadEffectiveConfig honors disabled constitution config', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-factory-workflow-'));
+  try {
+    await initializeFactoryProject({ cwd: root, force: true });
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'constitution:',
+        '  enabled: false',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const loaded = await loadEffectiveConfig({ cwd: root });
+    assert.equal(loaded.effectiveConfig.constitution.enabled, false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

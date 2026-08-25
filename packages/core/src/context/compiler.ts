@@ -67,6 +67,7 @@ export interface ContextCompileRequest {
   grantedCapabilities?: string[];
   deniedCapabilities?: string[];
   runDecisions?: Array<{ requestId: string; question: string; optionId: string; feedback?: string }>;
+  useConstitution?: boolean;
 }
 
 export async function compileAgentContext(input: ContextCompileRequest): Promise<CompiledContext> {
@@ -74,6 +75,7 @@ export async function compileAgentContext(input: ContextCompileRequest): Promise
     cwd: input.cwd,
     role: toGuidanceRole(input.role),
     goal: input.goal,
+    useConstitution: input.useConstitution,
   });
 
   const dependencyContexts = (input.dependencyTasks ?? []).map((task) => ({

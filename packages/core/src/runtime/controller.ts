@@ -179,11 +179,12 @@ export async function runFactoryController(
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "discovery", "Discovering relevant system context");
 
-  const discoveryGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "planner", goal: input.goal });
-  const plannerGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "planner", goal: input.goal });
-  const builderGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "builder", goal: input.goal });
-  const repairGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "repair", goal: input.goal });
-  const reviewerGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "reviewer", goal: input.goal });
+  const useConstitution = loaded.effectiveConfig.constitution.enabled;
+  const discoveryGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "planner", goal: input.goal, useConstitution });
+  const plannerGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "planner", goal: input.goal, useConstitution });
+  const builderGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "builder", goal: input.goal, useConstitution });
+  const repairGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "repair", goal: input.goal, useConstitution });
+  const reviewerGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "reviewer", goal: input.goal, useConstitution });
 
   await initializeFactorySkills(projectRoot);
   const repoSkillSignals = await collectRuntimeSkillSignals(projectRoot);
@@ -1589,6 +1590,7 @@ async function runImplementationTask(input: {
         grantedCapabilities: capabilities.granted,
         deniedCapabilities: capabilities.denied,
         runDecisions: input.runDecisions,
+        useConstitution: input.config.constitution.enabled,
       });
       await appendFactoryRunEvent(input.eventsPath, {
         timestamp: new Date().toISOString(),

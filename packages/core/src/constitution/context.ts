@@ -18,14 +18,16 @@ export async function selectConstitutionContext(input: {
   cwd: string;
   role: "planner" | "builder" | "reviewer" | "repair";
   goal: string;
+  useConstitution?: boolean;
 }): Promise<ProjectGuidanceContext> {
   const policy = guidancePolicyForRole(input.role);
   const selectedInstructions = await readProjectInstructionFiles(input.cwd, input.goal, policy.maxInstructionFiles, policy.maxInstructionFileChars);
   const instructionFiles = selectedInstructions.map((item) => item.path);
   const totalInstructionChars = instructionFiles.reduce((sum, file) => sum + (readCache.get(file)?.length ?? 0), 0);
 
+  const constitutionEnabled = input.useConstitution !== false;
   const constitutionPath = path.join(input.cwd, "CONSTITUTION.md");
-  const text = await readIfExists(constitutionPath);
+  const text = constitutionEnabled ? await readIfExists(constitutionPath) : undefined;
   const summary = text ? extractSection(text, "## Agent Operating Summary", "## Interpretation") : undefined;
   const projectSnapshot = text ? extractSection(text, "## Project Snapshot", "## Status Legend") : undefined;
   const fullBody = text ? extractSection(text, "# Observable Facts") : undefined;
@@ -39,7 +41,7 @@ export async function selectConstitutionContext(input: {
     findArea(fullBody, /Commands/i),
   ].filter(Boolean);
 
-  const shouldUseConstitution = shouldIncludeConstitution(input.role, instructionFiles.length, totalInstructionChars);
+  const shouldUseConstitution = constitutionEnabled && shouldIncludeConstitution(input.role, instructionFiles.length, totalInstructionChars);
   const sections = [
     roleSection(buildRoleHint(input.role, input.goal)),
     roleSection(buildRoleRules(input.role)),

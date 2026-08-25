@@ -91,6 +91,33 @@ test('compileAgentContext surfaces granted and denied capabilities in instructio
   });
 });
 
+test('compileAgentContext can skip constitution while keeping project instructions', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'CONSTITUTION.md'),
+      [
+        '# Observable Facts',
+        '## Agent Operating Summary',
+        'This constitution summary should not be included.',
+        '## Interpretation',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const compiled = await compileAgentContext({
+      cwd: root,
+      role: 'planner',
+      goal: 'Update content',
+      useConstitution: false,
+    });
+    const text = compiled.instructions.join('\n');
+    assert.match(text, /Project instruction files:/);
+    assert.match(text, /Use concise release notes/);
+    assert.doesNotMatch(text, /Constitution summary:/);
+    assert.doesNotMatch(text, /This constitution summary should not be included/);
+  });
+});
+
 test('compileAgentContext respects a tight budget', async () => {
   await withTempProject(async (root) => {
     const compiled = await compileAgentContext({

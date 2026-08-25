@@ -1936,6 +1936,8 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     "Factory run starting",
     `goal: ${trimmedGoal}`,
   ];
+  const loadedConfig = await loadEffectiveConfig({ cwd: ctx.cwd });
+  const constitutionEnabled = loadedConfig.effectiveConfig.constitution.enabled;
 
   const effectiveExecutorMode = await resolveExecutorMode(parsed.executorMode, ctx.cwd);
   if (parsed.executorMode !== effectiveExecutorMode) {
@@ -1950,10 +1952,10 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
   const panel = mountFactoryStreamingWidget(ctx.ui, FACTORY_WIDGET_ID, {
     title: "Factory run",
     goal: trimmedGoal,
-    phase: "constitution-preflight",
-    role: "constitution-preflight",
+    phase: constitutionEnabled ? "constitution-preflight" : "planning",
+    role: constitutionEnabled ? "constitution-preflight" : undefined,
     status: "starting",
-    lines: ["Checking whether repository memory needs a refresh..."],
+    lines: [constitutionEnabled ? "Checking whether repository memory needs a refresh..." : "Constitution is disabled; preparing Factory runtime..."],
     footer: "Live Factory stream. Use arrow keys to scroll.",
   });
 
@@ -1964,58 +1966,67 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     refresh: { mode: string; changedFiles: string[] };
   };
 
-  panel.setPhase("constitution-preflight");
-  panel.setStatus("running");
-  panel.append("Asking the model whether this task needs a constitution scan...");
-
-  const constitutionExecutor = await createRequiredConstitutionExecutor((executionId, event) => {
-    panel.setRole(executionId.includes("preflight") ? "constitution-preflight" : executionId.includes("planner") ? "planner" : "constitution-interpreter");
-    panel.setStatus("streaming");
-    if (event.text) {
-      panel.appendStream(event.text);
-    }
-  });
-
-  const constitutionPreflight = await judgeConstitutionRefreshForTask({
-    cwd: ctx.cwd,
-    goal: trimmedGoal,
-    executor: constitutionExecutor,
-  });
-  panel.append("Checking what changed...");
-  panel.append(`Found ${constitutionPreflight.changedFiles.length} changed file(s).`);
-  panel.append(`Impacted constitution areas: ${constitutionPreflight.impactedAreaIds.join(", ") || "none"}.`);
-  panel.append(`Existing constitution: ${constitutionPreflight.finalizedConstitution ? "finalized and reusable" : "not finalized yet"}.`);
-  panel.append(`Model judgment: ${constitutionPreflight.decision}`);
-  panel.append(`Why: ${constitutionPreflight.reason}`);
-
-  if (constitutionPreflight.decision === "skip") {
-    panel.setStatus("completed");
-    panel.append("Next: reuse existing constitution and go straight to planning.");
+  if (!constitutionEnabled) {
     constitutionSummary = {
-      mode: "preflight",
-      finalized: constitutionPreflight.finalizedConstitution,
-      refreshStrategy: "skipped-by-preflight",
-      refresh: { mode: "FAST", changedFiles: constitutionPreflight.changedFiles },
+      mode: "disabled",
+      finalized: false,
+      refreshStrategy: "disabled-by-config",
+      refresh: { mode: "DISABLED", changedFiles: [] },
     };
   } else {
-    panel.setPhase("constitution-refresh");
-    panel.setRole("constitution-interpreter");
+    panel.setPhase("constitution-preflight");
     panel.setStatus("running");
-    panel.append(
-      constitutionPreflight.decision === "targeted"
-        ? `Next: refresh only impacted areas (${constitutionPreflight.impactedAreaIds.join(", ") || "none"}).`
-        : "Next: run a full constitution refresh because broader repo context may matter.",
-    );
-    const constitutionResult = await runConstitutionScan({
-      cwd: ctx.cwd,
-      constitutionExecutor,
+    panel.append("Asking the model whether this task needs a constitution scan...");
+
+    const constitutionExecutor = await createRequiredConstitutionExecutor((executionId, event) => {
+      panel.setRole(executionId.includes("preflight") ? "constitution-preflight" : executionId.includes("planner") ? "planner" : "constitution-interpreter");
+      panel.setStatus("streaming");
+      if (event.text) {
+        panel.appendStream(event.text);
+      }
     });
-    panel.setStatus("completed");
-    panel.append("Constitution refresh completed.");
-    panel.append(`Constitution strategy: ${constitutionResult.refreshStrategy}`);
-    panel.append(`Changed files: ${constitutionResult.refresh.changedFiles.length}`);
-    panel.append(`Reused areas: ${constitutionResult.refresh.reusedAreaIds?.length ?? 0}`);
-    constitutionSummary = constitutionResult;
+
+    const constitutionPreflight = await judgeConstitutionRefreshForTask({
+      cwd: ctx.cwd,
+      goal: trimmedGoal,
+      executor: constitutionExecutor,
+    });
+    panel.append("Checking what changed...");
+    panel.append(`Found ${constitutionPreflight.changedFiles.length} changed file(s).`);
+    panel.append(`Impacted constitution areas: ${constitutionPreflight.impactedAreaIds.join(", ") || "none"}.`);
+    panel.append(`Existing constitution: ${constitutionPreflight.finalizedConstitution ? "finalized and reusable" : "not finalized yet"}.`);
+    panel.append(`Model judgment: ${constitutionPreflight.decision}`);
+    panel.append(`Why: ${constitutionPreflight.reason}`);
+
+    if (constitutionPreflight.decision === "skip") {
+      panel.setStatus("completed");
+      panel.append("Next: reuse existing constitution and go straight to planning.");
+      constitutionSummary = {
+        mode: "preflight",
+        finalized: constitutionPreflight.finalizedConstitution,
+        refreshStrategy: "skipped-by-preflight",
+        refresh: { mode: "FAST", changedFiles: constitutionPreflight.changedFiles },
+      };
+    } else {
+      panel.setPhase("constitution-refresh");
+      panel.setRole("constitution-interpreter");
+      panel.setStatus("running");
+      panel.append(
+        constitutionPreflight.decision === "targeted"
+          ? `Next: refresh only impacted areas (${constitutionPreflight.impactedAreaIds.join(", ") || "none"}).`
+          : "Next: run a full constitution refresh because broader repo context may matter.",
+      );
+      const constitutionResult = await runConstitutionScan({
+        cwd: ctx.cwd,
+        constitutionExecutor,
+      });
+      panel.setStatus("completed");
+      panel.append("Constitution refresh completed.");
+      panel.append(`Constitution strategy: ${constitutionResult.refreshStrategy}`);
+      panel.append(`Changed files: ${constitutionResult.refresh.changedFiles.length}`);
+      panel.append(`Reused areas: ${constitutionResult.refresh.reusedAreaIds?.length ?? 0}`);
+      constitutionSummary = constitutionResult;
+    }
   }
   panel.setPhase("planning");
   panel.setRole(effectiveExecutorMode && effectiveExecutorMode !== "off" ? "planner" : undefined);

@@ -70,9 +70,22 @@ export interface VerificationEvidence {
     reason: string;
     packageName?: string;
     scripts: string[];
+    hasNodeModules: boolean;
+    ecosystemMarkers: string[];
+    dependencyMarkers: string[];
+    missingDependencyMarkers: string[];
+    allowedCommands: string[];
   }>;
   configuredCommands: VerificationCommandConfig;
+  allowedCommands: string[];
   rootScripts: string[];
+}
+
+export class VerificationPlanningError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VerificationPlanningError";
+  }
 }
 
 export async function planVerificationExecution(input: {
@@ -86,37 +99,36 @@ export async function planVerificationExecution(input: {
     model: string;
   };
   runId?: string;
+  allowDeterministicFallback?: boolean;
 }): Promise<VerificationPlan> {
   await initializeFactorySkills(input.cwd);
   const evidence = await discoverVerificationEvidence(input.cwd, input.commands);
   const selectedSkill = resolveVerificationPlanningSkill(input.goal, evidence);
-  const deterministicPlan = await buildDeterministicVerificationPlan(evidence, selectedSkill);
 
   if (!input.executor) {
-    return deterministicPlan;
+    if (input.allowDeterministicFallback) {
+      return buildDeterministicVerificationPlan(evidence, selectedSkill);
+    }
+    throw new VerificationPlanningError("VERIFICATION_PLANNER_MISSING_EXECUTOR: Verification planning requires an LLM executor. No deterministic fallback is allowed.");
   }
 
-  try {
-    const result = await input.executor.execute({
-      executionId: `${input.runId ?? "verification"}-verification-plan`,
-      cwd: input.cwd,
-      prompt: buildVerificationPlannerPrompt(input.goal, evidence, deterministicPlan, input.constitutionContext),
-      model: input.model,
-      tools: ["read", "grep", "find", "ls"],
-      metadata: {
-        role: "planner",
-        stage: "verification-planning",
-        runId: input.runId,
-      },
-    });
-    const parsed = parseVerificationPlan(result.outputText);
-    if (!parsed) {
-      return deterministicPlan;
-    }
-    return sanitizeVerificationPlan(parsed, evidence, deterministicPlan, selectedSkill);
-  } catch {
-    return deterministicPlan;
+  const result = await input.executor.execute({
+    executionId: `${input.runId ?? "verification"}-verification-plan`,
+    cwd: input.cwd,
+    prompt: buildVerificationPlannerPrompt(input.goal, evidence, input.constitutionContext),
+    model: input.model,
+    tools: ["read", "grep", "find", "ls"],
+    metadata: {
+      role: "planner",
+      stage: "verification-planning",
+      runId: input.runId,
+    },
+  });
+  const parsed = parseVerificationPlan(result.outputText);
+  if (!parsed) {
+    throw new VerificationPlanningError("VERIFICATION_PLANNER_INVALID_JSON: Verification planner returned invalid structured JSON.");
   }
+  return sanitizeVerificationPlan(parsed, evidence, selectedSkill);
 }
 
 export async function runVerificationCommands(input: {
@@ -203,7 +215,7 @@ async function discoverVerificationEvidence(
   commands: VerificationCommandConfig,
 ): Promise<VerificationEvidence> {
   const rootScripts = await readPackageScripts(executionCwd);
-  const nestedPackageRoots = await findNestedPackageRoots(executionCwd, 3);
+  const nestedPackageRoots = await findNestedProjectRoots(executionCwd, 3);
   const candidateRoots = dedupePaths([
     executionCwd,
     ...(typeof commands.cwd === "string" && commands.cwd.trim() ? [path.resolve(executionCwd, commands.cwd)] : []),
@@ -214,6 +226,14 @@ async function discoverVerificationEvidence(
   for (const candidatePath of candidateRoots) {
     const packageJson = await readPackageJson(candidatePath);
     const relativePath = normalizeRelative(executionCwd, candidatePath);
+    const scripts = packageJson && typeof packageJson.scripts === "object" && packageJson.scripts
+      ? Object.keys(packageJson.scripts).sort()
+      : [];
+    const ecosystemMarkers = await detectEcosystemMarkers(candidatePath);
+    const dependencyMarkers = await detectDependencyMarkers(candidatePath);
+    const missingDependencyMarkers = expectedDependencyMarkers(ecosystemMarkers)
+      .filter((marker) => !dependencyMarkers.includes(marker));
+    const allowedCommands = await discoverAllowedCommands(candidatePath, scripts, ecosystemMarkers);
     candidateCwds.push({
       path: candidatePath,
       relativePath,
@@ -224,17 +244,26 @@ async function discoverVerificationEvidence(
             ? "configured-command-cwd"
             : "nested-package-root",
       packageName: typeof packageJson?.name === "string" ? packageJson.name : undefined,
-      scripts: packageJson && typeof packageJson.scripts === "object" && packageJson.scripts
-        ? Object.keys(packageJson.scripts).sort()
-        : [],
+      scripts,
+      hasNodeModules: await exists(path.join(candidatePath, "node_modules")),
+      ecosystemMarkers,
+      dependencyMarkers,
+      missingDependencyMarkers,
+      allowedCommands,
     });
   }
+  const configuredCommandValues = Object.values(commands).filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
+  const allowedCommands = uniqueStrings([
+    ...configuredCommandValues,
+    ...candidateCwds.flatMap((candidate) => candidate.allowedCommands),
+  ]);
 
   return {
     rootCwd: executionCwd,
     configuredCwd: typeof commands.cwd === "string" && commands.cwd.trim() ? commands.cwd : undefined,
     candidateCwds,
     configuredCommands: commands,
+    allowedCommands,
     rootScripts,
   };
 }
@@ -245,7 +274,11 @@ async function buildDeterministicVerificationPlan(
 ): Promise<VerificationPlan> {
   const resolved = await resolveVerificationCwd(evidence.rootCwd, evidence.configuredCwd);
   const chosenCandidate = evidence.candidateCwds.find((candidate) => path.normalize(candidate.path) === path.normalize(resolved.cwd));
-  const selectedCommands = filterCommandsForCandidate(evidence.configuredCommands, chosenCandidate?.scripts ?? evidence.rootScripts);
+  const selectedCommands = withDependencySetupCommand(
+    filterCommandsForCandidate(evidence.configuredCommands, chosenCandidate?.scripts ?? evidence.rootScripts),
+    evidence,
+    chosenCandidate,
+  );
 
   return {
     cwd: resolved.cwd,
@@ -288,6 +321,57 @@ function filterCommandsForCandidate(
   return selected;
 }
 
+function withDependencySetupCommand(
+  selectedCommands: VerificationCommandConfig,
+  evidence: VerificationEvidence,
+  chosenCandidate?: VerificationEvidence["candidateCwds"][number],
+): VerificationCommandConfig {
+  if (selectedCommands.setup || !shouldRunDependencySetup(selectedCommands, evidence, chosenCandidate)) {
+    return selectedCommands;
+  }
+  const setupCommand = firstSetupCommand(evidence, chosenCandidate);
+  if (!setupCommand) {
+    return selectedCommands;
+  }
+  return { setup: setupCommand, ...selectedCommands };
+}
+
+function shouldRunDependencySetup(
+  selectedCommands: VerificationCommandConfig,
+  evidence: VerificationEvidence,
+  chosenCandidate?: VerificationEvidence["candidateCwds"][number],
+): boolean {
+  const runnableCommands = Object.entries(selectedCommands)
+    .filter(([name, command]) => name !== "cwd" && name !== "setup" && Boolean(command));
+  if (runnableCommands.length === 0) {
+    return false;
+  }
+
+  const evidenceBackedCommandSelected = runnableCommands.some(([, command]) =>
+    typeof command === "string" && evidence.allowedCommands.includes(command)
+  );
+  if (!evidenceBackedCommandSelected) {
+    return false;
+  }
+
+  return (chosenCandidate ? [chosenCandidate] : evidence.candidateCwds)
+    .some((candidate) => candidate.missingDependencyMarkers.length > 0);
+}
+
+function firstSetupCommand(
+  evidence: VerificationEvidence,
+  chosenCandidate?: VerificationEvidence["candidateCwds"][number],
+): string | undefined {
+  const configuredSetup = evidence.configuredCommands.setup;
+  if (configuredSetup && evidence.allowedCommands.includes(configuredSetup)) {
+    return configuredSetup;
+  }
+  const candidates = chosenCandidate ? [chosenCandidate] : evidence.candidateCwds;
+  return candidates
+    .flatMap((candidate) => candidate.allowedCommands)
+    .find((command) => isSetupLikeCommand(command));
+}
+
 function commandLikelyExistsForScript(command: string, scriptName: string, packageScripts: string[]): boolean {
   const normalized = command.trim().toLowerCase();
   if (/^(pnpm|npm|yarn)\s+(run\s+)?[a-z0-9:_-]+$/i.test(normalized)) {
@@ -306,7 +390,15 @@ function explainCommandSelection(
     const configured = commands[name];
     const selected = selectedCommands[name];
     if (!configured) {
-      decisions.push({ name, configured: false, selected: false, reason: "No command configured for this stage." });
+      decisions.push({
+        name,
+        configured: false,
+        selected: Boolean(selected),
+        ...(selected ? { command: selected } : {}),
+        reason: selected
+          ? "Discovered setup command selected because verification packages are missing dependencies."
+          : "No command configured for this stage.",
+      });
       continue;
     }
     if (selected) {
@@ -339,22 +431,21 @@ function explainCommandSelection(
 function buildVerificationPlannerPrompt(
   goal: string,
   evidence: VerificationEvidence,
-  deterministicPlan: VerificationPlan,
   constitutionContext?: string,
 ): string {
   return [
     `Goal: ${goal}`,
-    "Choose the most appropriate verification working directory and which configured verification commands should actually run for this repository.",
-    "Prefer the weakest valid plan that matches the repository's real structure. Ignore transient/generated workspace content.",
+    "Choose the most appropriate verification working directory and commands for this repository.",
+    "You are the verification planner. Deterministic code only collected evidence; you must decide from the allowlisted evidence.",
+    "Prefer the weakest valid plan that matches the repository's real structure. Include setup/install when the selected cwd has missing dependency markers and a setup command is available.",
+    "Fail-safe rule: only choose commands from allowedCommands or configured Factory commands. Do not invent shell commands.",
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     `Configured commands: ${JSON.stringify(evidence.configuredCommands, null, 2)}`,
+    `Allowed commands: ${JSON.stringify(evidence.allowedCommands, null, 2)}`,
     `Verification candidates: ${JSON.stringify(evidence.candidateCwds, null, 2)}`,
-    `Selected skill: ${deterministicPlan.skill.id}@${deterministicPlan.skill.version} (${deterministicPlan.skill.mode})`,
-    `Skill selection reasons: ${deterministicPlan.skill.selectionReasons.join("; ")}`,
-    `Deterministic fallback: ${JSON.stringify(deterministicPlan, null, 2)}`,
     "Return JSON only with shape:",
     '{"cwd":"<candidate path>","commands":{"setup":"...","lint":"...","build":"..."},"rationale":"short reason"}',
-    "Only include commands that should actually run for this repo. Omit missing/non-authoritative script stages instead of inventing them.",
+    "Only include commands that should actually run for this repo. Omit missing/non-authoritative stages.",
   ].filter(Boolean).join("\n\n");
 }
 
@@ -384,22 +475,21 @@ function parseVerificationPlan(outputText: string): {
 function sanitizeVerificationPlan(
   parsed: { cwd?: string; commands?: VerificationCommandConfig; rationale?: string },
   evidence: VerificationEvidence,
-  deterministicPlan: VerificationPlan,
   selectedSkill: { id: string; version: string; mode: "verification" | "repair"; selectionReasons: string[] },
 ): VerificationPlan {
   const allowedCwds = new Set(evidence.candidateCwds.map((candidate) => path.normalize(candidate.path)));
-  const chosenCwd = typeof parsed.cwd === "string" && allowedCwds.has(path.normalize(parsed.cwd))
-    ? parsed.cwd
-    : deterministicPlan.cwd;
+  if (typeof parsed.cwd !== "string" || !allowedCwds.has(path.normalize(parsed.cwd))) {
+    throw new VerificationPlanningError(`VERIFICATION_PLANNER_INVALID_CWD: Verification planner selected an unknown cwd: ${String(parsed.cwd ?? "")}`);
+  }
+  const chosenCwd = parsed.cwd;
   const chosenCandidate = evidence.candidateCwds.find((candidate) => path.normalize(candidate.path) === path.normalize(chosenCwd));
-  const sanitizedCommands = sanitizeCommands(parsed.commands, evidence.configuredCommands, chosenCandidate?.scripts ?? []);
-  const commands = Object.keys(sanitizedCommands).length > 0 ? sanitizedCommands : deterministicPlan.commands;
+  const commands = validateSelectedCommands(parsed.commands, evidence, chosenCandidate);
   return {
     cwd: chosenCwd,
     cwdResolution: determineResolutionFromEvidence(evidence, chosenCwd),
     commands,
     selectionSource: "ai",
-    rationale: typeof parsed.rationale === "string" && parsed.rationale.trim() ? parsed.rationale.trim() : deterministicPlan.rationale,
+    rationale: typeof parsed.rationale === "string" && parsed.rationale.trim() ? parsed.rationale.trim() : undefined,
     skill: selectedSkill,
     evidence: {
       ...evidence,
@@ -409,24 +499,37 @@ function sanitizeVerificationPlan(
   };
 }
 
-function sanitizeCommands(
+function validateSelectedCommands(
   selected: VerificationCommandConfig | undefined,
-  configured: VerificationCommandConfig,
-  packageScripts: string[],
+  evidence: VerificationEvidence,
+  chosenCandidate?: VerificationEvidence["candidateCwds"][number],
 ): VerificationCommandConfig {
+  if (!selected || Object.keys(selected).filter((name) => name !== "cwd").length === 0) {
+    throw new VerificationPlanningError("VERIFICATION_PLANNER_EMPTY_COMMANDS: Verification planner selected no commands.");
+  }
   const result: VerificationCommandConfig = {};
   for (const name of ["setup", "lint", "typecheck", "test", "build"] as const) {
     const requested = selected?.[name];
-    const configuredValue = configured[name];
-    if (!configuredValue) {
+    if (!requested) {
       continue;
     }
-    if (requested !== configuredValue) {
-      continue;
+    if (!evidence.allowedCommands.includes(requested)) {
+      throw new VerificationPlanningError(`VERIFICATION_PLANNER_INVALID_COMMAND: Verification planner selected non-authoritative command for ${name}: ${requested}`);
     }
-    if (name === "setup" || packageScripts.length === 0 || commandLikelyExistsForScript(configuredValue, name, packageScripts)) {
-      result[name] = configuredValue;
-    }
+    result[name] = requested;
+  }
+
+  const needsSetup = shouldRunDependencySetup(result, evidence, chosenCandidate);
+  if (needsSetup && !result.setup) {
+    throw new VerificationPlanningError(
+      `VERIFICATION_PLANNER_SETUP_REQUIRED: Selected verification cwd has missing dependency markers (${chosenCandidate?.missingDependencyMarkers.join(", ") || "unknown"}), but planner did not select a setup command.`
+    );
+  }
+  if (needsSetup && result.setup && !isSetupLikeCommand(result.setup)) {
+    throw new VerificationPlanningError(`VERIFICATION_PLANNER_INVALID_SETUP: Selected setup command is not a setup/install command: ${result.setup}`);
+  }
+  if (Object.keys(result).length === 0) {
+    throw new VerificationPlanningError("VERIFICATION_PLANNER_EMPTY_COMMANDS: Verification planner selected no valid commands.");
   }
   return result;
 }
@@ -440,7 +543,7 @@ function determineResolutionFromEvidence(
   }
   if (path.normalize(evidence.rootCwd) === path.normalize(cwd)) {
     const rootCandidate = evidence.candidateCwds.find((candidate) => path.normalize(candidate.path) === path.normalize(cwd));
-    return rootCandidate?.scripts.length ? "root-package" : "default-root";
+    return rootCandidate && (rootCandidate.scripts.length > 0 || rootCandidate.ecosystemMarkers.length > 0) ? "root-package" : "default-root";
   }
   return "inferred-single-package";
 }
@@ -456,17 +559,17 @@ async function resolveVerificationCwd(
     };
   }
 
-  if (await exists(path.join(executionCwd, "package.json"))) {
+  if ((await detectEcosystemMarkers(executionCwd)).length > 0) {
     return {
       cwd: executionCwd,
       resolution: "root-package",
     };
   }
 
-  const nestedPackageRoots = await findNestedPackageRoots(executionCwd, 3);
-  if (nestedPackageRoots.length === 1) {
+  const nestedProjectRoots = await findNestedProjectRoots(executionCwd, 3);
+  if (nestedProjectRoots.length === 1) {
     return {
-      cwd: nestedPackageRoots[0]!,
+      cwd: nestedProjectRoots[0]!,
       resolution: "inferred-single-package",
     };
   }
@@ -477,7 +580,7 @@ async function resolveVerificationCwd(
   };
 }
 
-async function findNestedPackageRoots(root: string, maxDepth: number): Promise<string[]> {
+async function findNestedProjectRoots(root: string, maxDepth: number): Promise<string[]> {
   const results: string[] = [];
   await walk(root, 0);
   return results.sort();
@@ -487,7 +590,7 @@ async function findNestedPackageRoots(root: string, maxDepth: number): Promise<s
       return;
     }
 
-    if (depth > 0 && await exists(path.join(current, "package.json"))) {
+    if (depth > 0 && (await detectEcosystemMarkers(current)).length > 0) {
       results.push(current);
       return;
     }
@@ -519,6 +622,135 @@ async function readPackageScripts(targetCwd: string): Promise<string[]> {
   return Object.keys(pkg.scripts).sort();
 }
 
+async function detectEcosystemMarkers(targetCwd: string): Promise<string[]> {
+  const markers = [
+    "package.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "pyproject.toml",
+    "requirements.txt",
+    "setup.py",
+    "Cargo.toml",
+    "go.mod",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "gradlew",
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "Dockerfile",
+  ];
+  const found: string[] = [];
+  for (const marker of markers) {
+    if (await exists(path.join(targetCwd, marker))) {
+      found.push(marker);
+    }
+  }
+  return found;
+}
+
+async function detectDependencyMarkers(targetCwd: string): Promise<string[]> {
+  const markers = ["node_modules", ".venv", "venv", "vendor", "target", ".gradle", "build"];
+  const found: string[] = [];
+  for (const marker of markers) {
+    if (await exists(path.join(targetCwd, marker))) {
+      found.push(marker);
+    }
+  }
+  return found;
+}
+
+function expectedDependencyMarkers(ecosystemMarkers: string[]): string[] {
+  const expected: string[] = [];
+  if (ecosystemMarkers.includes("package.json")) {
+    expected.push("node_modules");
+  }
+  if (
+    ecosystemMarkers.includes("pyproject.toml")
+    || ecosystemMarkers.includes("requirements.txt")
+    || ecosystemMarkers.includes("setup.py")
+  ) {
+    expected.push(".venv");
+  }
+  return expected;
+}
+
+async function discoverAllowedCommands(targetCwd: string, scripts: string[], ecosystemMarkers: string[]): Promise<string[]> {
+  const commands: string[] = [];
+  const packageManager = await detectPackageManager(targetCwd);
+
+  for (const script of scripts) {
+    commands.push(`${packageManager} run ${script}`);
+  }
+  if (scripts.includes("test")) {
+    commands.push(`${packageManager} test`);
+  }
+
+  if (ecosystemMarkers.includes("package.json")) {
+    if (scripts.includes("install:all")) {
+      commands.push(`${packageManager} run install:all`);
+    }
+    if (scripts.includes("setup")) {
+      commands.push(`${packageManager} run setup`);
+    }
+    if (await hasAnyLockfile(targetCwd)) {
+      commands.push(packageManager === "npm" && await exists(path.join(targetCwd, "package-lock.json")) ? "npm ci" : `${packageManager} install`);
+      commands.push(`${packageManager} install`);
+    }
+  }
+
+  if (ecosystemMarkers.includes("requirements.txt")) {
+    commands.push("python -m pip install -r requirements.txt", "pip install -r requirements.txt");
+  }
+  if (ecosystemMarkers.includes("pyproject.toml") || ecosystemMarkers.includes("setup.py")) {
+    commands.push("python -m pip install -e .", "pip install -e .");
+  }
+  if (ecosystemMarkers.includes("pyproject.toml") || ecosystemMarkers.includes("requirements.txt") || ecosystemMarkers.includes("setup.py")) {
+    commands.push("python -m pytest", "pytest");
+  }
+
+  if (ecosystemMarkers.includes("Cargo.toml")) {
+    commands.push("cargo check", "cargo test", "cargo build");
+  }
+
+  if (ecosystemMarkers.includes("go.mod")) {
+    commands.push("go test ./...", "go vet ./...", "go build ./...");
+  }
+
+  if (ecosystemMarkers.includes("pom.xml")) {
+    commands.push("mvn test", "mvn verify", "mvn package");
+  }
+
+  if (ecosystemMarkers.includes("gradlew")) {
+    commands.push("./gradlew test", "./gradlew build");
+  } else if (ecosystemMarkers.includes("build.gradle") || ecosystemMarkers.includes("build.gradle.kts")) {
+    commands.push("gradle test", "gradle build");
+  }
+
+  return uniqueStrings(commands);
+}
+
+async function detectPackageManager(root: string): Promise<"npm" | "pnpm" | "yarn"> {
+  if (await exists(path.join(root, "pnpm-lock.yaml"))) {
+    return "pnpm";
+  }
+  if (await exists(path.join(root, "yarn.lock"))) {
+    return "yarn";
+  }
+  return "npm";
+}
+
+async function hasAnyLockfile(root: string): Promise<boolean> {
+  return (await exists(path.join(root, "package-lock.json")))
+    || (await exists(path.join(root, "pnpm-lock.yaml")))
+    || (await exists(path.join(root, "yarn.lock")));
+}
+
+function isSetupLikeCommand(command: string): boolean {
+  return /\b(install|setup|ci|sync|restore)\b/i.test(command);
+}
+
 async function readPackageJson(targetCwd: string): Promise<Record<string, unknown> | undefined> {
   try {
     const raw = await fs.readFile(path.join(targetCwd, "package.json"), "utf8");
@@ -530,6 +762,10 @@ async function readPackageJson(targetCwd: string): Promise<Record<string, unknow
 
 function dedupePaths(paths: string[]): string[] {
   return [...new Set(paths.map((value) => path.normalize(value)))];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.trim()))].sort();
 }
 
 function normalizeRelative(from: string, to: string): string {

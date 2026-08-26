@@ -6,4 +6,5 @@ export * from "./planner.js";
 export * from "./prototype.js";
 export * from "./tasks.js";
 export * from "./verification.js";
+export * from "./file-resolution.js";
 export * from "./failure-classification.js";

@@ -216,26 +216,37 @@ test('custom interview dialog is step-by-step, writable, and width safe', async 
     {
       notify() {},
       setWidget() {},
-      custom: async (factory) => {
+      custom: async (factory, options) => {
+        assert.equal(options?.overlay, true);
+        assert.equal(options?.overlayOptions?.width, '95%');
+        assert.equal(options?.overlayOptions?.maxHeight, 22);
+        assert.equal(options?.overlayOptions?.anchor, 'top-center');
         let result;
         const component = factory({ requestRender() {} }, undefined, undefined, (value) => {
           result = value;
         });
         const lines = component.render(75);
+        assert.equal(lines.length, 22);
         assert.ok(lines.every((line) => visibleWidth(line) <= 75));
         assert.ok(lines.some((line) => /Question 1 of 6/.test(line)));
         assert.ok(lines.some((line) => /Recommended answer/.test(line)));
+        assert.ok(lines.every((line) => !/Which clients/.test(line)));
         component.handleInput?.('\u001b[C');
         const blockedLines = component.render(75);
+        assert.equal(blockedLines.length, 22);
         assert.ok(blockedLines.some((line) => /Question 1 of 6/.test(line)));
         for (const char of 'use mongodb text search') {
           component.handleInput?.(char);
         }
         component.handleInput?.('\u001b[C');
         const nextLines = component.render(75);
+        assert.equal(nextLines.length, 22);
         assert.ok(nextLines.some((line) => /Question 2 of 6/.test(line)));
+        assert.ok(nextLines.some((line) => /Which clients/.test(line)));
+        assert.ok(nextLines.every((line) => !/keyword search/.test(line)));
         component.handleInput?.('\u001b[D');
         const firstAnswerLines = component.render(75);
+        assert.equal(firstAnswerLines.length, 22);
         assert.ok(firstAnswerLines.some((line) => /> use mongodb text search/.test(line)));
         component.handleInput?.('\u001b[C');
         for (const char of 'web and mobile') {

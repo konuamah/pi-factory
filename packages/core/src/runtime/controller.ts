@@ -7,6 +7,7 @@ import { selectConstitutionContext } from "../constitution/context.js";
 import { discoverConstitutionRepository } from "../constitution/discovery.js";
 import { compileAgentContext, type CompiledContext } from "../context/compiler.js";
 import { createGitWorktree, createSiblingGitWorktree, inspectGitIsolation } from "../git/worktree.js";
+import { resolveFileReferences, FileResolutionError } from "./file-resolution.js";
 import { getFactorySkill, initializeFactorySkills, resolveFactorySkills, type SkillBundleSelection, type SkillCandidate } from "../skills/index.js";
 import { appendFactoryRunEvent, createFactoryRun, updateFactoryRunState } from "../runs/store.js";
 import { removeRunGitIsolation } from "../runs/cleanup.js";
@@ -174,6 +175,24 @@ async function runFactoryControllerInner(
   });
   const root = path.dirname(loaded.sources.projectConfigPath ?? path.join(input.cwd, ".factory", "config.yaml"));
   const projectRoot = path.dirname(root);
+
+  // ── File resolution: handle @-referenced files before worktree creation ──
+  let fileResolutionResult: Awaited<ReturnType<typeof resolveFileReferences>> | undefined;
+  try {
+    fileResolutionResult = await resolveFileReferences({
+      cwd: input.cwd,
+      goal: input.goal,
+      executor: input.discoveryExecutor ?? input.plannerExecutor,
+      model: input.modelOverrides?.discovery ?? input.modelOverrides?.planner,
+      runId: undefined, // run not created yet
+    });
+  } catch (error) {
+    if (error instanceof FileResolutionError) {
+      throw error;
+    }
+    // Non-fatal: log and proceed — discovery will catch missing files
+  }
+
   const isolation = await inspectGitIsolation(input.cwd);
   const worktree = loaded.effectiveConfig.git.allowWorktrees
     ? await createGitWorktree({
@@ -217,6 +236,22 @@ async function runFactoryControllerInner(
     type: "run.goal_received",
     data: { goal: input.goal },
   });
+
+  if (fileResolutionResult && fileResolutionResult.status !== "no-references") {
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "file_resolution.completed",
+      data: {
+        status: fileResolutionResult.status,
+        resolutionSource: fileResolutionResult.resolutionSource,
+        evidenceCount: fileResolutionResult.evidence.length,
+        appliedCount: fileResolutionResult.appliedActions.length,
+        blockers: fileResolutionResult.plan?.blockers,
+        rationale: fileResolutionResult.rationale,
+      },
+    });
+  }
+
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "run.workspace_selected",
@@ -502,7 +537,21 @@ async function runFactoryControllerInner(
     });
     plannerOutputText = sanitizePlannerOutput(plannerResult.outputText);
     plannerExecutionPath = await writePrototypePlannerExecutionArtifact(run.runDir, plannerResult);
-    const plannerValidation = validatePlannerOutput(plannerOutputText);
+    let plannerValidation = validatePlannerOutput(plannerOutputText);
+    if (!plannerValidation.ok && input.plannerExecutor) {
+      // Deterministic check failed — try LLM context-aware validation
+      const llmValidation = await validatePlannerOutputWithLLM({
+        plannerOutput: plannerOutputText ?? "",
+        executor: input.plannerExecutor,
+        model: plannerModel.model,
+        runId: run.runId,
+      });
+      if (llmValidation.ok) {
+        plannerValidation = { ok: true };
+      } else {
+        plannerValidation = llmValidation;
+      }
+    }
     if (!plannerValidation.ok) {
       await appendFactoryRunEvent(run.eventsPath, {
         timestamp: new Date().toISOString(),
@@ -2582,20 +2631,102 @@ function validatePlannerOutput(value: string | undefined): { ok: true } | { ok: 
   if (!text) {
     return { ok: true };
   }
+  // Narrow phrases that unambiguously delegate discovery to the builder
   const broadDiscoveryLanguage = [
-    "search for",
-    "find where",
-    "locate the",
+    "search for the file",
+    "search for where",
+    "search for the relevant",
+    "find where the file",
+    "locate the file",
+    "locate the relevant file",
     "identify the relevant file",
     "identify the exact file",
-    "find the files",
+    "find the files that",
+    "find the implementation file",
     "bounded evidence check",
+    "search the codebase for",
+    "search the repository for",
   ];
   const match = broadDiscoveryLanguage.find((term) => text.includes(term));
   if (match) {
     return { ok: false, reason: `Planner delegated broad discovery to Builder: "${match}"` };
   }
   return { ok: true };
+}
+
+async function validatePlannerOutputWithLLM(input: {
+  plannerOutput: string;
+  executor: AgentExecutor;
+  model?: { provider?: string; model: string };
+  runId?: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const result = await input.executor.execute({
+    executionId: `${input.runId ?? "planner"}-validation`,
+    cwd: ".",
+    prompt: buildPlannerValidationPrompt(input.plannerOutput),
+    model: input.model,
+    tools: [],
+    metadata: { role: "planner-validation", runId: input.runId },
+  });
+  const parsed = parsePlannerValidationResult(result.outputText);
+  if (!parsed) {
+    // If LLM validation fails, allow the plan through — deterministic check already passed
+    return { ok: true };
+  }
+  return parsed;
+}
+
+function buildPlannerValidationPrompt(plannerOutput: string): string {
+  return [
+    "You are validating a planner's output for a software factory.",
+    "The planner should produce an implementation plan for a Builder to execute.",
+    "The planner should NOT ask the Builder to do broad discovery (searching for files, locating code, identifying implementation surfaces).",
+    "Discovery is a separate phase that already ran before planning.",
+    "",
+    "A narrow read/inspection of a specific file named by Discovery is allowed.",
+    "Describing a feature using words like 'search', 'find', or 'locate' is allowed when those words describe the feature being built, not instructions to the Builder.",
+    "",
+    "Examples of LEGITIMATE usage:",
+    '- "Improve gig search for a growing marketplace" — describes the feature',
+    '- "Add search functionality to the navbar" — describes the feature',
+    '- "Implement a search results page" — describes the feature',
+    '- "Read backend/src/controllers/gigController.ts to understand the current search" — narrow file inspection',
+    "",
+    "Examples of DELEGATING DISCOVERY (reject these):",
+    '- "Search for the file that handles gig creation" — asking Builder to find files',
+    '- "Find where the search logic is implemented" — asking Builder to locate code',
+    '- "Locate the relevant controller file" — asking Builder to find files',
+    '- "Identify the files that need to change" — asking Builder to discover surfaces',
+    "",
+    "Planner output:",
+    plannerOutput,
+    "",
+    "Return JSON only:",
+    '{"ok": true} if the planner output is legitimate',
+    '{"ok": false, "reason": "short explanation"} if the planner is delegating discovery to the Builder',
+  ].join("\n");
+}
+
+function parsePlannerValidationResult(outputText: string): { ok: true } | { ok: false; reason: string } | undefined {
+  const fenced = outputText.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const raw = (fenced ?? outputText).trim();
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as { ok?: unknown; reason?: unknown };
+    if (typeof parsed.ok !== "boolean") {
+      return undefined;
+    }
+    if (parsed.ok) {
+      return { ok: true };
+    }
+    return { ok: false, reason: typeof parsed.reason === "string" ? parsed.reason : "Planner delegated broad discovery to Builder" };
+  } catch {
+    return undefined;
+  }
 }
 
 interface DiscoveryContract {

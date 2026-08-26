@@ -1,6 +1,8 @@
 import type { DecisionRequest, DecisionResult } from "@factory/core";
 import type { FactoryPiUi } from "./types.js";
 
+const INTERVIEW_OVERLAY_HEIGHT = 22;
+
 export function buildDecisionPreviewLines(request: DecisionRequest): string[] {
   const lines = [
     "DECISION REQUIRED",
@@ -155,14 +157,14 @@ async function requestInterviewDecision(
               ? "→ next · ← previous · ↑/↓ scroll · escape cancel"
               : "answer required before next · ↑/↓ scroll · escape cancel",
         ];
-        const availableRows = Math.max(5, 22 - header.length - footer.length);
+        const availableRows = Math.max(3, INTERVIEW_OVERLAY_HEIGHT - header.length - footer.length);
         const maxOffset = Math.max(0, body.length - availableRows);
         scrollOffset = Math.min(scrollOffset, maxOffset);
         const visible = body.slice(scrollOffset, scrollOffset + availableRows);
         const position = body.length > availableRows
           ? [`Showing ${scrollOffset + 1}-${Math.min(body.length, scrollOffset + availableRows)} of ${body.length}`, ""]
           : [];
-        return [...header, ...position, ...visible, ...footer].map((line) => truncateStyledLine(line, contentWidth));
+        return fixedHeightLines([...header, ...position, ...visible, ...footer], contentWidth, INTERVIEW_OVERLAY_HEIGHT);
       },
       invalidate(): void {},
       handleInput(data: string): void {
@@ -223,7 +225,15 @@ async function requestInterviewDecision(
 
     tui.requestRender();
     return component;
-  }, { overlay: true });
+  }, {
+    overlay: true,
+    overlayOptions: {
+      width: "95%",
+      maxHeight: INTERVIEW_OVERLAY_HEIGHT,
+      anchor: "top-center",
+      margin: { top: 1, right: 1, bottom: 1, left: 1 },
+    },
+  });
 
   if (result) {
     return result;
@@ -238,6 +248,14 @@ function splitInterviewQuestions(value: string): string[] {
     .map((block) => block.trim())
     .filter(Boolean);
   return blocks.length > 0 ? blocks : [value.trim()].filter(Boolean);
+}
+
+function fixedHeightLines(lines: string[], width: number, height: number): string[] {
+  const rendered = lines.slice(0, height).map((line) => truncateStyledLine(line, width));
+  while (rendered.length < height) {
+    rendered.push("");
+  }
+  return rendered;
 }
 
 function formatInterviewAnswers(questions: string[], answers: string[]): string {

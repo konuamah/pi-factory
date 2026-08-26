@@ -31,7 +31,8 @@ Factory-owned/project-agent files include:
 
 - `.factory/config.yaml`
 - `factory.yaml`
-- `.pi/extensions/factory/index.ts`
+- `.pi/settings.json` for package install references
+- `.pi/extensions/factory/index.ts` only for legacy project-local extension installs
 - `.pi/skills/**/SKILL.md`
 - `.agents/skills/**/SKILL.md`
 - `skills/**/SKILL.md`

@@ -27,11 +27,12 @@ Each stage should include:
 
 - `name`
 - `description`
-- `type`: `agent`, `command`, `approval`, or `task-graph`
+- `type`: `agent`, `interview`, `command`, `approval`, or `task-graph`
 - `dependsOn` when not the first step
 - `role` for agent steps when known
 - `commands` for command steps
 - `model` only when the step truly needs a role override
+- `skills` when the workflow must explicitly bind skills to an agent step
 
 ## Step Types
 
@@ -41,6 +42,12 @@ Use `agent` for model work:
 - builder: implementation
 - reviewer: risk review
 - repair: fix failed checks
+
+Use `interview` before planning when Factory must ask the user questions first.
+
+- bind an interview skill with `skills.require`, such as `grilling`
+- Factory pauses in a decision gate when the interview asks questions
+- the user's answer is passed into the planner prompt
 
 Use `command` for verification:
 
@@ -53,6 +60,23 @@ Use `command` for verification:
 Use `approval` before irreversible or user-owned decisions.
 
 Use `task-graph` only when a step should expand into subtasks.
+
+## Explicit Skills
+
+Agent and interview stages may bind skills explicitly:
+
+```yaml
+skills:
+  require: [implementation-task]
+  prefer: [repo-interpretation]
+  exclude: [slamm-copy-humanizer]
+```
+
+- `require`: the skill must exist or the stage fails loudly before execution.
+- `prefer`: include the skill if it exists; continue if it does not.
+- `exclude`: remove matching automatically selected skills from this stage.
+
+Explicit skills merge with Factory's automatic skill selection for that node. `plan` and `discover` stage skills also apply to Factory's built-in planning/discovery prompts. Command and approval stages ignore skills.
 
 ## Example
 
@@ -67,11 +91,16 @@ workflows:
         description: "Understand the user request and produce a scoped plan."
         type: agent
         role: planner
+        skills:
+          prefer: [repo-interpretation]
       - name: build
         description: "Implement the approved change."
         type: agent
         role: builder
         dependsOn: [plan]
+        skills:
+          require: [implementation-task]
+          prefer: [repo-interpretation]
       - name: verify
         description: "Run configured project checks."
         type: command
@@ -82,10 +111,44 @@ workflows:
         type: agent
         role: reviewer
         dependsOn: [verify]
+        skills:
+          require: [acceptance-review]
       - name: approval
         description: "Ask before final merge or completion."
         type: approval
         dependsOn: [review]
 ```
+
+## Interview Example
+
+```yaml
+defaultWorkflowId: grilled-feature
+workflows:
+  - id: grilled-feature
+    name: "Grilled Feature Work"
+    stages:
+      - name: discover
+        type: agent
+        role: discovery
+      - name: interview
+        type: interview
+        role: planner
+        dependsOn: [discover]
+        skills:
+          require: [grilling]
+      - name: plan
+        type: agent
+        role: planner
+        dependsOn: [interview]
+      - name: build
+        type: agent
+        role: builder
+        dependsOn: [plan]
+      - name: approval
+        type: approval
+        dependsOn: [build]
+```
+
+Use `prefer: [grilling]` when the planner should see the skill instructions but does not need to interrupt the run. Use `type: interview` plus `require: [grilling]` when Factory must stop and collect answers before planning.
 
 After editing, run `/factory doctor`.

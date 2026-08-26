@@ -41,13 +41,15 @@ test('factory constitution command renders immediate progress feedback', async (
     await new Promise((resolve) => setTimeout(resolve, 0));
     const first = widgets[0];
     const second = widgets[1];
-    assert.ok(Array.isArray(first));
-    assert.ok(first.includes('Factory'));
-    assert.ok(first.some((line) => /refreshing the repository constitution/i.test(line)));
+    const third = widgets[2];
+    assert.equal(first, undefined);
     assert.ok(Array.isArray(second));
-    assert.ok(second.includes('Factory constitution'));
-    assert.ok(second.includes('phase: constitution-refresh'));
-    assert.ok(second.includes('message: Refreshing repository constitution'));
+    assert.ok(second.includes('Factory'));
+    assert.ok(second.some((line) => /refreshing the repository constitution/i.test(line)));
+    assert.ok(Array.isArray(third));
+    assert.ok(third.includes('Factory constitution'));
+    assert.ok(third.includes('phase: constitution-refresh'));
+    assert.ok(third.includes('message: Refreshing repository constitution'));
 
     await run.catch(() => {});
   });

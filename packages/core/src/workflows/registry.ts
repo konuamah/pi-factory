@@ -110,6 +110,12 @@ function flattenWorkflows(workflows: WorkflowDefinition[]): string[] {
       if (stage.requiresApproval !== undefined) lines.push(`        requiresApproval: ${stage.requiresApproval}`);
       if (stage.taskType) lines.push(`        taskType: ${stage.taskType}`);
       if (stage.model) lines.push(`        model: ${JSON.stringify(stage.model)}`);
+      if (stage.skills && hasSkillPolicy(stage.skills)) {
+        lines.push("        skills:");
+        if (stage.skills.require?.length) lines.push(`          require: [${stage.skills.require.join(", ")}]`);
+        if (stage.skills.prefer?.length) lines.push(`          prefer: [${stage.skills.prefer.join(", ")}]`);
+        if (stage.skills.exclude?.length) lines.push(`          exclude: [${stage.skills.exclude.join(", ")}]`);
+      }
     }
   }
   return lines;
@@ -258,10 +264,37 @@ function parseSimpleWorkflowYaml(raw: string): WorkflowConfig {
       }
       continue;
     }
+
+    if (currentStage && indent === 8 && /^skills:/.test(trimmed)) {
+      currentStage.skills = {};
+      continue;
+    }
+
+    if (currentStage?.skills && indent === 10 && /^require:/.test(trimmed)) {
+      const value = parseValue(trimmed.slice("require:".length));
+      currentStage.skills.require = Array.isArray(value) ? value : [];
+      continue;
+    }
+
+    if (currentStage?.skills && indent === 10 && /^prefer:/.test(trimmed)) {
+      const value = parseValue(trimmed.slice("prefer:".length));
+      currentStage.skills.prefer = Array.isArray(value) ? value : [];
+      continue;
+    }
+
+    if (currentStage?.skills && indent === 10 && /^exclude:/.test(trimmed)) {
+      const value = parseValue(trimmed.slice("exclude:".length));
+      currentStage.skills.exclude = Array.isArray(value) ? value : [];
+      continue;
+    }
   }
 
   return {
     defaultWorkflowId,
     workflows,
   };
+}
+
+function hasSkillPolicy(skills: WorkflowStage["skills"]): boolean {
+  return Boolean(skills?.require?.length || skills?.prefer?.length || skills?.exclude?.length);
 }

@@ -7,7 +7,7 @@ import { selectConstitutionContext } from "../constitution/context.js";
 import { discoverConstitutionRepository } from "../constitution/discovery.js";
 import { compileAgentContext, type CompiledContext } from "../context/compiler.js";
 import { createGitWorktree, createSiblingGitWorktree, inspectGitIsolation } from "../git/worktree.js";
-import { initializeFactorySkills, resolveFactorySkills, type SkillBundleSelection } from "../skills/index.js";
+import { getFactorySkill, initializeFactorySkills, resolveFactorySkills, type SkillBundleSelection, type SkillCandidate } from "../skills/index.js";
 import { appendFactoryRunEvent, createFactoryRun, updateFactoryRunState } from "../runs/store.js";
 import { removeRunGitIsolation } from "../runs/cleanup.js";
 import { appendRepoLearning } from "../learnings/store.js";
@@ -26,7 +26,7 @@ import {
 } from "./artifacts.js";
 import type { AgentExecutionResult, AgentExecutor } from "./interfaces.js";
 import { buildPlanArtifact, type PlannerTask } from "./planner.js";
-import type { CapabilityPolicy, EffectiveFactoryConfig, ModelRole, ModelSelection } from "@factory/schemas";
+import type { CapabilityPolicy, EffectiveFactoryConfig, ModelRole, ModelSelection, WorkflowStage } from "@factory/schemas";
 import {
   capabilitiesToToolNames,
   defaultCapabilitiesForRole,
@@ -247,7 +247,12 @@ async function runFactoryControllerInner(
 
   await initializeFactorySkills(projectRoot);
   const repoSkillSignals = await collectRuntimeSkillSignals(projectRoot);
-  const discoverySkills = resolveFactorySkills({
+  const workflowStages = loaded.effectiveConfig.resolvedWorkflow?.stages ?? [];
+  const discoveryStage = findBuiltInWorkflowStage(workflowStages, ["discover", "discovery"]);
+  const plannerStage = findBuiltInWorkflowStage(workflowStages, ["plan", "planning"]);
+  const interviewStages = workflowStages.filter((stage) => stage.type === "interview");
+
+  let discoverySkills = resolveFactorySkills({
     goal: input.goal,
     stage: "discover",
     taskKinds: ["repo-interpretation", "planning"],
@@ -255,7 +260,7 @@ async function runFactoryControllerInner(
     availableTools: ["read", "grep", "find", "ls"],
     ...repoSkillSignals,
   });
-  const plannerSkills = resolveFactorySkills({
+  let plannerSkills = resolveFactorySkills({
     goal: input.goal,
     stage: "plan",
     taskKinds: ["planning", "repo-interpretation"],
@@ -263,6 +268,32 @@ async function runFactoryControllerInner(
     availableTools: ["read", "grep", "find", "ls"],
     ...repoSkillSignals,
   });
+
+  const discoveryPolicy = applyWorkflowSkillPolicy(discoverySkills, discoveryStage?.skills);
+  if (!discoveryPolicy.ok) {
+    await failBuiltInSkillPolicy({
+      run,
+      input,
+      phase: "discovery-failed",
+      stage: discoveryStage?.name ?? "discover",
+      missingRequired: discoveryPolicy.missingRequired,
+    });
+    throw new Error(`Discovery failed: Missing required workflow skill(s): ${discoveryPolicy.missingRequired.join(", ")}`);
+  }
+  discoverySkills = discoveryPolicy.bundle;
+
+  const plannerPolicy = applyWorkflowSkillPolicy(plannerSkills, plannerStage?.skills);
+  if (!plannerPolicy.ok) {
+    await failBuiltInSkillPolicy({
+      run,
+      input,
+      phase: "planning-failed",
+      stage: plannerStage?.name ?? "plan",
+      missingRequired: plannerPolicy.missingRequired,
+    });
+    throw new Error(`Planning failed: Missing required workflow skill(s): ${plannerPolicy.missingRequired.join(", ")}`);
+  }
+  plannerSkills = plannerPolicy.bundle;
   const builderSkills = resolveFactorySkills({
     goal: input.goal,
     stage: "build",
@@ -425,6 +456,19 @@ async function runFactoryControllerInner(
     });
   }
 
+  const interviewContext = await runInterviewStages({
+    stages: interviewStages,
+    run,
+    input,
+    executionCwd,
+    goal: input.goal,
+    config: loaded.effectiveConfig,
+    plannerGuidanceText: plannerGuidance.text,
+    plannerSkills,
+    runTaskType,
+    discoveryOutputText,
+  });
+
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "planning", "Building plan");
   if (input.plannerExecutor) {
     const plannerModel = resolveModelForRole({
@@ -447,7 +491,7 @@ async function runFactoryControllerInner(
     const plannerResult = await input.plannerExecutor.execute({
       executionId: `${run.runId}-planner`,
       cwd: executionCwd,
-      prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text, renderSkillBundleForPrompt(plannerSkills), discoveryOutputText),
+      prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text, renderSkillBundleForPrompt(plannerSkills), discoveryOutputText, interviewContext),
       model: plannerModel.model,
       tools: ["read", "grep", "find", "ls"],
       metadata: {
@@ -1674,6 +1718,36 @@ async function runImplementationTask(input: {
     const nodeRole = resolveNodeRole(input.task);
     const executor = input.roleExecutors[nodeRole];
     if (executor) {
+      const nodeSkills = resolveNodeSkillBundle(input.roleSkills[nodeRole], input.task.skills);
+      if (!nodeSkills.ok) {
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.skill_policy_failed",
+          data: {
+            taskId: input.task.id,
+            stage: input.task.stage,
+            missingRequiredSkills: nodeSkills.missingRequired,
+          },
+        });
+        await updatePrototypeTaskArtifact({
+          runDir: input.runDir,
+          taskId: input.task.id,
+          patch: { status: "failed" },
+        });
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.failed",
+          data: {
+            taskId: input.task.id,
+            stage: input.task.stage,
+            title: input.task.title,
+            reason: `Missing required workflow skill(s): ${nodeSkills.missingRequired.join(", ")}`,
+            workspacePath: workspace.path,
+            workspaceBranch: workspace.branch,
+          },
+        });
+        return { ok: false, task: input.task, workspace };
+      }
       const capabilities = resolveEffectiveCapabilities({
         requested: input.task.requiredCapabilities?.length ? input.task.requiredCapabilities : defaultCapabilitiesForRole(nodeRole),
         autonomy: (input.autonomy ?? "medium") as AutonomyLevel,
@@ -1687,7 +1761,7 @@ async function runImplementationTask(input: {
         goal: input.goal,
         task: input.task,
         dependencyTasks: input.dependencyTasks?.filter((dep) => input.task.dependsOn.includes(dep.id)),
-        skills: input.roleSkills[nodeRole]?.selected,
+        skills: nodeSkills.selected,
         fileHints: input.task.context?.fileHints,
         maxChars: 6000,
         grantedCapabilities: capabilities.granted,
@@ -1704,6 +1778,7 @@ async function runImplementationTask(input: {
           files: compiled.files.map((file) => file.path),
           dependencies: compiled.dependencies.map((dep) => dep.taskId),
           skills: compiled.skills.map((skill) => skill.id),
+          explicitSkills: input.task.skills,
           capabilities: capabilities.granted,
           deniedCapabilities: capabilities.denied,
           tokenEstimate: compiled.tokenEstimate,
@@ -2466,6 +2541,9 @@ function isExecutableWorkflowNode(task: PlannerTask): boolean {
     return false;
   }
   const type = task.type;
+  if (type === "interview") {
+    return false;
+  }
   if (type === "command" || type === "task-graph") {
     return true;
   }
@@ -2478,6 +2556,7 @@ function isExecutableWorkflowNode(task: PlannerTask): boolean {
 const RESERVED_PHASE_STAGES = new Set([
   "discover",
   "discovery",
+  "interview",
   "plan",
   "planning",
   "verify",
@@ -2852,6 +2931,196 @@ function isConcreteFile(value: string | undefined): boolean {
     || /\.[A-Za-z0-9]+$/.test(filePath);
 }
 
+function findBuiltInWorkflowStage(stages: WorkflowStage[], names: string[]): WorkflowStage | undefined {
+  const normalized = new Set(names.map((name) => name.toLowerCase()));
+  return stages.find((stage) => normalized.has(stage.name.toLowerCase()));
+}
+
+async function failBuiltInSkillPolicy(input: {
+  run: { runId: string; statePath: string; eventsPath: string };
+  input: RunFactoryControllerInput;
+  phase: string;
+  stage: string;
+  missingRequired: string[];
+}): Promise<void> {
+  await appendFactoryRunEvent(input.run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "task.skill_policy_failed",
+    data: {
+      stage: input.stage,
+      missingRequiredSkills: input.missingRequired,
+    },
+  });
+  await updateFactoryRunState({
+    statePath: input.run.statePath,
+    patch: { status: "FAILED", phase: input.phase },
+  });
+  await emitProgress(input.input, {
+    runId: input.run.runId,
+    phase: input.phase,
+    status: "FAILED",
+    message: `Missing required workflow skill(s): ${input.missingRequired.join(", ")}`,
+  });
+}
+
+async function runInterviewStages(input: {
+  stages: WorkflowStage[];
+  run: { runId: string; runDir: string; statePath: string; eventsPath: string };
+  input: RunFactoryControllerInput;
+  executionCwd: string;
+  goal: string;
+  config: EffectiveFactoryConfig;
+  plannerGuidanceText?: string;
+  plannerSkills: SkillBundleSelection;
+  runTaskType: TaskTypeSelection;
+  discoveryOutputText?: string;
+}): Promise<string | undefined> {
+  const answers: string[] = [];
+  for (const stage of input.stages) {
+    const role = stage.role ?? "planner";
+    const executor = executorForRole(input.input, role);
+    if (!executor) {
+      throw new Error(`Interview stage '${stage.name}' requires a ${role} executor, but none is configured.`);
+    }
+    const skillPolicy = applyWorkflowSkillPolicy(input.plannerSkills, stage.skills);
+    if (!skillPolicy.ok) {
+      await failBuiltInSkillPolicy({
+        run: input.run,
+        input: input.input,
+        phase: "interview-failed",
+        stage: stage.name,
+        missingRequired: skillPolicy.missingRequired,
+      });
+      throw new Error(`Interview failed: Missing required workflow skill(s): ${skillPolicy.missingRequired.join(", ")}`);
+    }
+    await movePhase(input.run.statePath, input.run.eventsPath, input.run.runId, input.input, "interview", `Interviewing before planning: ${stage.name}`);
+    const model = resolveModelForRole({
+      role,
+      taskType: input.runTaskType.id,
+      config: input.config,
+      nodeModel: stage.model,
+      runModelOverride: input.input.modelOverrides?.[role],
+    });
+    await appendModelLedgerEntry(input.run.runDir, {
+      operationId: `${input.run.runId}-${role}-${stage.name}`,
+      nodeId: stage.name,
+      role,
+      taskType: input.runTaskType.id,
+      taskTypeSource: input.runTaskType.source,
+      taskTypeConfidence: input.runTaskType.confidence,
+      requestedModel: model.model.model,
+      resolvedModel: model.model.model,
+      provider: model.model.provider,
+      modelSource: model.source,
+    });
+    const result = await executor.execute({
+      executionId: `${input.run.runId}-${role}-${slugifyGoal(stage.name)}`,
+      cwd: input.executionCwd,
+      prompt: buildInterviewPrompt({
+        goal: input.goal,
+        stage,
+        guidanceText: input.plannerGuidanceText,
+        skillBundleText: renderSkillBundleForPrompt(skillPolicy.bundle),
+        discoveryReport: input.discoveryOutputText,
+      }),
+      model: model.model,
+      tools: ["read", "grep", "find", "ls"],
+      metadata: {
+        role,
+        runId: input.run.runId,
+        taskType: input.runTaskType.id,
+        stage: stage.name,
+      },
+    });
+    const artifactPath = path.join(input.run.runDir, `${slugifyGoal(stage.name)}-interview-execution.json`);
+    await fs.writeFile(artifactPath, JSON.stringify(result, null, 2), "utf8");
+    await appendFactoryRunEvent(input.run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "interview.executor_completed",
+      data: {
+        stage: stage.name,
+        role,
+        interviewExecutionPath: artifactPath,
+        interviewStatus: result.status,
+      },
+    });
+    const output = result.outputText.trim();
+    if (!output || /INTERVIEW_COMPLETE/i.test(output)) {
+      continue;
+    }
+    const decision = await requestHumanDecision({
+      controllerInput: input.input,
+      runDir: input.run.runDir,
+      statePath: input.run.statePath,
+      eventsPath: input.run.eventsPath,
+      runId: input.run.runId,
+      request: {
+        id: `${input.run.runId}-${slugifyGoal(stage.name)}-interview`,
+        title: `Interview: ${stage.name}`,
+        question: output,
+        context: "Answer the interview questions. Factory will include your answer in the planner prompt before producing the implementation plan.",
+        options: [
+          {
+            id: "answered",
+            label: "Use my answer",
+            description: "Continue to planning with the feedback/answer provided.",
+          },
+        ],
+        source: "INTERVIEW",
+        reason: "USER_PREFERENCE",
+      },
+    });
+    answers.push([
+      `Stage: ${stage.name}`,
+      `Interview prompt/questions:\n${output}`,
+      `Selected option: ${decision.optionId}`,
+      decision.feedback ? `User answer:\n${decision.feedback}` : undefined,
+    ].filter(Boolean).join("\n"));
+  }
+  return answers.length > 0 ? answers.join("\n\n") : undefined;
+}
+
+function executorForRole(input: RunFactoryControllerInput, role: ModelRole): AgentExecutor | undefined {
+  switch (role) {
+    case "discovery":
+      return input.discoveryExecutor ?? input.plannerExecutor;
+    case "planner":
+      return input.plannerExecutor;
+    case "builder":
+      return input.builderExecutor;
+    case "reviewer":
+      return input.reviewerExecutor;
+    case "repair":
+      return input.repairExecutor;
+  }
+}
+
+function buildInterviewPrompt(input: {
+  goal: string;
+  stage: WorkflowStage;
+  guidanceText?: string;
+  skillBundleText?: string;
+  discoveryReport?: string;
+}): string {
+  return [
+    "Role: Interview",
+    "",
+    "Your job is to ask the user the questions needed before Factory plans implementation.",
+    "Do not implement code. Do not write the implementation plan.",
+    "If no user interview is needed, return exactly: INTERVIEW_COMPLETE",
+    "",
+    `Task: ${input.goal}`,
+    `Interview stage: ${input.stage.name}`,
+    input.stage.description ? `Stage description: ${input.stage.description}` : undefined,
+    input.skillBundleText ? `Selected skills:\n${input.skillBundleText}` : undefined,
+    input.guidanceText ? `Project guidance context:\n${input.guidanceText}` : undefined,
+    input.discoveryReport ? `Validated Discovery result:\n${input.discoveryReport}` : undefined,
+    "",
+    "Ask concise, answerable questions. Prefer one round of high-impact questions.",
+    "The user answer will be recorded and passed into the planner.",
+  ].filter(Boolean).join("\n");
+}
+
 function buildDiscoveryPrompt(
   goal: string,
   constitutionContext?: string,
@@ -2934,6 +3203,7 @@ function buildPlannerPrompt(
   constitutionContext?: string,
   skillBundleText?: string,
   discoveryReport?: string,
+  interviewContext?: string,
 ): string {
   return [
     "You are an expert Principal Software Architect and Lead Project Planner.",
@@ -2949,6 +3219,7 @@ function buildPlannerPrompt(
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     discoveryReport ? `Validated Discovery result (authoritative pre-planning evidence):\n${discoveryReport}` : undefined,
+    interviewContext ? `Interview answers and decisions:\n${interviewContext}` : undefined,
     "",
     "Discovery has already inspected the repository.",
     "Use the supplied Discovery evidence as your repository context.",
@@ -3113,8 +3384,84 @@ function renderSkillBundleForPrompt(bundle: SkillBundleSelection): string | unde
     return undefined;
   }
   return bundle.selected
-    .map((item) => `- ${item.skill.id}@${item.skill.version}: ${item.reasons.slice(0, 2).join("; ")}`)
-    .join("\n");
+    .map((item) => {
+      const header = `## ${item.skill.id}@${item.skill.version}`;
+      const reasons = `Selection reasons: ${item.reasons.slice(0, 2).join("; ")}`;
+      const description = item.skill.description ? `Description: ${item.skill.description}` : undefined;
+      const body = item.skill.body?.trim() ? `Instructions:\n${item.skill.body.trim()}` : undefined;
+      return [header, description, reasons, body].filter(Boolean).join("\n");
+    })
+    .join("\n\n");
+}
+
+function applyWorkflowSkillPolicy(
+  bundle: SkillBundleSelection,
+  policy: PlannerTask["skills"],
+): { ok: true; bundle: SkillBundleSelection } | { ok: false; missingRequired: string[] } {
+  const resolved = resolveNodeSkillBundle(bundle, policy);
+  if (!resolved.ok) {
+    return resolved;
+  }
+  return {
+    ok: true,
+    bundle: {
+      ...bundle,
+      selected: resolved.selected,
+    },
+  };
+}
+
+function resolveNodeSkillBundle(
+  roleBundle: SkillBundleSelection | undefined,
+  policy: PlannerTask["skills"],
+): { ok: true; selected: SkillCandidate[] } | { ok: false; missingRequired: string[] } {
+  const excluded = new Set(policy?.exclude ?? []);
+  const selected = new Map<string, SkillCandidate>();
+  const missingRequired: string[] = [];
+
+  for (const id of policy?.require ?? []) {
+    const explicit = explicitSkillCandidate(id, "Required by workflow stage.");
+    if (!explicit) {
+      missingRequired.push(id);
+      continue;
+    }
+    if (!excluded.has(id)) {
+      selected.set(id, explicit);
+    }
+  }
+
+  if (missingRequired.length > 0) {
+    return { ok: false, missingRequired };
+  }
+
+  for (const id of policy?.prefer ?? []) {
+    const explicit = explicitSkillCandidate(id, "Preferred by workflow stage.");
+    if (explicit && !excluded.has(id)) {
+      selected.set(id, explicit);
+    }
+  }
+
+  for (const item of roleBundle?.selected ?? []) {
+    if (!excluded.has(item.skill.id) && !selected.has(item.skill.id)) {
+      selected.set(item.skill.id, item);
+    }
+  }
+
+  return { ok: true, selected: [...selected.values()] };
+}
+
+function explicitSkillCandidate(id: string, reason: string): SkillCandidate | undefined {
+  const skill = getFactorySkill(id);
+  if (!skill) {
+    return undefined;
+  }
+  return {
+    skill,
+    score: 100,
+    reasons: [reason],
+    scores: {},
+    provides: skill.provides?.capabilities ?? [],
+  };
 }
 
 function summarizeSkillBundle(bundle: SkillBundleSelection): Record<string, unknown> {

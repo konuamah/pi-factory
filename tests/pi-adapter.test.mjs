@@ -4,6 +4,7 @@ import {
   buildPlanApprovalPreviewLines,
   requestPlanApprovalDecision,
 } from '../packages/adapters/pi/dist/approval.js';
+import { requestDecisionInput } from '../packages/adapters/pi/dist/decision-dialog.js';
 
 function makePreview() {
   return {
@@ -179,4 +180,93 @@ test('confirm fallback still supports approve/reject behavior', async () => {
     makePreview(),
   );
   assert.equal(rejected.decision, 'reject');
+});
+
+test('interview decision fails loudly when custom UI is unavailable', async () => {
+  await assert.rejects(
+    () => requestDecisionInput(
+      {
+        notify() {},
+        setWidget() {},
+        input: async () => ' use MongoDB text search only ',
+      },
+      {
+        id: 'interview-1',
+        title: 'Interview: grill',
+        question: 'Q1: Which search behavior should govern?',
+        options: [{ id: 'answered', label: 'Use my answer' }],
+        source: 'INTERVIEW',
+        reason: 'USER_PREFERENCE',
+      },
+    ),
+    /requires Pi custom UI; no fallback is allowed/,
+  );
+});
+
+test('custom interview dialog is step-by-step, writable, and width safe', async () => {
+  const questions = [
+    '❓ **Q1** - **What does “keyword search” need to mean for this gap?** Should it match title, description, tags, or all of them?\n\n**Recommended answer:** Include title, description, and tags.',
+    '❓ **Q2** - **Which clients should this cover?** Web, mobile, or both?',
+    '❓ **Q3** - **Should results prioritize relevance or recency?**',
+    '❓ **Q4** - **What empty state should users see?**',
+    '❓ **Q5** - **Should we add metrics now?**',
+    '❓ **Q6** - **What verification should prove this works?**',
+  ].join('\n\n---\n\n');
+  const decision = await requestDecisionInput(
+    {
+      notify() {},
+      setWidget() {},
+      custom: async (factory) => {
+        let result;
+        const component = factory({ requestRender() {} }, undefined, undefined, (value) => {
+          result = value;
+        });
+        const lines = component.render(75);
+        assert.ok(lines.every((line) => visibleWidth(line) <= 75));
+        assert.ok(lines.some((line) => /Question 1 of 6/.test(line)));
+        assert.ok(lines.some((line) => /Recommended answer/.test(line)));
+        component.handleInput?.('\u001b[C');
+        const blockedLines = component.render(75);
+        assert.ok(blockedLines.some((line) => /Question 1 of 6/.test(line)));
+        for (const char of 'use mongodb text search') {
+          component.handleInput?.(char);
+        }
+        component.handleInput?.('\u001b[C');
+        const nextLines = component.render(75);
+        assert.ok(nextLines.some((line) => /Question 2 of 6/.test(line)));
+        component.handleInput?.('\u001b[D');
+        const firstAnswerLines = component.render(75);
+        assert.ok(firstAnswerLines.some((line) => /> use mongodb text search/.test(line)));
+        component.handleInput?.('\u001b[C');
+        for (const char of 'web and mobile') {
+          component.handleInput?.(char);
+        }
+        component.handleInput?.('\r');
+        assert.ok(component.render(75).some((line) => /Question 3 of 6/.test(line)));
+        for (const answer of ['relevance first', 'clear no results message', 'no metrics yet', 'unit and api tests']) {
+          for (const char of answer) {
+            component.handleInput?.(char);
+          }
+          component.handleInput?.('\r');
+        }
+        component.handleInput?.('\r');
+        return result;
+      },
+    },
+    {
+      id: 'interview-wide',
+      title: 'Interview: interview',
+      question: questions,
+      context: 'Answer the interview questions. Factory will include your answer in the planner prompt before producing the implementation plan.',
+      options: [{ id: 'answered', label: 'Use my answer', description: 'Continue to planning with the feedback/answer provided.' }],
+      source: 'INTERVIEW',
+      reason: 'USER_PREFERENCE',
+    },
+  );
+
+  assert.equal(decision.optionId, 'answered');
+  assert.match(decision.feedback, /Q1: .*keyword search/);
+  assert.match(decision.feedback, /A1: use mongodb text search/);
+  assert.match(decision.feedback, /Q6: .*verification/);
+  assert.match(decision.feedback, /A6: unit and api tests/);
 });

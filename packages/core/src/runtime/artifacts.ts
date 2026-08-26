@@ -11,6 +11,11 @@ export interface PrototypeTaskArtifact {
   role?: string;
   commands?: string[];
   requiresApproval?: boolean;
+  skills?: {
+    require?: string[];
+    prefer?: string[];
+    exclude?: string[];
+  };
   context?: {
     fileHints?: string[];
     constitutionAreas?: number[];
@@ -34,6 +39,11 @@ export interface PrototypePlanArtifact {
     role?: string;
     commands?: string[];
     requiresApproval?: boolean;
+    skills?: {
+      require?: string[];
+      prefer?: string[];
+      exclude?: string[];
+    };
   }>;
   tasks: Array<{
     id: string;
@@ -45,6 +55,11 @@ export interface PrototypePlanArtifact {
     role?: string;
     commands?: string[];
     requiresApproval?: boolean;
+    skills?: {
+      require?: string[];
+      prefer?: string[];
+      exclude?: string[];
+    };
     context?: {
       fileHints?: string[];
       constitutionAreas?: number[];

@@ -118,6 +118,7 @@ export function skillFileToContract(parsed: ParsedSkillFile): SkillContract {
     id: parsed.name,
     version: typeof metadata.version === "string" ? metadata.version : "1.0.0",
     description: parsed.description,
+    body: parsed.body,
     provides: provides.length > 0 ? { capabilities: provides } : undefined,
     taskTypes: taskTypes.length > 0 ? taskTypes : undefined,
     filePatterns: filePatterns.length > 0 ? filePatterns : undefined,

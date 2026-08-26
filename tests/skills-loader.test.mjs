@@ -65,6 +65,7 @@ allowed-tools: read write bash
   assert.equal(contract.id, 'postgres-migrations');
   assert.equal(contract.version, '2.1.0');
   assert.deepEqual(contract.provides?.capabilities, ['database-migration']);
+  assert.match(contract.body, /# Body/);
   assert.deepEqual(contract.applicability?.stages, ['build']);
   assert.deepEqual(contract.permissions?.allowedTools, ['read', 'write', 'bash']);
   assert.deepEqual(contract.taskTypes, ['database-change']);

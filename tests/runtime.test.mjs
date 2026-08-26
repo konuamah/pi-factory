@@ -88,6 +88,24 @@ async function readJson(filePath) {
   return JSON.parse(await fs.readFile(filePath, 'utf8'));
 }
 
+async function writeProjectSkill(root, id, body, metadataLines = []) {
+  const dir = path.join(root, '.pi', 'skills', id);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(
+    path.join(dir, 'SKILL.md'),
+    [
+      '---',
+      `name: ${id}`,
+      `description: ${id} test skill.`,
+      ...metadataLines,
+      '---',
+      '',
+      body,
+    ].join('\n'),
+    'utf8',
+  );
+}
+
 test('project instruction files are injected into planner context ahead of constitution summary', async () => {
   await withTempProject(async (root) => {
     await fs.writeFile(path.join(root, 'AGENTS.md'), 'Use concise release notes.\nPrefer root docs for contributor guidance.\n', 'utf8');
@@ -233,6 +251,257 @@ test('invalid discovery output fails loudly before planning', async () => {
     const state = await readJson(path.join(runDir, 'state.json'));
     assert.equal(state.status, 'FAILED');
     assert.equal(state.phase, 'discovery-failed');
+  });
+});
+
+test('workflow plan skills are applied to built-in planner prompt with full skill body', async () => {
+  await withTempProject(async (root) => {
+    await writeProjectSkill(root, 'grilling', 'Interview the user in rounds before planning.');
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: interview-plan',
+        'workflows:',
+        '  - id: interview-plan',
+        '    name: Interview Plan',
+        '    stages:',
+        '      - name: discover',
+        '        type: agent',
+        '        role: discovery',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '        dependsOn: [discover]',
+        '        skills:',
+        '          prefer: [grilling]',
+        '      - name: build',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '      - name: approval',
+        '        type: approval',
+        '        dependsOn: [build]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
+    assert.match(plannerPrompt, /## grilling@1\.0\.0/);
+    assert.match(plannerPrompt, /Description: grilling test skill\./);
+    assert.match(plannerPrompt, /Instructions:\nInterview the user in rounds before planning\./);
+  });
+});
+
+test('missing required built-in planner skill fails loudly before planner execution', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: missing-plan-skill',
+        'workflows:',
+        '  - id: missing-plan-skill',
+        '    name: Missing Plan Skill',
+        '    stages:',
+        '      - name: discover',
+        '        type: agent',
+        '        role: discovery',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '        dependsOn: [discover]',
+        '        skills:',
+        '          require: [missing-planner-skill]',
+        '      - name: build',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Add a demo feature',
+        plannerExecutor,
+        builderExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Missing required workflow skill\(s\): missing-planner-skill/,
+    );
+
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const state = await readJson(path.join(runDir, 'state.json'));
+    assert.equal(state.status, 'FAILED');
+    assert.equal(state.phase, 'planning-failed');
+    const eventText = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventText, /task.skill_policy_failed/);
+    assert.match(eventText, /missing-planner-skill/);
+  });
+});
+
+test('interview workflow stage pauses before planning when no decision handler is configured', async () => {
+  await withTempProject(async (root) => {
+    await writeProjectSkill(root, 'grilling', 'Ask the user questions and wait for answers.');
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: interview',
+        'workflows:',
+        '  - id: interview',
+        '    name: Interview',
+        '    stages:',
+        '      - name: discover',
+        '        type: agent',
+        '        role: discovery',
+        '      - name: grill',
+        '        type: interview',
+        '        role: planner',
+        '        dependsOn: [discover]',
+        '        skills:',
+        '          require: [grilling]',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '        dependsOn: [grill]',
+        '      - name: build',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = {
+      async execute(input) {
+        const actualLabel = input.executionId.includes('discovery') ? 'discovery' : input.executionId.includes('grill') ? 'interview' : 'planner';
+        calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt });
+        if (actualLabel === 'interview') {
+          return { executionId: input.executionId, status: 'completed', outputText: 'Q1: Which search behavior should govern?', events: [] };
+        }
+        return makeExecutor('planner', calls).execute(input);
+      },
+      async cancel() {},
+    };
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Add a demo feature',
+        plannerExecutor,
+        builderExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Decision required/,
+    );
+
+    assert.ok(calls.some((call) => call.label === 'interview'));
+    assert.equal(calls.some((call) => call.label === 'planner'), false);
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const state = await readJson(path.join(runDir, 'state.json'));
+    assert.equal(state.status, 'DECISION_REQUIRED');
+    assert.equal(state.phase, 'decision-interview');
+    const eventText = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventText, /decision.required/);
+    assert.match(eventText, /Q1: Which search behavior should govern/);
+  });
+});
+
+test('interview answers are included in planner prompt after decision resolution', async () => {
+  await withTempProject(async (root) => {
+    await writeProjectSkill(root, 'grilling', 'Ask the user questions and wait for answers.');
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: interview',
+        'workflows:',
+        '  - id: interview',
+        '    name: Interview',
+        '    stages:',
+        '      - name: discover',
+        '        type: agent',
+        '        role: discovery',
+        '      - name: grill',
+        '        type: interview',
+        '        role: planner',
+        '        dependsOn: [discover]',
+        '        skills:',
+        '          require: [grilling]',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '        dependsOn: [grill]',
+        '      - name: build',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '      - name: approval',
+        '        type: approval',
+        '        dependsOn: [build]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = {
+      async execute(input) {
+        const actualLabel = input.executionId.includes('discovery') ? 'discovery' : input.executionId.includes('grill') ? 'interview' : 'planner';
+        calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt });
+        if (actualLabel === 'interview') {
+          return { executionId: input.executionId, status: 'completed', outputText: 'Q1: Which search behavior should govern?', events: [] };
+        }
+        return makeExecutor('planner', calls).execute(input);
+      },
+      async cancel() {},
+    };
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+      requestDecision: async (request) => ({
+        requestId: request.id,
+        optionId: 'answered',
+        feedback: 'Use MongoDB text search only; do not add a new search platform.',
+        decidedAt: new Date().toISOString(),
+      }),
+    });
+
+    const interviewPrompt = calls.find((call) => call.label === 'interview')?.prompt ?? '';
+    assert.match(interviewPrompt, /## grilling@1\.0\.0/);
+    assert.match(interviewPrompt, /Instructions:\nAsk the user questions and wait for answers\./);
+    const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
+    assert.match(plannerPrompt, /Interview answers and decisions:/);
+    assert.match(plannerPrompt, /Q1: Which search behavior should govern/);
+    assert.match(plannerPrompt, /Use MongoDB text search only; do not add a new search platform\./);
   });
 });
 
@@ -1301,6 +1570,114 @@ test('custom workflow with nested stages and command nodes runs in dependency or
     assert.ok(events.events.some((line) => /task.command_started/.test(line)));
     assert.ok(events.events.some((line) => /task.command_completed/.test(line)));
     assert.ok(events.events.some((line) => /plan approved/.test(line)));
+  });
+});
+
+test('workflow node explicit skills are merged into compiled context', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: explicit-skills',
+        'workflows:',
+        '  - id: explicit-skills',
+        '    name: Explicit Skills',
+        '    stages:',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '      - name: implementation',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '        skills:',
+        '          require: [implementation-task]',
+        '          prefer: [repo-interpretation]',
+        '          exclude: [architecture-planning]',
+        '      - name: approval',
+        '        type: approval',
+        '        dependsOn: [implementation]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add team invitations',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const eventLines = (await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8')).trim().split('\n');
+    const contextEvent = eventLines
+      .map((line) => JSON.parse(line))
+      .find((event) => event.type === 'task.context_compiled' && event.data.taskId === 'task-2' && event.data.role === 'builder');
+
+    assert.ok(contextEvent);
+    assert.ok(contextEvent.data.skills.includes('implementation-task'));
+    assert.ok(contextEvent.data.skills.includes('repo-interpretation'));
+    assert.ok(!contextEvent.data.skills.includes('architecture-planning'));
+    assert.deepEqual(contextEvent.data.explicitSkills, {
+      require: ['implementation-task'],
+      prefer: ['repo-interpretation'],
+      exclude: ['architecture-planning'],
+    });
+  });
+});
+
+test('workflow node missing required skill fails loudly before execution', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: explicit-skills',
+        'workflows:',
+        '  - id: explicit-skills',
+        '    name: Explicit Skills',
+        '    stages:',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '      - name: implementation',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '        skills:',
+        '          require: [missing-workflow-skill]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add team invitations',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    assert.equal(calls.filter((call) => call.label === 'builder').length, 0);
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const state = await readJson(path.join(runDir, 'state.json'));
+    assert.equal(state.status, 'FAILED');
+    assert.equal(state.phase, 'implementation-failed');
+    const eventText = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventText, /task.skill_policy_failed/);
+    assert.match(eventText, /missing-workflow-skill/);
   });
 });
 

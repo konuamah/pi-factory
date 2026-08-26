@@ -60,8 +60,9 @@ test('workflow registry round-trips through factory.yaml', async () => {
           description: 'Extra reviews for risky changes',
           stages: [
             { name: 'plan', type: 'agent', role: 'planner' },
+            { name: 'grill', description: 'Interview before planning', type: 'interview', role: 'planner', dependsOn: ['plan'], skills: { require: ['grilling'] } },
             { name: 'architecture-review', description: 'Review architecture and rollout risk before implementation', type: 'agent', role: 'reviewer', model: { provider: 'openai-codex', model: 'gpt-5' }, dependsOn: ['plan'] },
-            { name: 'implementation', type: 'agent', role: 'builder', dependsOn: ['plan'] },
+            { name: 'implementation', type: 'agent', role: 'builder', dependsOn: ['plan'], skills: { require: ['implementation-task'], prefer: ['repo-interpretation'], exclude: ['slamm-copy-humanizer'] } },
             { name: 'tests', type: 'command', commands: ['node -e ""'], dependsOn: ['implementation'] },
             { name: 'security-review', type: 'agent', role: 'reviewer', dependsOn: ['implementation'] },
             { name: 'final-approval', type: 'approval', dependsOn: ['tests', 'security-review'] },
@@ -76,9 +77,16 @@ test('workflow registry round-trips through factory.yaml', async () => {
     assert.equal(reloaded.workflows.length, 2);
     const highRisk = reloaded.workflows.find((workflow) => workflow.id === 'high-risk');
     assert.ok(highRisk);
-    assert.equal(highRisk.stages.length, 6);
+    assert.equal(highRisk.stages.length, 7);
     assert.deepEqual(highRisk.stages.find((stage) => stage.name === 'tests')?.commands, ['node -e ""']);
+    assert.equal(highRisk.stages.find((stage) => stage.name === 'grill')?.type, 'interview');
+    assert.deepEqual(highRisk.stages.find((stage) => stage.name === 'grill')?.skills, { require: ['grilling'] });
     assert.deepEqual(highRisk.stages.find((stage) => stage.name === 'architecture-review')?.model, { provider: 'openai-codex', model: 'gpt-5' });
+    assert.deepEqual(highRisk.stages.find((stage) => stage.name === 'implementation')?.skills, {
+      require: ['implementation-task'],
+      prefer: ['repo-interpretation'],
+      exclude: ['slamm-copy-humanizer'],
+    });
     assert.equal(highRisk.stages.find((stage) => stage.name === 'architecture-review')?.description, 'Review architecture and rollout risk before implementation');
     assert.equal(highRisk.stages.find((stage) => stage.name === 'security-review')?.dependsOn?.join(','), 'implementation');
   } finally {
@@ -127,6 +135,38 @@ test('loadEffectiveConfig honors disabled constitution config', async () => {
 
     const loaded = await loadEffectiveConfig({ cwd: root });
     assert.equal(loaded.effectiveConfig.constitution.enabled, false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('loadEffectiveConfig defaults constitution to disabled', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-factory-workflow-'));
+  try {
+    const loaded = await loadEffectiveConfig({ cwd: root });
+    assert.equal(loaded.effectiveConfig.constitution.enabled, false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('loadEffectiveConfig honors explicit enabled constitution config', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-factory-workflow-'));
+  try {
+    await fs.mkdir(path.join(root, '.factory'), { recursive: true });
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'constitution:',
+        '  enabled: true',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const loaded = await loadEffectiveConfig({ cwd: root });
+    assert.equal(loaded.effectiveConfig.constitution.enabled, true);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

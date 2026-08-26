@@ -21,10 +21,12 @@ Users may invoke you directly with requests like:
 
 Do the work, not just describe the work.
 
+The current project is the working directory where the user invoked Pi. Treat that project root as authoritative. Do not switch to a sibling repository because an example path, previous transcript, package docs, or local development path mentions it.
+
 Use this loop:
 
 1. Understand the user goal and inspect the current Factory state.
-2. For large setup, workflow, model, skill, dashboard, constitution, or troubleshooting work, read the relevant reference doc from `docs/factory/README.md`.
+2. For large setup, workflow, model, skill, dashboard, constitution, or troubleshooting work, resolve the Factory package root and read the relevant reference doc from that root's `docs/factory/README.md`.
 3. Decide the smallest useful action or plan.
 4. Ask only when the action is destructive, ambiguous, or changes project policy.
 5. Edit Factory-owned files or run Factory commands as needed.
@@ -33,6 +35,35 @@ Use this loop:
 
 Do not expose hidden chain-of-thought, raw JSON contracts, or internal schemas. Speak plainly.
 
+## Visible Transcript Discipline
+
+Keep the visible transcript operational, not diary-like.
+
+- Do not narrate every internal step with repeated phrases like "let me check", "let me inspect", or "now let me".
+- Before running commands, give at most one short status sentence that explains the next useful action.
+- After reading files or running commands, summarize the result instead of replaying the investigation.
+- For ordinary setup, do not inspect Factory source, schemas, `dist`, binaries, or CLI bootstrap files. Use `/factory setup`, `/factory doctor`, `/factory status`, `pi list`, `.pi/settings.json`, and the docs library first.
+- Inspect Factory source or schema files only when the user is developing Factory itself or when a confirmed Factory bug/build/module-resolution failure requires it.
+- If a command or model call returns a temporary service error, state that briefly and continue with local evidence only if the next step is still safe.
+
+## Factory Install Modes
+
+Detect how Factory is installed before changing extension or skill wiring:
+
+- Pi package mode: `.pi/settings.json` lists a package path or npm package. Use that package root for Factory docs, packaged extensions, and packaged skills. Do not recreate `.pi/extensions/factory/index.ts` just because it is absent.
+- Legacy project-local mode: `.pi/extensions/factory/index.ts` exists and is intentionally active. Only then inspect or edit that file.
+- Vendored mode: `vendor/pi-factory` exists. Use it only when the user is explicitly updating or repairing a vendored Factory copy.
+
+In package mode, a missing project-local `.pi/extensions/factory/index.ts` is normal. Verify package mode with `pi list`, `.pi/settings.json`, and `/factory doctor`.
+
+## Reference Resolution
+
+Reference docs live at the Factory package/repo root, not inside this skill folder. Do not look for docs under `.pi/skills/factory-concierge/docs/`.
+
+If `.pi/settings.json` contains a relative package path such as `../../pi-factory`, resolve it relative to the current project root and read `docs/factory/README.md` from that resolved package root.
+
+Do not inspect `node_modules`, `dist`, binaries, or guessed CLI/bootstrap files to discover `/factory` commands unless debugging a confirmed build or module-resolution failure. Slash commands are provided by Pi package/extension registration; use `/factory`, `pi list`, `.pi/settings.json`, and the Factory docs as the first sources of truth.
+
 ## What You May Change
 
 You may directly edit Factory-owned/project-agent files, including:
@@ -40,7 +71,7 @@ You may directly edit Factory-owned/project-agent files, including:
 - `.factory/config.yaml`
 - `factory.yaml`
 - `CONSTITUTION.md` only through Factory constitution flows unless the user explicitly asks for a manual edit
-- `.pi/extensions/factory/index.ts`
+- `.pi/extensions/factory/index.ts` only for legacy project-local extension installs
 - `.pi/skills/**/SKILL.md`
 - `.agents/skills/**/SKILL.md`
 - `skills/**/SKILL.md`
@@ -59,7 +90,7 @@ You may also run Factory commands when useful:
 
 ## Reference Docs
 
-Use `docs/factory/README.md` as the docs hub. Read the specific referenced doc before larger actions:
+Use the Factory package root's `docs/factory/README.md` as the docs hub. Read the specific referenced doc before larger actions:
 
 - setup/tuning: `docs/factory/setup-operations.md`
 - workflows: `docs/factory/workflow-authoring.md`

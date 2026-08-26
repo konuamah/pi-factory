@@ -21,6 +21,10 @@ export function listFactorySkills(): SkillContract[] {
   return [...skillRegistry.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
+export function getFactorySkill(id: string): SkillContract | undefined {
+  return skillRegistry.get(id);
+}
+
 export function findFactorySkills(context: SkillSelectionContext): SkillSelectionResult[] {
   return buildCandidates(context).map(({ provides, ...candidate }) => candidate);
 }

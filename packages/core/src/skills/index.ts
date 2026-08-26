@@ -11,21 +11,25 @@ import { verificationPlanningSkill } from "./verification-planning.js";
 import { discoverSkillFiles, parseSkillFile, skillFileToContract } from "./loader.js";
 
 let initialized = false;
+const loadedProjectSkillRoots = new Set<string>();
 
 export async function initializeFactorySkills(cwd?: string): Promise<void> {
-  if (initialized) {
-    return;
+  if (!initialized) {
+    initialized = true;
+    registerFactorySkill(repoInterpretationSkill);
+    registerFactorySkill(architecturePlanningSkill);
+    registerFactorySkill(implementationTaskSkill);
+    registerFactorySkill(acceptanceReviewSkill);
+    registerFactorySkill(repairTriageSkill);
+    registerFactorySkill(verificationPlanningSkill);
   }
-  initialized = true;
-  registerFactorySkill(repoInterpretationSkill);
-  registerFactorySkill(architecturePlanningSkill);
-  registerFactorySkill(implementationTaskSkill);
-  registerFactorySkill(acceptanceReviewSkill);
-  registerFactorySkill(repairTriageSkill);
-  registerFactorySkill(verificationPlanningSkill);
 
   if (cwd) {
-    await loadProjectSkills(cwd);
+    const root = path.resolve(cwd);
+    if (!loadedProjectSkillRoots.has(root)) {
+      await loadProjectSkills(root);
+      loadedProjectSkillRoots.add(root);
+    }
   }
 }
 
@@ -48,6 +52,7 @@ export async function loadProjectSkills(cwd: string): Promise<number> {
 
 export function resetFactorySkills(): void {
   initialized = false;
+  loadedProjectSkillRoots.clear();
   clearFactorySkillRegistry();
 }
 

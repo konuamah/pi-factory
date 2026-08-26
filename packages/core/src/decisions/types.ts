@@ -4,6 +4,7 @@ export type DecisionSource =
   | "REVIEWER"
   | "VERIFICATION"
   | "CONSTITUTION"
+  | "INTERVIEW"
   | "CAPABILITY"
   | "RUNTIME";
 

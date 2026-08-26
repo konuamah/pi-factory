@@ -23,7 +23,7 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
     maxAttempts: 3,
   },
   constitution: {
-    enabled: true,
+    enabled: false,
   },
   approval: {
     finalMerge: "required",

@@ -202,6 +202,7 @@ interface ExistingConfigShape {
   commands?: { setup?: string; lint?: string; typecheck?: string; test?: string; build?: string };
   models?: Record<string, unknown>;
   runtime?: { maxParallelAgents?: number };
+  constitution?: { enabled?: boolean };
   repair?: { enabled?: boolean; maxAttempts?: number };
   approval?: { finalMerge?: string };
 }
@@ -244,6 +245,9 @@ function buildProjectConfig(input: {
     gitBlock,
     "runtime:",
     `  maxParallelAgents: ${input.maxParallelAgents}`,
+    "",
+    "constitution:",
+    `  enabled: ${input.existing?.constitution?.enabled ?? false}`,
     "",
     "repair:",
     `  enabled: ${input.repairEnabled}`,

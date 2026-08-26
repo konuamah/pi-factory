@@ -1,4 +1,4 @@
-import type { Capability, CapabilityPolicy, EffectiveFactoryConfig, ModelSelection, WorkflowNodeType, WorkflowStage } from "@factory/schemas";
+import type { Capability, CapabilityPolicy, EffectiveFactoryConfig, ModelSelection, WorkflowNodeType, WorkflowStage, WorkflowStageSkillPolicy } from "@factory/schemas";
 
 export interface PlannerTask {
   id: string;
@@ -20,6 +20,7 @@ export interface PlannerTask {
   capabilityPolicy?: CapabilityPolicy;
   taskType?: string;
   model?: ModelSelection;
+  skills?: WorkflowStageSkillPolicy;
 }
 
 export interface PlannerArtifact {
@@ -37,6 +38,7 @@ export interface PlannerArtifact {
     requiredCapabilities?: Capability[];
     taskType?: string;
     model?: ModelSelection;
+    skills?: WorkflowStageSkillPolicy;
   }>;
   tasks: PlannerTask[];
 }
@@ -53,7 +55,7 @@ export function buildPlanArtifact(input: {
     id: `task-${index + 1}`,
     title: buildTaskTitle(stage.name, input.goal),
     stage: stage.name,
-    status: stage.name === "planning" || stage.name === "plan" ? "done" as const : "pending" as const,
+    status: stage.name === "planning" || stage.name === "plan" || stage.type === "interview" ? "done" as const : "pending" as const,
     dependsOn: stage.dependsOn,
     type: stage.type,
     role: stage.role,
@@ -62,6 +64,7 @@ export function buildPlanArtifact(input: {
     requiredCapabilities: stage.requiredCapabilities,
     taskType: stage.taskType,
     model: stage.model,
+    skills: stage.skills,
   }));
 
   return {
@@ -94,6 +97,7 @@ function normalizeWorkflowStages(stages: WorkflowStage[]): PlannerArtifact["work
     requiredCapabilities: stage.requiredCapabilities,
     taskType: stage.taskType,
     model: stage.model,
+    skills: stage.skills,
   }));
 }
 
@@ -102,6 +106,8 @@ function buildTaskTitle(stageName: string, goal: string): string {
     case "plan":
     case "planning":
       return `Plan work for: ${goal}`;
+    case "interview":
+      return `Interview before planning for: ${goal}`;
     case "build":
     case "implementation":
       return `Implement changes for: ${goal}`;

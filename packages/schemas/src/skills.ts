@@ -1,4 +1,4 @@
-export type SkillExecutionStage = "discover" | "plan" | "build" | "verification" | "review" | "repair";
+export type SkillExecutionStage = "discover" | "plan" | "interview" | "build" | "verification" | "review" | "repair";
 
 export interface SkillApplicability {
   filePatterns?: string[];
@@ -55,6 +55,7 @@ export interface SkillContract {
   id: string;
   version: string;
   description: string;
+  body?: string;
   applicability?: SkillApplicability;
   constitutionDependencies?: number[];
   evidence?: SkillEvidenceRequirements;

@@ -5,7 +5,7 @@ export interface ModelSelection {
   model: string;
 }
 
-export type WorkflowNodeType = "agent" | "command" | "approval" | "task-graph";
+export type WorkflowNodeType = "agent" | "command" | "approval" | "task-graph" | "interview";
 
 export type Capability =
   | "repo.read"
@@ -24,6 +24,12 @@ export interface CapabilityPolicy {
   deny?: Capability[];
 }
 
+export interface WorkflowStageSkillPolicy {
+  require?: string[];
+  prefer?: string[];
+  exclude?: string[];
+}
+
 export interface WorkflowStage {
   name: string;
   description?: string;
@@ -35,6 +41,7 @@ export interface WorkflowStage {
   requiredCapabilities?: Capability[];
   taskType?: string;
   model?: ModelSelection;
+  skills?: WorkflowStageSkillPolicy;
 }
 
 export interface WorkflowDefinition {

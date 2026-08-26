@@ -6,6 +6,22 @@ Use this by symptom.
 
 The vendored Factory copy likely lacks workspace links or dependencies. Preserve `vendor/pi-factory/node_modules` during source sync, or run install inside the vendored Factory when necessary.
 
+## Factory Looks At The Wrong Project
+
+Symptom: Pi was opened in one repository, but Factory Concierge inspects a different sibling repository.
+
+Fix:
+
+- treat the current Pi working directory as the project root
+- ignore example paths in docs
+- inspect `.pi/settings.json` in the current project for package installs
+- use `pi list` to confirm the active project package
+- do not inspect another repo unless the user explicitly names it as the target
+
+## `.pi/extensions/factory/index.ts` Is Missing
+
+If `.pi/settings.json` lists a Factory package, this is normal. Pi loads the packaged extension from the installed package. Do not recreate the project-local extension unless the project is intentionally using legacy project-local extension mode.
+
 ## Model Not Available
 
 Symptom:

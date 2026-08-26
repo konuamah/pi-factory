@@ -136,6 +136,7 @@ test('initializeFactoryProject writes selected workflow preset and role models',
     assert.match(workflow, /- name: build/);
     assert.doesNotMatch(workflow, /- name: verify/);
     assert.match(config, /models:/);
+    assert.match(config, /constitution:\n  enabled: false/);
     assert.match(config, /planner:/);
     assert.match(config, /provider: anthropic/);
     assert.match(config, /model: claude-sonnet-4-20250514/);

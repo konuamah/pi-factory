@@ -102,6 +102,7 @@ export async function handleFactoryCommand(
   ctx: FactoryPiCommandContext,
 ): Promise<void> {
   const args = (rawArgs ?? "").trim();
+  clearFactoryWidget(ctx);
 
   try {
     if (!args) {
@@ -1727,6 +1728,7 @@ async function collectWorkflowStages(
 
     const typeChoice = await ctx.ui.select?.("What kind of step is this?", [
       "AI step — ask a model to plan, build, review, or repair",
+      "Interview step — ask the user questions before planning",
       "Command step — run saved project checks like lint, typecheck, test, or build",
       "Approval step — pause and ask you before Factory continues",
       "Task graph step — split larger work into smaller sub-tasks",
@@ -1740,20 +1742,31 @@ async function collectWorkflowStages(
       dependsOn: previous ? [previous] : [],
     };
 
-    if (type === "agent") {
+    if (type === "agent" || type === "interview") {
       const roleChoice = await ctx.ui.select?.("AI role for this step", [
+        ...(type === "interview" ? ["planner — interview and planning decisions"] : []),
         "builder — implementation work",
         "discovery — read-only repo understanding before planning",
-        "planner — planning and repo reasoning",
+        ...(type === "agent" ? ["planner — planning and repo reasoning"] : []),
         "reviewer — review and risk spotting",
         "repair — fix failed checks",
         "Use workflow default role — rely on this step name and purpose",
       ]);
       const role = workflowRoleFromChoice(roleChoice);
       if (role) stage.role = role;
+      if (type === "interview" && !stage.role) stage.role = "planner";
 
       const model = await selectWorkflowStageModel(ctx, options.modelOptions);
       if (model) stage.model = model;
+
+      const requiredSkills = splitWorkflowCommands(await ctx.ui.input?.("Required skills for this step", "optional, comma-separated, e.g. grilling") ?? "");
+      const preferredSkills = splitWorkflowCommands(await ctx.ui.input?.("Preferred skills for this step", "optional, comma-separated, e.g. repo-interpretation") ?? "");
+      if (requiredSkills.length || preferredSkills.length) {
+        stage.skills = {
+          ...(requiredSkills.length ? { require: requiredSkills } : {}),
+          ...(preferredSkills.length ? { prefer: preferredSkills } : {}),
+        };
+      }
     }
 
     if (type === "command") {
@@ -1841,10 +1854,11 @@ function renderWorkflowStepChain(stages: WorkflowStage[]): string {
 
 function renderWorkflowStepPreview(stage: WorkflowStage): string {
   const type = stage.type ?? "agent";
-  const role = stage.role ?? (type === "agent" ? "workflow default" : undefined);
+  const role = stage.role ?? (type === "agent" || type === "interview" ? "workflow default" : undefined);
   const model = stage.model ? formatModelSelection(stage.model) : undefined;
   const commands = stage.commands?.length ? stage.commands.join(", ") : undefined;
-  const summary = [stage.name, type, role, model, commands].filter(Boolean).join(" | ");
+  const skills = stage.skills?.require?.length ? `requires ${stage.skills.require.join(", ")}` : stage.skills?.prefer?.length ? `prefers ${stage.skills.prefer.join(", ")}` : undefined;
+  const summary = [stage.name, type, role, model, commands, skills].filter(Boolean).join(" | ");
   return truncatePreviewLine(summary, 100);
 }
 
@@ -1884,6 +1898,7 @@ function slugifyWorkflowPart(value: string): string {
 }
 
 function workflowNodeTypeFromChoice(choice: string | undefined): WorkflowNodeType {
+  if (choice?.startsWith("Interview step")) return "interview";
   if (choice?.startsWith("Command step")) return "command";
   if (choice?.startsWith("Approval step")) return "approval";
   if (choice?.startsWith("Task graph step")) return "task-graph";
@@ -2680,6 +2695,10 @@ async function loadDashboardWeb(): Promise<unknown> {
 
 function renderLines(ctx: FactoryPiCommandContext, lines: string[]): void {
   ctx.ui.setWidget(FACTORY_WIDGET_ID, lines);
+}
+
+function clearFactoryWidget(ctx: FactoryPiCommandContext): void {
+  ctx.ui.setWidget(FACTORY_WIDGET_ID, undefined);
 }
 
 function renderIntro(ctx: FactoryPiCommandContext, lines: string[]): void {

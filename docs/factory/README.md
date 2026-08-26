@@ -9,20 +9,20 @@ Factory is a Pi-native project automation layer. It keeps project-local configur
 During development, install the local Factory checkout into Pi:
 
 ```bash
-pi install /Users/slammtechnologies/Documents/GitHub/pi-factory
+pi install /path/to/pi-factory
 ```
 
 For project-local testing:
 
 ```bash
-cd /Users/slammtechnologies/Documents/GitHub/slammghana
-pi install -l /Users/slammtechnologies/Documents/GitHub/pi-factory
+cd /path/to/your-project
+pi install -l /path/to/pi-factory
 ```
 
 If `pi` is not on `PATH`:
 
 ```bash
-/Users/slammtechnologies/.nvm/versions/node/v22.22.2/bin/pi install -l /Users/slammtechnologies/Documents/GitHub/pi-factory
+/path/to/pi install -l /path/to/pi-factory
 ```
 
 Local path installs are references, so Pi sees changes from the checkout without npm publishing. After TypeScript source changes, run `npm run build` and restart Pi; reinstall only when the package path changes or the `package.json` `pi` manifest changes.

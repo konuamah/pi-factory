@@ -15,17 +15,20 @@ test("tui-test can open a shell and capture Factory CLI text", async () => {
 
 test("factory gateway renders without crashing (pi adapter loads)", async () => {
   const { handleFactoryCommand } = await import("../packages/adapters/pi/dist/gateway.js");
-  let widget = [];
+  const widgets = [];
   const ctx = {
     cwd: process.cwd(),
     ui: {
       notify() {},
-      setWidget(_id, lines) { widget = lines ?? []; },
+      setWidget(id, lines) { widgets.push({ id, widget: lines }); },
       confirm: async () => true,
       select: async () => undefined,
       input: async () => undefined,
     },
   };
   await handleFactoryCommand("", ctx);
+  assert.equal(widgets[0]?.id, "factory-status");
+  assert.equal(widgets[0]?.widget, undefined);
+  const widget = widgets.at(-1)?.widget ?? [];
   assert.ok(widget.join("\n").includes("Factory"));
 });

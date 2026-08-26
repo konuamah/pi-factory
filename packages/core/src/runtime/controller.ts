@@ -1862,8 +1862,8 @@ async function runImplementationTask(input: {
           ? `${input.runId}-${nodeRole}-${input.task.id}`
           : `${input.runId}-${nodeRole}-${input.task.id}-no-change-retry`;
         const prompt = attempt === "initial"
-          ? buildCompiledPrompt(input.goal, compiled)
-          : buildNoChangeRetryPrompt(input.goal, compiled, previousResult);
+          ? buildCompiledPrompt(input.goal, compiled, workspace.path)
+          : buildNoChangeRetryPrompt(input.goal, compiled, previousResult, workspace.path);
         const result = await executor.execute({
           executionId,
           cwd: workspace.path,
@@ -3396,9 +3396,10 @@ function buildPlannerPrompt(
   ].filter(Boolean).join("\n");
 }
 
-function buildCompiledPrompt(goal: string, compiled: CompiledContext): string {
+function buildCompiledPrompt(goal: string, compiled: CompiledContext, workspacePath?: string): string {
   const sections = [
     `Goal: ${goal}`,
+    ...(workspacePath ? [`Working directory: ${workspacePath}`] : []),
     ...compiled.instructions,
     `Role: ${compiled.role}`,
   ];
@@ -3409,19 +3410,21 @@ function buildNoChangeRetryPrompt(
   goal: string,
   compiled: CompiledContext,
   previousResult?: AgentExecutionResult,
+  workspacePath?: string,
 ): string {
   const previousOutput = previousResult?.outputText?.trim();
   const previousSummary = previousOutput
     ? `Previous builder output:\n${previousOutput.slice(0, 2000)}`
     : "Previous builder output: (empty)";
   return [
-    buildCompiledPrompt(goal, compiled),
+    buildCompiledPrompt(goal, compiled, workspacePath),
     "",
     "Factory implementation retry:",
     "Your previous implementation turn completed without any file changes.",
     previousSummary,
     "",
     "You are still in the Builder role.",
+    "All file paths in your tool calls must be under the working directory above.",
     "Do not stop after saying what you will inspect or change.",
     "Use the available native Pi tools now to edit/write the required files in the current workspace.",
     "If implementation is impossible, return a clear failure reason instead of completing successfully.",

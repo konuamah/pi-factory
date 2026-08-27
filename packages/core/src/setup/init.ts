@@ -153,7 +153,7 @@ export function defaultWorkflowTemplate(preset: FactoryWorkflowPreset = "balance
 
 export function defaultProjectConfigTemplate(modelAssignments?: Partial<Record<ModelRole, ModelSelection>>): string {
   const modelBlock = renderModelAssignments(modelAssignments);
-  return `project:\n  baseBranch: main\n\ncommands:\n  setup: pnpm install\n  lint: pnpm lint\n  typecheck: pnpm typecheck\n  test: pnpm test\n  build: pnpm build\n${modelBlock}\nruntime:\n  maxParallelAgents: 4\n\nconstitution:\n  enabled: false\n\nrepair:\n  enabled: true\n  maxAttempts: 3\n\napproval:\n  finalMerge: required\n`;
+  return `project:\n  baseBranch: main\n\ncommands:\n  setup: pnpm install\n  lint: pnpm lint\n  typecheck: pnpm typecheck\n  test: pnpm test\n  build: pnpm build\n${modelBlock}\nruntime:\n  maxParallelAgents: 4\n\ndependencies:\n  enabled: true\n  hydrate: auto\n\nconstitution:\n  enabled: false\n\nrepair:\n  enabled: true\n  maxAttempts: 3\n\napproval:\n  finalMerge: required\n`;
 }
 
 function renderModelAssignments(modelAssignments?: Partial<Record<ModelRole, ModelSelection>>): string {

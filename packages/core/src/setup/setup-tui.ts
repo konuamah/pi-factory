@@ -7,6 +7,7 @@ export type StewardSlideId =
   | "commands"
   | "runtime"
   | "git"
+  | "dependencies"
   | "repair"
   | "approvals"
   | "capabilities"
@@ -121,8 +122,21 @@ export function buildStewardSlides(
       ],
     },
     {
+      id: "dependencies",
+      title: "7. Dependencies",
+      simpleTitle: "How Factory prepares each worktree",
+      kind: "recommendation",
+      recommended: rec.dependencies,
+      lines: [
+        `Hydration: ${rec.dependencies?.enabled?.value ?? ctx.effective?.dependencies.enabled ? "Enabled" : "Disabled"}`,
+        `Mode: ${rec.dependencies?.hydrate?.value ?? ctx.effective?.dependencies.hydrate ?? "auto"}`,
+        `Cache root: ${rec.dependencies?.cacheRoot?.value ?? ctx.effective?.dependencies.cacheRoot ?? "~/.factory/cache"}`,
+        ...(rec.dependencies?.hydrate?.reason ? [`Why: ${rec.dependencies.hydrate.reason}`] : ["Why: shared package caches keep isolated worktrees fast without sharing writable dependency folders."]),
+      ],
+    },
+    {
       id: "repair",
-      title: "7. Repair",
+      title: "8. Repair",
       simpleTitle: "What happens when verification fails",
       kind: "recommendation",
       recommended: rec.repair,
@@ -134,7 +148,7 @@ export function buildStewardSlides(
     },
     {
       id: "approvals",
-      title: "8. Approvals — final merge",
+      title: "9. Approvals — final merge",
       simpleTitle: "Should Factory ask before merging completed work?",
       kind: "preference",
       recommended: rec.approval,
@@ -145,7 +159,7 @@ export function buildStewardSlides(
     },
     {
       id: "capabilities",
-      title: "9. Capabilities",
+      title: "10. Capabilities",
       simpleTitle: "What Factory is allowed to do",
       kind: "preference",
       recommended: rec.capabilities,
@@ -157,7 +171,7 @@ export function buildStewardSlides(
     },
     {
       id: "taskRouting",
-      title: "10. Task routing",
+      title: "11. Task routing",
       simpleTitle: "How different kinds of work are routed",
       kind: "recommendation",
       recommended: rec.taskTypes,
@@ -165,7 +179,7 @@ export function buildStewardSlides(
     },
     {
       id: "skills",
-      title: "11. Skills",
+      title: "12. Skills",
       simpleTitle: "Extra capabilities for this project",
       kind: "recommendation",
       recommended: rec.skills,
@@ -173,7 +187,7 @@ export function buildStewardSlides(
     },
     {
       id: "dashboard",
-      title: "12. Dashboard",
+      title: "13. Dashboard",
       simpleTitle: "Live progress dashboard",
       kind: "recommendation",
       recommended: rec.dashboard,
@@ -184,14 +198,14 @@ export function buildStewardSlides(
     },
     {
       id: "constitution",
-      title: "13. Constitution — living understanding",
+      title: "14. Constitution — living understanding",
       simpleTitle: "How Factory remembers this repo",
       kind: "recommendation",
       lines: describeConstitution(ctx, rec),
     },
     {
       id: "finalReview",
-      title: "14. Final review",
+      title: "15. Final review",
       simpleTitle: "Ready to write the setup?",
       kind: "preference",
       lines: [
@@ -209,6 +223,8 @@ export function simpleEnglishLabel(field: string): string {
     "runtime.maxParallelAgents": "How many AI workers may work at once?",
     "git.cleanup.retainRuns": "How many completed run workspaces should Factory keep?",
     "git.allowWorktrees": "Isolate work with git worktrees?",
+    "dependencies.hydrate": "When should Factory hydrate dependencies?",
+    "dependencies.cacheRoot": "Where should Factory keep shared dependency caches?",
     "repair.maxAttempts": "How many repair attempts after verification fails?",
   };
   return map[field] ?? field;

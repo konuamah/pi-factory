@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import type { FactoryBuiltInDefaults } from "@factory/schemas";
 
 export const builtInDefaults: FactoryBuiltInDefaults = {
@@ -40,5 +42,10 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
     port: 4199,
     host: "127.0.0.1",
     autoOpen: false,
+  },
+  dependencies: {
+    enabled: true,
+    hydrate: "auto",
+    cacheRoot: path.join(os.homedir(), ".factory", "cache"),
   },
 };

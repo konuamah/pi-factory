@@ -49,6 +49,7 @@ import type { ReviewProviderOptions } from "../verification/providers/review.js"
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { classifyVerificationFailure } from "./failure-classification.js";
 import { planVerificationExecution, runVerificationCommands } from "./verification.js";
+import { hydrateWorkspaceDependencies, buildDependencyCacheEnv, DependencyHydrationError } from "./dependencies.js";
 
 export interface FactoryRunProgressEvent {
   runId: string;
@@ -270,6 +271,72 @@ async function runFactoryControllerInner(
     status: "RUNNING",
     message: `Starting run for: ${input.goal}`,
   });
+
+  try {
+    await hydrateWorkspaceDependencies({
+      workspacePath: executionCwd,
+      projectRoot,
+      config: loaded.effectiveConfig,
+      runId: run.runId,
+      phase: "workspace",
+      onEvent: async (event) => appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: event.type,
+        data: event.data,
+      }),
+    });
+  } catch (error) {
+    const failedState = await updateFactoryRunState({
+      statePath: run.statePath,
+      patch: { status: "FAILED", phase: "dependency-hydration-failed" },
+    });
+    const reason = error instanceof DependencyHydrationError
+      ? error.message
+      : `Dependency hydration failed: ${error instanceof Error ? error.message : String(error)}`;
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "run.failed",
+      data: { reason },
+    });
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: failedState.phase,
+      status: "FAILED",
+      message: reason,
+    });
+    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+      runId: run.runId,
+      goal: input.goal,
+      status: "FAILED",
+      phase: failedState.phase,
+      approved: false,
+      planPath: path.join(run.runDir, "plan.json"),
+      taskPaths: [],
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      verificationPath: path.join(run.runDir, "verification.json"),
+      verificationStatus: "incomplete",
+    });
+
+    return {
+      runId: run.runId,
+      runDir: run.runDir,
+      executionCwd,
+      worktree,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      phases,
+      approved: false,
+      planPath: path.join(run.runDir, "plan.json"),
+      taskPaths: [],
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      verificationPath: path.join(run.runDir, "verification.json"),
+      summaryPath,
+    };
+  }
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "discovery", "Discovering relevant system context");
 
@@ -538,7 +605,9 @@ async function runFactoryControllerInner(
     plannerOutputText = sanitizePlannerOutput(plannerResult.outputText);
     plannerExecutionPath = await writePrototypePlannerExecutionArtifact(run.runDir, plannerResult);
     let plannerValidation = validatePlannerOutput(plannerOutputText);
-    if (!plannerValidation.ok && input.plannerExecutor) {
+    const deterministicPlannerBlock = !plannerValidation.ok
+      && /^Planner delegated broad discovery to Builder/.test(plannerValidation.reason);
+    if (!plannerValidation.ok && !deterministicPlannerBlock && input.plannerExecutor) {
       // Deterministic check failed — try LLM context-aware validation
       const llmValidation = await validatePlannerOutputWithLLM({
         plannerOutput: plannerOutputText ?? "",
@@ -880,14 +949,84 @@ async function runFactoryControllerInner(
   await wait(delayMs);
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "verification", "Planning verification strategy");
+  try {
+    await hydrateWorkspaceDependencies({
+      workspacePath: executionCwd,
+      projectRoot,
+      config: loaded.effectiveConfig,
+      runId: run.runId,
+      phase: "verification",
+      onEvent: async (event) => appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: event.type,
+        data: event.data,
+      }),
+    });
+  } catch (error) {
+    const reason = error instanceof DependencyHydrationError
+      ? error.message
+      : `Dependency hydration failed: ${error instanceof Error ? error.message : String(error)}`;
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "run.failed",
+      data: { reason },
+    });
+    const failedState = await updateFactoryRunState({
+      statePath: run.statePath,
+      patch: { status: "FAILED", phase: "verification-failed" },
+    });
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: failedState.phase,
+      status: "FAILED",
+      message: reason,
+    });
+    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+      runId: run.runId,
+      goal: input.goal,
+      status: "FAILED",
+      phase: failedState.phase,
+      approved: false,
+      planPath,
+      taskPaths,
+      discoveryExecutionPath,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      verificationPath: path.join(run.runDir, "verification.json"),
+      verificationStatus: "incomplete",
+    });
+
+    return {
+      runId: run.runId,
+      runDir: run.runDir,
+      executionCwd,
+      worktree,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      phases,
+      approved: false,
+      planPath,
+      taskPaths,
+      discoveryExecutionPath,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      verificationPath: path.join(run.runDir, "verification.json"),
+      summaryPath,
+    };
+  }
   const verificationPlan = await planVerificationExecution({
     cwd: executionCwd,
     goal: input.goal,
     commands: loaded.effectiveConfig.commands,
     constitutionContext: repairGuidance.text,
-    executor: input.verificationPlannerExecutor ?? input.plannerExecutor,
+    executor: input.verificationPlannerExecutor,
     model: loaded.effectiveConfig.models.planner,
     runId: run.runId,
+    allowDeterministicFallback: !input.verificationPlannerExecutor,
   });
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
@@ -925,6 +1064,9 @@ async function runFactoryControllerInner(
   let verification = await runVerificationCommands({
     cwd: verificationPlan.cwd,
     commands: verificationPlan.commands,
+    env: loaded.effectiveConfig.dependencies.enabled && loaded.effectiveConfig.dependencies.hydrate !== "never"
+      ? await buildDependencyCacheEnv(loaded.effectiveConfig.dependencies.cacheRoot)
+      : undefined,
   });
   verification.cwdResolution = verificationPlan.cwdResolution;
   const implementationChangedFiles = uniqueStrings(taskWorkspacesChangedFiles(implementationRun.taskWorkspaces));
@@ -1704,6 +1846,44 @@ async function runImplementationTask(input: {
     status: "RUNNING",
     message: `Running task ${input.task.id}: ${input.task.title}`,
   });
+
+  try {
+    await hydrateWorkspaceDependencies({
+      workspacePath: workspace.path,
+      projectRoot: input.projectRoot,
+      config: input.config,
+      runId: input.runId,
+      phase: "implementation",
+      taskId: input.task.id,
+      onEvent: async (event) => appendFactoryRunEvent(input.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: event.type,
+        data: event.data,
+      }),
+    });
+  } catch (error) {
+    const reason = error instanceof DependencyHydrationError
+      ? error.message
+      : `Dependency hydration failed: ${error instanceof Error ? error.message : String(error)}`;
+    await updatePrototypeTaskArtifact({
+      runDir: input.runDir,
+      taskId: input.task.id,
+      patch: { status: "failed" },
+    });
+    await appendFactoryRunEvent(input.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "task.failed",
+      data: {
+        taskId: input.task.id,
+        stage: input.task.stage,
+        title: input.task.title,
+        reason,
+        workspacePath: workspace.path,
+        workspaceBranch: workspace.branch,
+      },
+    });
+    return { ok: false, task: input.task, workspace };
+  }
 
   if (input.task.type === "command" && input.task.commands?.length) {
     for (const command of input.task.commands) {

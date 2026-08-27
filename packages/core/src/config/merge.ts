@@ -87,6 +87,11 @@ export function mergeConfigLayers(input: {
       host: project?.dashboard?.host ?? global?.dashboard?.host ?? builtIns.dashboard.host,
       autoOpen: project?.dashboard?.autoOpen ?? global?.dashboard?.autoOpen ?? builtIns.dashboard.autoOpen,
     },
+    dependencies: {
+      enabled: project?.dependencies?.enabled ?? global?.dependencies?.enabled ?? builtIns.dependencies.enabled,
+      hydrate: project?.dependencies?.hydrate ?? global?.dependencies?.hydrate ?? builtIns.dependencies.hydrate,
+      cacheRoot: project?.dependencies?.cacheRoot ?? global?.dependencies?.cacheRoot ?? builtIns.dependencies.cacheRoot,
+    },
     workflow: mergedWorkflow,
     resolvedWorkflow,
     resolvedWorkflowId: resolvedWorkflow?.id,

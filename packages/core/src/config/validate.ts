@@ -1,6 +1,10 @@
+import path from "node:path";
 import type { EffectiveFactoryConfig } from "@factory/schemas";
 
-export function validateEffectiveConfig(config: EffectiveFactoryConfig): EffectiveFactoryConfig {
+export function validateEffectiveConfig(
+  config: EffectiveFactoryConfig,
+  options: { projectRoot?: string } = {},
+): EffectiveFactoryConfig {
   if (config.runtime.maxParallelAgents < 1) {
     throw new Error("runtime.maxParallelAgents must be >= 1");
   }
@@ -36,6 +40,23 @@ export function validateEffectiveConfig(config: EffectiveFactoryConfig): Effecti
   // Security: bind only to loopback by default; deny 0.0.0.0 / public bind without explicit intent.
   if (config.dashboard.host !== "127.0.0.1" && config.dashboard.host !== "localhost" && config.dashboard.host !== "::1") {
     throw new Error("dashboard.host must be 127.0.0.1, localhost, or ::1");
+  }
+
+  if (!["auto", "always", "never"].includes(config.dependencies.hydrate)) {
+    throw new Error("dependencies.hydrate must be auto, always, or never");
+  }
+
+  if (!config.dependencies.cacheRoot.trim()) {
+    throw new Error("dependencies.cacheRoot is required");
+  }
+
+  const cacheRoot = path.resolve(config.dependencies.cacheRoot);
+  if (options.projectRoot) {
+    const projectRoot = path.resolve(options.projectRoot);
+    const relative = path.relative(projectRoot, cacheRoot);
+    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+      throw new Error("dependencies.cacheRoot must be outside the active repository/worktree");
+    }
   }
 
   return config;

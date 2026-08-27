@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentExecutor } from "../runtime/interfaces.js";
 import type { FactorySetupContext } from "@factory/schemas";
 import { buildFactorySetupContext } from "./setup-context.js";
@@ -9,10 +10,25 @@ export type FactoryConciergeAction =
   | "run-setup"
   | "run-doctor"
   | "create-workflow"
+  | "list-workflows"
+  | "show-workflow"
+  | "set-default-workflow"
   | "inspect-models"
   | "import-skills"
+  | "inspect-capabilities"
+  | "show-capability"
+  | "validate-capabilities"
+  | "configure-dependencies"
   | "refresh-constitution"
-  | "show-status";
+  | "show-status"
+  | "list-runs"
+  | "show-run"
+  | "show-logs"
+  | "show-plan"
+  | "dashboard-status"
+  | "start-dashboard"
+  | "cleanup-runs"
+  | "guide-task-execution";
 
 export interface FactoryConciergeInput {
   cwd: string;
@@ -37,19 +53,43 @@ const ACTIONS = new Set<FactoryConciergeAction>([
   "run-setup",
   "run-doctor",
   "create-workflow",
+  "list-workflows",
+  "show-workflow",
+  "set-default-workflow",
   "inspect-models",
   "import-skills",
+  "inspect-capabilities",
+  "show-capability",
+  "validate-capabilities",
+  "configure-dependencies",
   "refresh-constitution",
   "show-status",
+  "list-runs",
+  "show-run",
+  "show-logs",
+  "show-plan",
+  "dashboard-status",
+  "start-dashboard",
+  "cleanup-runs",
+  "guide-task-execution",
 ]);
 
 const COMMANDS: Partial<Record<FactoryConciergeAction, string>> = {
   "run-setup": "/factory setup",
   "run-doctor": "/factory doctor",
   "create-workflow": "/factory workflow create",
+  "list-workflows": "/factory workflow list",
   "inspect-models": "/factory models",
+  "inspect-capabilities": "/factory capabilities list",
+  "validate-capabilities": "/factory capabilities validate",
   "refresh-constitution": "/factory constitution",
   "show-status": "/factory status",
+  "list-runs": "/factory list",
+  "show-logs": "/factory logs",
+  "show-plan": "/factory plan",
+  "dashboard-status": "/factory dashboard status",
+  "start-dashboard": "/factory dashboard start",
+  "cleanup-runs": "/factory cleanup",
 };
 
 export async function recommendViaFactoryConciergeSkill(
@@ -62,6 +102,7 @@ export async function recommendViaFactoryConciergeSkill(
   }
 
   const skillSource = await loadFactoryConciergeSkillSource(input.cwd);
+  const docsContext = await loadFactoryConciergeDocsContext(input.cwd);
   const context = input.context ?? await buildFactorySetupContext(input.cwd);
   const validation = await validateFactorySetup(input.cwd).catch((error) => ({
     readiness: "UNKNOWN",
@@ -73,6 +114,7 @@ export async function recommendViaFactoryConciergeSkill(
     context,
     validation,
     skillSource,
+    docsContext,
   });
   input.onEvent?.("Asking Factory Concierge...\n");
   const model = context.availableModels[0];
@@ -81,8 +123,8 @@ export async function recommendViaFactoryConciergeSkill(
     cwd: input.cwd,
     prompt,
     ...(model ? { model } : {}),
-    tools: ["read", "grep", "find", "ls"],
-    metadata: { role: "planner", purpose: "factory-concierge", streaming: true },
+    tools: [],
+    metadata: { role: "planner", purpose: "factory-concierge", streaming: true, contextMode: "docs-first-dist-blind" },
   });
 
   if (result.status !== "completed") {
@@ -127,7 +169,7 @@ export function normalizeFactoryConciergeRecommendation(raw: unknown): FactoryCo
     answer,
     recommendedAction: action,
     why: String(r.why ?? "").trim() || "Factory Concierge recommended this based on the repository setup context.",
-    needsApproval: Boolean(r.needsApproval ?? actionRequiresApproval(action)),
+    needsApproval: Boolean(r.needsApproval) || actionRequiresApproval(action),
     ...(suggestedCommand ? { suggestedCommand } : {}),
     ...(typeof r.handoff === "string" && r.handoff.trim() ? { handoff: r.handoff.trim() } : {}),
     ...(Array.isArray(r.details) ? { details: r.details.map((line) => String(line)).filter(Boolean).slice(0, 8) } : {}),
@@ -136,10 +178,11 @@ export function normalizeFactoryConciergeRecommendation(raw: unknown): FactoryCo
 
 async function loadFactoryConciergeSkillSource(cwd: string): Promise<string> {
   const fs = await import("node:fs/promises");
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../skills/factory-concierge/SKILL.md"),
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../../skills/factory-concierge/SKILL.md"),
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../skills/factory-concierge/SKILL.md"),
+    path.resolve(moduleDir, "../../../../skills/factory-concierge/SKILL.md"),
+    path.resolve(moduleDir, "../../../../../skills/factory-concierge/SKILL.md"),
+    path.resolve(moduleDir, "../../../skills/factory-concierge/SKILL.md"),
     path.resolve(cwd, "..", "skills", "factory-concierge", "SKILL.md"),
     path.join(cwd, "skills", "factory-concierge", "SKILL.md"),
   ];
@@ -154,11 +197,59 @@ async function loadFactoryConciergeSkillSource(cwd: string): Promise<string> {
   );
 }
 
+async function loadFactoryConciergeDocsContext(cwd: string): Promise<string> {
+  const fs = await import("node:fs/promises");
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const docsDirs = [
+    path.join(cwd, "docs", "factory"),
+    path.resolve(moduleDir, "../../../../docs/factory"),
+    path.resolve(moduleDir, "../../../../../docs/factory"),
+    path.resolve(moduleDir, "../../../docs/factory"),
+  ];
+  const seen = new Set<string>();
+  for (const docsDir of docsDirs) {
+    const resolved = path.resolve(docsDir);
+    if (seen.has(resolved)) {
+      continue;
+    }
+    seen.add(resolved);
+    const agentPath = path.join(resolved, "AGENT.md");
+    const readmePath = path.join(resolved, "README.md");
+    const [agent, readme] = await Promise.all([
+      readOptionalText(fs, agentPath),
+      readOptionalText(fs, readmePath),
+    ]);
+    if (agent || readme) {
+      return [
+        agent ? `## docs/factory/AGENT.md\n${agent.slice(0, 5000)}` : undefined,
+        readme ? `## docs/factory/README.md\n${readme.slice(0, 5000)}` : undefined,
+      ].filter(Boolean).join("\n\n");
+    }
+  }
+  return [
+    "## Factory docs context unavailable",
+    "Use Factory setup context and supported command routes only. Do not inspect dist, node_modules, build output, coverage output, generated files, or transient worktrees.",
+  ].join("\n");
+}
+
+async function readOptionalText(
+  fs: typeof import("node:fs/promises"),
+  filePath: string,
+): Promise<string | undefined> {
+  try {
+    const content = await fs.readFile(filePath, "utf8");
+    return content.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function buildFactoryConciergePrompt(input: {
   question: string;
   context: FactorySetupContext;
   validation: unknown;
   skillSource: string;
+  docsContext: string;
 }): string {
   const compactContext = {
     repository: input.context.repository,
@@ -178,6 +269,9 @@ function buildFactoryConciergePrompt(input: {
   return [
     "# Factory Concierge Skill",
     input.skillSource.slice(0, 7000),
+    "",
+    "# Factory docs reference",
+    input.docsContext.slice(0, 10000),
     "",
     "## User question",
     input.question,
@@ -212,12 +306,36 @@ function extractJson(text: string): unknown | undefined {
 }
 
 function actionRequiresApproval(action: FactoryConciergeAction): boolean {
-  return ["run-setup", "create-workflow", "refresh-constitution", "import-skills"].includes(action);
+  return ["run-setup", "create-workflow", "set-default-workflow", "configure-dependencies", "refresh-constitution", "import-skills", "start-dashboard", "cleanup-runs"].includes(action);
 }
 
 function isAllowedSuggestedCommand(action: FactoryConciergeAction, command: string): boolean {
-  if (action === "answer-only" || action === "import-skills") {
+  if (action === "guide-task-execution") {
+    return command === "";
+  }
+  if (action === "answer-only" || action === "import-skills" || action === "configure-dependencies") {
     return command === "" || command.startsWith("/factory status") || command.startsWith("/factory ask");
+  }
+  if (action === "show-workflow") {
+    return /^\/factory workflow show [A-Za-z0-9._-]+$/.test(command);
+  }
+  if (action === "set-default-workflow") {
+    return /^\/factory workflow set-default [A-Za-z0-9._-]+$/.test(command);
+  }
+  if (action === "show-capability") {
+    return /^\/factory capabilities show [A-Za-z0-9._:-]+$/.test(command);
+  }
+  if (action === "show-run") {
+    return /^\/factory show [A-Za-z0-9._-]+$/.test(command);
+  }
+  if (action === "show-status") {
+    return /^\/factory status(?: [A-Za-z0-9._-]+)?$/.test(command);
+  }
+  if (action === "show-logs") {
+    return /^\/factory logs(?: [A-Za-z0-9._-]+)?$/.test(command);
+  }
+  if (action === "cleanup-runs") {
+    return /^\/factory cleanup(?: \d+)?$/.test(command);
   }
   return command === COMMANDS[action];
 }

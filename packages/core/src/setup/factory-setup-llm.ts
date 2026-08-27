@@ -132,7 +132,7 @@ You may return workflow as { kind:"preset", preset:"balanced"|"fast"|"safe" } or
     "```json",
     ctxSlice,
     "```",
-    "\n## Task\nProduce FactorySetupRecommendation: projectUnderstanding{summary,highlights} + workflow + models/commands/runtime/git/repair/approval/capabilities/taskTypes/skills/dashboard/constitution + whyNot[] + questions{kind=fact|recommendation|preference} . Use only allowlisted choices. Return JSON only.",
+    "\n## Task\nProduce FactorySetupRecommendation: projectUnderstanding{summary,highlights} + workflow + models/commands/runtime/git/dependencies/repair/approval/capabilities/taskTypes/skills/dashboard/constitution + whyNot[] + questions{kind=fact|recommendation|preference} . Use only allowlisted choices. Return JSON only.",
   ].filter(Boolean).join("\n");
 }
 
@@ -267,6 +267,7 @@ function normalizeRecommendation(
   if (r.repair && typeof r.repair === "object") rec.repair = r.repair as FactorySetupRecommendation["repair"];
   if (r.approval && typeof r.approval === "object") rec.approval = r.approval as FactorySetupRecommendation["approval"];
   if (r.git && typeof r.git === "object") rec.git = r.git as FactorySetupRecommendation["git"];
+  if (r.dependencies && typeof r.dependencies === "object") rec.dependencies = r.dependencies as FactorySetupRecommendation["dependencies"];
   if (r.capabilities && typeof r.capabilities === "object") rec.capabilities = r.capabilities as FactorySetupRecommendation["capabilities"];
   if (Array.isArray(r.taskTypes)) rec.taskTypes = r.taskTypes as FactorySetupRecommendation["taskTypes"];
   if (r.skills && typeof r.skills === "object") rec.skills = r.skills as FactorySetupRecommendation["skills"];
@@ -407,6 +408,10 @@ export function buildDeterministicRecommendation(ctx: FactorySetupContext): Fact
     ],
     questions,
     runtime: { maxParallelAgents: { value: 2, reason: "Default parallel workers", source: "DEFAULT", confidence: "MEDIUM" } },
+    dependencies: {
+      enabled: { value: true, reason: "Reuse shared package-manager caches while keeping each worktree isolated.", source: "DEFAULT", confidence: "HIGH" },
+      hydrate: { value: "auto", reason: "Run setup only when the workspace dependency marker is missing or stale.", source: "DEFAULT", confidence: "HIGH" },
+    },
     repair: {
       enabled: { value: true, reason: "Enable repair up to attempts", source: "DEFAULT", confidence: "MEDIUM" },
       maxAttempts: { value: 3, reason: "Up to 3 repair attempts", source: "DEFAULT", confidence: "MEDIUM" },

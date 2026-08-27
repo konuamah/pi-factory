@@ -122,6 +122,7 @@ test('proposed setup uses the detected package manager for commands', async () =
     const config = plan.proposed.files.find((f) => f.path.includes('.factory') && f.path.endsWith(`config.yaml`));
     assert.ok(config);
     assert.match(config.content, /constitution:\n  enabled: false/);
+    assert.match(config.content, /dependencies:\n  enabled: true\n  hydrate: auto/);
     assert.match(config.content, /setup: npm install/);
     assert.match(config.content, /test: node --test/);
   });

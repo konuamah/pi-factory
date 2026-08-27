@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { FactorySetupPlan } from "./types.js";
 
 export interface ApplySetupOptions {
@@ -75,13 +76,14 @@ async function installBundledPiSkill(root: string, skillId: string): Promise<str
   }
 
   let content: string;
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const sourceCandidates = [
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../.pi/skills", skillId, "SKILL.md"),
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../../.pi/skills", skillId, "SKILL.md"),
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../.pi/skills", skillId, "SKILL.md"),
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../skills", skillId, "SKILL.md"),
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../../skills", skillId, "SKILL.md"),
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../skills", skillId, "SKILL.md"),
+    path.resolve(moduleDir, "../../../../.pi/skills", skillId, "SKILL.md"),
+    path.resolve(moduleDir, "../../../../../.pi/skills", skillId, "SKILL.md"),
+    path.resolve(moduleDir, "../../../.pi/skills", skillId, "SKILL.md"),
+    path.resolve(moduleDir, "../../../../skills", skillId, "SKILL.md"),
+    path.resolve(moduleDir, "../../../../../skills", skillId, "SKILL.md"),
+    path.resolve(moduleDir, "../../../skills", skillId, "SKILL.md"),
     path.join(root, "skills", skillId, "SKILL.md"),
   ];
   for (const sourcePath of sourceCandidates) {

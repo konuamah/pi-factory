@@ -104,7 +104,14 @@ export interface FactoryBuiltInDefaults {
     host: string;
     autoOpen: boolean;
   };
+  dependencies: {
+    enabled: boolean;
+    hydrate: DependencyHydrationMode;
+    cacheRoot: string;
+  };
 }
+
+export type DependencyHydrationMode = "auto" | "always" | "never";
 
 export interface GlobalFactoryConfig {
   models?: Partial<Record<ModelRole, ModelSelection>>;
@@ -126,6 +133,11 @@ export interface GlobalFactoryConfig {
     port?: number;
     host?: string;
     autoOpen?: boolean;
+  };
+  dependencies?: {
+    enabled?: boolean;
+    hydrate?: DependencyHydrationMode;
+    cacheRoot?: string;
   };
 }
 
@@ -189,6 +201,11 @@ export interface ProjectFactoryConfig {
     host?: string;
     autoOpen?: boolean;
   };
+  dependencies?: {
+    enabled?: boolean;
+    hydrate?: DependencyHydrationMode;
+    cacheRoot?: string;
+  };
 }
 
 export interface RunOverrides {
@@ -251,6 +268,11 @@ export interface EffectiveFactoryConfig {
     port: number;
     host: string;
     autoOpen: boolean;
+  };
+  dependencies: {
+    enabled: boolean;
+    hydrate: DependencyHydrationMode;
+    cacheRoot: string;
   };
   capabilities?: CapabilityPolicy;
   taskTypes?: Record<string, TaskTypeDefinition>;

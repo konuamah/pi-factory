@@ -32,6 +32,7 @@ export interface ToolCallInput {
 export interface ToolResourcePolicy {
   readScopes?: string[];
   writeScopes?: string[];
+  forbiddenReadScopes?: string[];
   forbiddenWriteScopes?: string[];
   forbiddenCommands?: string[];
 }
@@ -140,6 +141,9 @@ function checkToolPath(toolName: string, args: Record<string, unknown>, policy: 
 
   if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") {
     const targetPath = typeof args.path === "string" ? args.path : (typeof args.pattern === "string" ? args.pattern : "");
+    if (policy.forbiddenReadScopes?.some((scope) => pathMatchesScope(targetPath, scope))) {
+      return `Read of '${targetPath}' is forbidden by path policy (scope: ${policy.forbiddenReadScopes.join(", ")}).`;
+    }
     if (policy.readScopes?.length && !policy.readScopes.some((scope) => targetPath.startsWith(scope))) {
       return `Read of '${targetPath}' is outside allowed read scopes (${policy.readScopes.join(", ")}).`;
     }
@@ -159,16 +163,18 @@ export function buildResourcePolicyForContext(context: ToolCallContext): ToolRes
   const skills = context.skills ?? [];
   const readScopes = unique(skills.flatMap((skill) => skill.permissions?.readScopes ?? []));
   const writeScopes = unique(skills.flatMap((skill) => skill.permissions?.writeScopes ?? []));
+  const forbiddenReadScopes = unique(skills.flatMap((skill) => skill.permissions?.forbiddenReadScopes ?? []));
   const forbiddenWriteScopes = unique(skills.flatMap((skill) => skill.permissions?.forbiddenWriteScopes ?? []));
   const forbiddenCommands = context.role === "reviewer" ? ["git push", "rm -rf", "git reset --hard"] : [];
 
-  if (readScopes.length === 0 && writeScopes.length === 0 && forbiddenWriteScopes.length === 0 && forbiddenCommands.length === 0) {
+  if (readScopes.length === 0 && writeScopes.length === 0 && forbiddenReadScopes.length === 0 && forbiddenWriteScopes.length === 0 && forbiddenCommands.length === 0) {
     return undefined;
   }
 
   return {
     ...(readScopes.length ? { readScopes } : {}),
     ...(writeScopes.length ? { writeScopes } : {}),
+    ...(forbiddenReadScopes.length ? { forbiddenReadScopes } : {}),
     ...(forbiddenWriteScopes.length ? { forbiddenWriteScopes } : {}),
     ...(forbiddenCommands.length ? { forbiddenCommands } : {}),
   };
@@ -176,4 +182,20 @@ export function buildResourcePolicyForContext(context: ToolCallContext): ToolRes
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function pathMatchesScope(targetPath: string, scope: string): boolean {
+  const normalizedTarget = normalizePathForPolicy(targetPath);
+  const normalizedScope = normalizePathForPolicy(scope);
+  if (!normalizedTarget || !normalizedScope) {
+    return false;
+  }
+  if (normalizedScope.includes("/")) {
+    return normalizedTarget === normalizedScope || normalizedTarget.startsWith(`${normalizedScope}/`);
+  }
+  return normalizedTarget.split("/").includes(normalizedScope);
+}
+
+function normalizePathForPolicy(value: string): string {
+  return value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
 }

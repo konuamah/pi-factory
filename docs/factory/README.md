@@ -29,6 +29,8 @@ Local path installs are references, so Pi sees changes from the checkout without
 
 ## How Agents Should Use This Library
 
+Read [AGENT.md](AGENT.md) first when operating Factory from an agent or skill.
+
 1. Start with the user's request.
 2. Read only the relevant doc below.
 3. Inspect the current project state before editing.
@@ -36,12 +38,16 @@ Local path installs are references, so Pi sees changes from the checkout without
 5. Edit Factory-owned files directly when the requested change is clear.
 6. Verify with `/factory doctor`, `/factory status`, or the relevant command.
 
+Docs are the primary operational reference layer. Use command output, setup context, config, and tool/API contracts next. Inspect `src/` only for missing docs, implementation debugging, or explicit code questions. Never use `dist/`, `node_modules/`, build output, coverage output, generated files, or transient worktrees as behavioral references.
+
 ## Start Here
 
 | User asks | Read | Usual action |
 | --- | --- | --- |
 | "Set everything up" | [setup-operations.md](setup-operations.md) | Run `/factory setup` or reconcile config |
 | "Make a workflow" | [workflow-authoring.md](workflow-authoring.md) | Use `/factory workflow create` or edit `factory.yaml` |
+| "Do runs need worktrees?" | [worktrees-and-dependencies.md](worktrees-and-dependencies.md) | Explain `git.allowWorktrees` and dependency hydration |
+| "Dependency setup is slow" | [worktrees-and-dependencies.md](worktrees-and-dependencies.md) | Configure shared cache hydration |
 | "Fix my model" | [model-routing.md](model-routing.md) | Inspect `/factory models` and Pi defaults |
 | "Turn on dashboard" | [dashboard.md](dashboard.md) | Edit `.factory/config.yaml`, then `/factory dashboard start` |
 | "Add skills" | [skills-library.md](skills-library.md) | Create/update project skill files |
@@ -52,8 +58,11 @@ Local path installs are references, so Pi sees changes from the checkout without
 
 ## Core References
 
+- [AGENT.md](AGENT.md) - reference order, ignored paths, and operational doc pattern.
+
 - [concepts.md](concepts.md) — Factory mental model and terms.
 - [setup-operations.md](setup-operations.md) — full setup, tuning, and readiness.
+- [worktrees-and-dependencies.md](worktrees-and-dependencies.md) — worktree isolation, dependency hydration, and shared caches.
 - [workflow-authoring.md](workflow-authoring.md) — workflow design and YAML shape.
 - [model-routing.md](model-routing.md) — Pi providers, defaults, and role models.
 - [skills-library.md](skills-library.md) — skill locations and authoring.

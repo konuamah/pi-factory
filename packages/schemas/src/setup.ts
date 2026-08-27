@@ -6,6 +6,7 @@ import type {
   ModelRole,
   ModelSelection,
   ProjectFactoryConfig,
+  DependencyHydrationMode,
   WorkflowDefinition,
 } from "./config.js";
 
@@ -144,6 +145,11 @@ export interface FactorySetupRecommendation {
     port?: Recommendation<number>;
     host?: Recommendation<string>;
     autoOpen?: Recommendation<boolean>;
+  };
+  dependencies?: {
+    enabled?: Recommendation<boolean>;
+    hydrate?: Recommendation<DependencyHydrationMode>;
+    cacheRoot?: Recommendation<string>;
   };
   constitution: ConstitutionRecommendation;
   whyNot?: WhyNot[]; // things intentionally skipped, with reason

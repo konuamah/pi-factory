@@ -40,6 +40,7 @@ interface FactorySetupRecommendation {
   models?: Partial<Record<ModelRole, { value: ModelSelection; reason: string }>>;
   commands?: { setup?: Recommendation<string>; lint?: Recommendation<string>; typecheck?: Recommendation<string>; test?: Recommendation<string>; build?: Recommendation<string>; };
   runtime?: { maxParallelAgents?: Recommendation<number> };
+  dependencies?: { enabled?: Recommendation<boolean>; hydrate?: Recommendation<"auto"|"always"|"never">; cacheRoot?: Recommendation<string> };
   repair?: { enabled?: Recommendation<boolean>; maxAttempts?: Recommendation<number> };
   approval?: { finalMerge?: Recommendation<"required" | "not-required"> };
   git?: { baseBranch?: Recommendation<string>; allowWorktrees?: Recommendation<boolean>; /*...cleanup*/ };
@@ -70,7 +71,7 @@ interface Recommendation<T> {
 
 ## Rules
 
-1. **Only real knobs.** You may recommend only: role models, `maxParallelAgents`, `baseBranch`, `setup/lint/typecheck/test/build` commands, worktree behavior (`allowWorktrees`, `worktreeDir`, `cleanup`), `repair` attempts, `finalMerge` approval, capability `allow/deny`, `taskTypes`/`routing`, **skills/dashboard**, `whyNot`, and workflow **presets or custom DAGs**. Never invent a config key.
+1. **Only real knobs.** You may recommend only: role models, `maxParallelAgents`, dependency hydration (`dependencies.enabled`, `dependencies.hydrate`, `dependencies.cacheRoot`), `baseBranch`, `setup/lint/typecheck/test/build` commands, worktree behavior (`allowWorktrees`, `worktreeDir`, `cleanup`), `repair` attempts, `finalMerge` approval, capability `allow/deny`, `taskTypes`/`routing`, **skills/dashboard**, `whyNot`, and workflow **presets or custom DAGs**. Never invent a config key.
 2. **Models/capabilities/skills/commands allowlisted.** If a model/capability/skill/command ID is not in the supplied lists, you must not recommend it silently — use `AI_SUGGESTED` + `requiresConfirmation`.
 3. **Commands:** Prefer `DISCOVERED` commands. Silently placing an invented command into final config is forbidden. Example:
    - `discoveredCommands.test = "pnpm test"` → `{ value: "pnpm test", source: "DISCOVERED", requiresConfirmation: false }`
@@ -88,22 +89,23 @@ interface Recommendation<T> {
    ```
    Good: simple docs `plan → build → verify`; mature app `plan → implementation → verification → review → approval`; **DB repo (recommended)** `plan → build → migration-check → integration-verify → review → approval — Why: Database changes can affect application code and deployment, so verify before review.` Return as `"workflow": {"value": {"kind": "custom", "workflow": {...}, "reason": "..."}, "reason": "..."}` or `"kind": "preset", "preset": "balanced"`.
 6. **Constitution.** Emit only `GENERATE` | `REFRESH` | `KEEP`. Never author `CONSTITUTION.md` prose — that is the fact pipeline's job. `GENERATE` when missing, `REFRESH` when metadata exists, `KEEP` when user chose to keep.
-7. **Explain.** Keep `summary` and `explanation` in simple English, referencing evidence (e.g. "You use pnpm + Vitest + Git, so Balanced fits").
-8. **Minimal questions.** Ask at most where decision is required (e.g. constitution generation). Do not force the user through every section.
-9. **Simple English is a product rule.** Translate internals: `finalMerge=required` → "Ask before merging?", `maxParallelAgents` → "How many AI workers may work at once?", `retainRuns` → "How many completed run workspaces should Factory keep?", `allowWorktrees` isolated, `maxAttempts`. Show why and why-not; `Show details` reveals raw keys.
+7. **Dependencies.** Prefer shared dependency hydration for isolated worktrees: `enabled: true`, `hydrate: "auto"`. This is language-neutral. Factory runs the configured `commands.setup` and supplies cache env vars for common ecosystems; it must not share one writable `node_modules`, `.venv`, or framework-specific dependency folder across worktrees.
+8. **Explain.** Keep `summary` and `explanation` in simple English, referencing evidence (e.g. "You use pnpm + Vitest + Git, so Balanced fits").
+9. **Minimal questions.** Ask at most where decision is required (e.g. constitution generation). Do not force the user through every section.
+10. **Simple English is a product rule.** Translate internals: `finalMerge=required` → "Ask before merging?", `maxParallelAgents` → "How many AI workers may work at once?", `dependencies.hydrate=auto` → "Prepare dependencies only when needed?", `retainRuns` → "How many completed run workspaces should Factory keep?", `allowWorktrees` isolated, `maxAttempts`. Show why and why-not; `Show details` reveals raw keys.
 
-10. **Project understanding first.** Begin every recommendation by explaining the repo in simple English (monorepo/packages, API, DB, tests, CI, Docker, factory state) — the steward reviews this slide first and may correct it.
+11. **Project understanding first.** Begin every recommendation by explaining the repo in simple English (monorepo/packages, API, DB, tests, CI, Docker, factory state) — the steward reviews this slide first and may correct it.
 
-11. **Validation.** Your output will be strictly validated. Any value outside the allowlists or with an invented key will be rejected before the deterministic writer runs.
+12. **Validation.** Your output will be strictly validated. Any value outside the allowlists or with an invented key will be rejected before the deterministic writer runs.
 
 ## Example simple-English rendering (for context, not to output as prose)
 
 ```
 Factory checked this project.
 I found: TypeScript, pnpm, Vitest, Git, 4 build/verification commands.
-I recommend: Workflow Balanced, Models Opus/Sonnet..., Verification pnpm lint/typecheck/test/build, Parallel 2, Repair 3, Final merge Ask for approval. I can also generate the repository constitution. Why? It matches the tools already used.
+I recommend: Workflow Balanced, Models Opus/Sonnet..., Verification pnpm lint/typecheck/test/build, Dependency hydration auto with shared caches, Parallel 2, Repair 3, Final merge Ask for approval. I can also generate the repository constitution. Why? It matches the tools already used.
 > Use recommended setup | Customize | Show details | Cancel
-Customize → Workflow | Models | Commands | Runtime | Git/worktrees | Repair | Approval | Capabilities | Task routing | Constitution | Done
+Customize → Workflow | Models | Commands | Runtime | Git/worktrees | Dependencies | Repair | Approval | Capabilities | Task routing | Constitution | Done
 ```
 
 ## Output format

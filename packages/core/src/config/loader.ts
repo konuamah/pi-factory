@@ -37,15 +37,18 @@ export async function loadEffectiveConfig(input: {
     project.paths.workflowPath ? readJsonLike<WorkflowConfig>(project.paths.workflowPath) : Promise.resolve(undefined),
   ]);
 
-  const effectiveConfig = validateEffectiveConfig(
-    mergeConfigLayers({
-      builtIns: builtInDefaults,
-      global: globalConfig,
-      project: projectConfig,
-      workflow,
-      runOverrides: input.runOverrides,
-    }),
-  );
+  const projectRoot = project.paths.gitRoot ?? input.cwd;
+  const mergedConfig = mergeConfigLayers({
+    builtIns: builtInDefaults,
+    global: globalConfig,
+    project: projectConfig,
+    workflow,
+    runOverrides: input.runOverrides,
+  });
+  if (!path.isAbsolute(mergedConfig.dependencies.cacheRoot)) {
+    mergedConfig.dependencies.cacheRoot = path.resolve(projectRoot, mergedConfig.dependencies.cacheRoot);
+  }
+  const effectiveConfig = validateEffectiveConfig(mergedConfig, { projectRoot });
 
   return {
     effectiveConfig,

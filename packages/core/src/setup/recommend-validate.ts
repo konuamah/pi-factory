@@ -123,6 +123,12 @@ export function validateSetupRecommendation(
     if (!rec.git.baseBranch.value.trim()) throw new Error(`baseBranch must not be empty`);
     if (/[^\w./-]/.test(rec.git.baseBranch.value)) throw new Error(`baseBranch contains illegal characters`);
   }
+  if (rec.dependencies?.hydrate && !["auto", "always", "never"].includes(rec.dependencies.hydrate.value)) {
+    throw new Error(`dependencies.hydrate must be auto|always|never`);
+  }
+  if (rec.dependencies?.cacheRoot && !rec.dependencies.cacheRoot.value.trim()) {
+    throw new Error(`dependencies.cacheRoot must not be empty`);
+  }
 
   // Constitution
   if (!["GENERATE", "REFRESH", "KEEP"].includes(rec.constitution)) {

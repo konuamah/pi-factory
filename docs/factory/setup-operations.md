@@ -2,6 +2,8 @@
 
 Use this when a user asks to install, finish, tune, or repair Factory setup.
 
+Factory docs are the operational registry for Factory Concierge. Start with `docs/factory/AGENT.md`, then this file, then command output/setup context/config/tool contracts. Inspect `src/` only when docs are missing, implementation debugging is required, or the user explicitly asks about code. Do not use `dist/`, `node_modules/`, build output, coverage output, generated files, or transient worktrees as behavioral reference sources.
+
 ## Default Path
 
 1. Inspect current state:
@@ -19,6 +21,32 @@ Use this when a user asks to install, finish, tune, or repair Factory setup.
 Keep setup transcripts concise. Do not narrate every file read or search. Report the current state, the action taken, and the verification result.
 
 For normal project setup, do not inspect Factory package source, TypeScript schemas, `dist`, binaries, or guessed CLI entrypoints. Use Factory commands, project manifests, and this docs library. Inspect Factory internals only when debugging Factory itself or a confirmed package/build/module-resolution failure.
+
+## Operational Doc Shape
+
+When Factory behavior must be documented for future Concierge runs, use this compact shape:
+
+```markdown
+# Action Or Capability Name
+
+Purpose:
+What the action does for the user.
+
+Inputs:
+- Required and optional inputs.
+
+Permissions:
+- Capabilities or approval rules involved.
+
+Confirmation:
+Whether approval is required before writes, cleanup, service start, or task execution.
+
+Command route:
+- The `/factory ...` command or Factory-owned file path.
+
+Related source:
+- `src/...` fallback pointer for debugging only.
+```
 
 ## Install Modes
 
@@ -45,6 +73,7 @@ Safe direct edits include:
 
 - commands in `.factory/config.yaml`
 - dashboard settings
+- dependency hydration and shared cache settings
 - role model assignments
 - repair attempts
 - approval behavior
@@ -63,5 +92,6 @@ A healthy setup should have:
 - config loads
 - commands configured
 - worktree settings valid
+- dependency hydration uses a cache root outside the active repository/worktree
 
 `READY` is ideal. `READY_WITH_WARNINGS` can be acceptable if the warning is understood.

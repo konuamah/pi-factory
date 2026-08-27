@@ -8,3 +8,4 @@ export * from "./tasks.js";
 export * from "./verification.js";
 export * from "./file-resolution.js";
 export * from "./failure-classification.js";
+export * from "./dependencies.js";

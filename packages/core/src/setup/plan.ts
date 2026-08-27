@@ -202,6 +202,7 @@ interface ExistingConfigShape {
   commands?: { setup?: string; lint?: string; typecheck?: string; test?: string; build?: string };
   models?: Record<string, unknown>;
   runtime?: { maxParallelAgents?: number };
+  dependencies?: { enabled?: boolean; hydrate?: "auto" | "always" | "never"; cacheRoot?: string };
   constitution?: { enabled?: boolean };
   repair?: { enabled?: boolean; maxAttempts?: number };
   approval?: { finalMerge?: string };
@@ -228,6 +229,7 @@ function buildProjectConfig(input: {
   const taskTypeBlock = renderTaskTypes(input.recommendedTaskTypes);
   const capabilityBlock = renderCapabilityBlock(input.rec);
   const gitBlock = renderGitBlock(input.rec, input.existing);
+  const dependencyBlock = renderDependencyBlock(input.rec, input.existing);
 
   return [
     "project:",
@@ -243,6 +245,7 @@ function buildProjectConfig(input: {
     taskTypeBlock,
     capabilityBlock,
     gitBlock,
+    dependencyBlock,
     "runtime:",
     `  maxParallelAgents: ${input.maxParallelAgents}`,
     "",
@@ -275,6 +278,19 @@ function pick(...values: Array<string | unknown | undefined>): string {
     }
   }
   return "";
+}
+
+function renderDependencyBlock(rec?: FactorySetupRecommendation, existing?: ExistingConfigShape): string {
+  const enabled = rec?.dependencies?.enabled?.value ?? existing?.dependencies?.enabled ?? true;
+  const hydrate = rec?.dependencies?.hydrate?.value ?? existing?.dependencies?.hydrate ?? "auto";
+  const cacheRoot = rec?.dependencies?.cacheRoot?.value ?? existing?.dependencies?.cacheRoot;
+
+  const lines = ["", "dependencies:"];
+  lines.push(`  enabled: ${enabled}`);
+  lines.push(`  hydrate: ${hydrate}`);
+  if (cacheRoot) lines.push(`  cacheRoot: ${cacheRoot}`);
+  lines.push("");
+  return lines.join("\n");
 }
 
 function renderTaskTypes(taskTypes: string[] | undefined): string {

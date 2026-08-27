@@ -19,6 +19,7 @@ export interface SkillPermissions {
   allowedTools?: string[];
   readScopes?: string[];
   writeScopes?: string[];
+  forbiddenReadScopes?: string[];
   forbiddenWriteScopes?: string[];
   requiresApproval?: string[];
   riskLevel?: "low" | "medium" | "high";

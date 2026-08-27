@@ -171,3 +171,85 @@ test('loadEffectiveConfig honors explicit enabled constitution config', async ()
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('loadEffectiveConfig provides dependency hydration defaults', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-factory-workflow-'));
+  try {
+    const loaded = await loadEffectiveConfig({ cwd: root });
+    assert.equal(loaded.effectiveConfig.dependencies.enabled, true);
+    assert.equal(loaded.effectiveConfig.dependencies.hydrate, 'auto');
+    assert.ok(path.isAbsolute(loaded.effectiveConfig.dependencies.cacheRoot));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('loadEffectiveConfig honors dependency hydration project overrides', async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-factory-workflow-'));
+  const root = path.join(parent, 'repo');
+  const cacheRoot = path.join(parent, 'factory-cache');
+  try {
+    await fs.mkdir(path.join(root, '.factory'), { recursive: true });
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'dependencies:',
+        '  enabled: false',
+        '  hydrate: never',
+        `  cacheRoot: ${JSON.stringify(cacheRoot.replace(/\\/g, '/'))}`,
+      ].join('\n'),
+      'utf8',
+    );
+
+    const loaded = await loadEffectiveConfig({ cwd: root });
+    assert.equal(loaded.effectiveConfig.dependencies.enabled, false);
+    assert.equal(loaded.effectiveConfig.dependencies.hydrate, 'never');
+    assert.equal(path.resolve(loaded.effectiveConfig.dependencies.cacheRoot), path.resolve(cacheRoot));
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test('loadEffectiveConfig rejects invalid dependency hydration config', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-factory-workflow-'));
+  try {
+    await fs.mkdir(path.join(root, '.factory'), { recursive: true });
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'dependencies:',
+        '  hydrate: sometimes',
+      ].join('\n'),
+      'utf8',
+    );
+
+    await assert.rejects(() => loadEffectiveConfig({ cwd: root }), /dependencies\.hydrate/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('loadEffectiveConfig rejects dependency cache roots inside the active repo', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-factory-workflow-'));
+  try {
+    await fs.mkdir(path.join(root, '.factory'), { recursive: true });
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'dependencies:',
+        '  cacheRoot: .factory/cache',
+      ].join('\n'),
+      'utf8',
+    );
+
+    await assert.rejects(() => loadEffectiveConfig({ cwd: root }), /dependencies\.cacheRoot must be outside/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

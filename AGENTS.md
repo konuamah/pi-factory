@@ -13,3 +13,5 @@
 - Ignore generated or transient workspace content when selecting repo guidance.
 - Fail loud instead of using silent fallbacks, especially for model routing, skill execution, interview UI, workflow semantics, and verification commands. If the required capability is unavailable, surface the exact missing piece and stop.
 - Persist generalized lessons in `learnings.md`.
+- When Factory behavior, commands, setup, workflows, capabilities, runtime, or agent UX changes, update the relevant `docs/factory/` page and Factory skill instructions in the same change.
+- When Factory behavior, commands, setup flows, workflows, capabilities, or agent-facing UX changes, update the relevant `docs/factory/` reference and the Factory Concierge skill instructions in the same change so docs, skills, and implementation stay aligned.

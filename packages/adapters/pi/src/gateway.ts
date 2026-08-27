@@ -359,6 +359,8 @@ async function handleAsk(questionText: string, ctx: FactoryPiCommandContext): Pr
       "Ask a question, for example:",
       "/factory ask how does Factory work?",
       "/factory ask set everything up for this repo",
+      "/factory ask help me run this task safely",
+      "/factory ask turn on the dashboard",
       "/factory ask why is my model failing?",
     ]);
     ctx.ui.notify("Ask Factory Concierge a question", "info");
@@ -366,8 +368,8 @@ async function handleAsk(questionText: string, ctx: FactoryPiCommandContext): Pr
   }
 
   renderIntro(ctx, [
-    "Factory Concierge will answer using this repo’s Factory setup, models, skills, commands, and readiness.",
-    "It recommends first and asks before setup, workflow changes, or constitution refreshes.",
+    "Factory Concierge will help with this repo's Factory setup, workflows, models, skills, commands, dashboard, runs, and readiness.",
+    "It can prepare task execution guidance, but it will not start a Factory task for you.",
   ]);
 
   const panel = mountFactoryStreamingWidget(ctx.ui, FACTORY_WIDGET_ID, {
@@ -377,7 +379,7 @@ async function handleAsk(questionText: string, ctx: FactoryPiCommandContext): Pr
     role: "factory-concierge",
     status: "thinking",
     lines: ["Reading Factory setup context..."],
-    footer: "Factory Concierge routes to existing Factory commands after approval.",
+    footer: "Factory Concierge routes only to approved Factory support commands.",
   });
 
   const executor = await createOptionalSetupExecutor(ctx, (_executionId, event) => {
@@ -414,13 +416,13 @@ async function handleConciergeRecommendationAction(
   rec: FactoryConciergeRecommendation,
   ctx: FactoryPiCommandContext,
 ): Promise<void> {
-  if (rec.recommendedAction === "answer-only") {
+  if (rec.recommendedAction === "answer-only" || rec.recommendedAction === "guide-task-execution") {
     ctx.ui.notify("Factory Concierge answered", "info");
     return;
   }
 
-  if (rec.recommendedAction === "import-skills") {
-    ctx.ui.notify("Factory Concierge recommended skill import/review", "info");
+  if (rec.recommendedAction === "import-skills" || rec.recommendedAction === "configure-dependencies") {
+    ctx.ui.notify("Factory Concierge recommended Factory configuration guidance", "info");
     return;
   }
 
@@ -438,11 +440,11 @@ async function handleConciergeRecommendationAction(
     return;
   }
 
-  await runConciergeAction(rec.recommendedAction, ctx);
+  await runConciergeAction(rec, ctx);
 }
 
-async function runConciergeAction(action: FactoryConciergeAction, ctx: FactoryPiCommandContext): Promise<void> {
-  switch (action) {
+async function runConciergeAction(rec: FactoryConciergeRecommendation, ctx: FactoryPiCommandContext): Promise<void> {
+  switch (rec.recommendedAction) {
     case "run-setup":
       await handleSetup([], ctx);
       return;
@@ -452,14 +454,61 @@ async function runConciergeAction(action: FactoryConciergeAction, ctx: FactoryPi
     case "create-workflow":
       await handleWorkflow(["create"], ctx);
       return;
+    case "list-workflows":
+      await handleWorkflow(["list"], ctx);
+      return;
+    case "show-workflow": {
+      const workflowId = commandArg(rec.suggestedCommand, /^\/factory workflow show (\S+)$/);
+      await handleWorkflow(["show", workflowId ?? ""], ctx);
+      return;
+    }
+    case "set-default-workflow": {
+      const workflowId = commandArg(rec.suggestedCommand, /^\/factory workflow set-default (\S+)$/);
+      await handleWorkflow(["set-default", workflowId ?? ""], ctx);
+      return;
+    }
     case "inspect-models":
       await handleModels([], ctx);
+      return;
+    case "inspect-capabilities":
+      await handleCapabilities(["list"], ctx);
+      return;
+    case "show-capability": {
+      const capabilityId = commandArg(rec.suggestedCommand, /^\/factory capabilities show (\S+)$/);
+      await handleCapabilities(["show", capabilityId ?? ""], ctx);
+      return;
+    }
+    case "validate-capabilities":
+      await handleCapabilities(["validate"], ctx);
       return;
     case "refresh-constitution":
       await handleConstitution([], ctx);
       return;
     case "show-status":
-      await handleStatus(ctx, undefined);
+      await handleStatus(ctx, commandArg(rec.suggestedCommand, /^\/factory status (\S+)$/));
+      return;
+    case "list-runs":
+      await handleList(ctx);
+      return;
+    case "show-run": {
+      const runId = commandArg(rec.suggestedCommand, /^\/factory show (\S+)$/);
+      await handleShow(runId, ctx);
+      return;
+    }
+    case "show-logs":
+      await handleLogs(ctx, commandArg(rec.suggestedCommand, /^\/factory logs (\S+)$/));
+      return;
+    case "show-plan":
+      await handlePlan(ctx);
+      return;
+    case "dashboard-status":
+      await handleDashboard(["status"], ctx);
+      return;
+    case "start-dashboard":
+      await handleDashboard(["start"], ctx);
+      return;
+    case "cleanup-runs":
+      await handleCleanup(commandArg(rec.suggestedCommand, /^\/factory cleanup (\d+)$/), ctx);
       return;
     default:
       ctx.ui.notify("Factory Concierge recommendation shown", "info");
@@ -471,11 +520,24 @@ function conciergeCommandForAction(action: FactoryConciergeAction): string | und
     case "run-setup": return "/factory setup";
     case "run-doctor": return "/factory doctor";
     case "create-workflow": return "/factory workflow create";
+    case "list-workflows": return "/factory workflow list";
     case "inspect-models": return "/factory models";
+    case "inspect-capabilities": return "/factory capabilities list";
+    case "validate-capabilities": return "/factory capabilities validate";
     case "refresh-constitution": return "/factory constitution";
     case "show-status": return "/factory status";
+    case "list-runs": return "/factory list";
+    case "show-logs": return "/factory logs";
+    case "show-plan": return "/factory plan";
+    case "dashboard-status": return "/factory dashboard status";
+    case "start-dashboard": return "/factory dashboard start";
+    case "cleanup-runs": return "/factory cleanup";
     default: return undefined;
   }
+}
+
+function commandArg(command: string | undefined, pattern: RegExp): string | undefined {
+  return command?.match(pattern)?.[1];
 }
 
 function formatConciergeAction(action: FactoryConciergeAction): string {
@@ -686,6 +748,11 @@ function renderSetupDetails(
   }
   if (rec.capabilities?.allow?.length) lines.push(`  capabilities allow: ${rec.capabilities.allow.join(", ")}`);
   if (rec.capabilities?.deny?.length) lines.push(`  capabilities deny: ${rec.capabilities.deny.join(", ")}`);
+  if (rec.dependencies) {
+    if (rec.dependencies.enabled) lines.push(`  dependency hydration: ${rec.dependencies.enabled.value ? "enabled" : "disabled"} — ${rec.dependencies.enabled.reason}`);
+    if (rec.dependencies.hydrate) lines.push(`  dependency hydrate mode: ${rec.dependencies.hydrate.value} — ${rec.dependencies.hydrate.reason}`);
+    if (rec.dependencies.cacheRoot) lines.push(`  dependency cache root: ${rec.dependencies.cacheRoot.value} — ${rec.dependencies.cacheRoot.reason}`);
+  }
   if (rec.taskTypes?.length) lines.push(`  task types: ${rec.taskTypes.map((t) => t.id).join(", ")}`);
   lines.push(`  constitution: ${rec.constitution}`);
   lines.push("");
@@ -709,6 +776,7 @@ async function runSetupCustomize(
       "Commands",
       "Runtime",
       "Git / worktrees",
+      "Dependencies",
       "Repair",
       "Approval",
       "Capabilities",
@@ -792,6 +860,22 @@ async function runSetupCustomize(
       if (bb?.trim()) { current.git = current.git ?? {}; current.git.baseBranch = { value: bb.trim(), reason: "User chose base branch", source: "DEFAULT", confidence: "HIGH" }; localAnswers["git:baseBranch"] = bb.trim(); }
       const aw = await uiCtx.ui.select?.("Allow worktrees?", ["Yes", "No", "Keep current"]);
       if (aw && aw !== "Keep current") { current.git = current.git ?? {}; current.git.allowWorktrees = { value: aw === "Yes", reason: "User chose worktree policy", source: "DEFAULT", confidence: "HIGH" }; }
+    } else if (section === "Dependencies") {
+      const enabled = await uiCtx.ui.select?.("Hydrate dependencies before work?", ["Enabled", "Disabled", "Keep current"]);
+      if (enabled && enabled !== "Keep current") {
+        current.dependencies = current.dependencies ?? {};
+        current.dependencies.enabled = { value: enabled === "Enabled", reason: "User chose dependency hydration policy", source: "DEFAULT", confidence: "HIGH" };
+      }
+      const hydrate = await uiCtx.ui.select?.("Hydration mode", ["auto", "always", "never", "Keep current"]);
+      if (hydrate && hydrate !== "Keep current") {
+        current.dependencies = current.dependencies ?? {};
+        current.dependencies.hydrate = { value: hydrate as import("@factory/schemas").DependencyHydrationMode, reason: "User chose dependency hydration mode", source: "DEFAULT", confidence: "HIGH" };
+      }
+      const cacheRoot = await uiCtx.ui.input?.("Shared dependency cache root", current.dependencies?.cacheRoot?.value ?? ctx.effective?.dependencies.cacheRoot ?? "");
+      if (cacheRoot?.trim()) {
+        current.dependencies = current.dependencies ?? {};
+        current.dependencies.cacheRoot = { value: cacheRoot.trim(), reason: "User chose shared dependency cache root", source: "DEFAULT", confidence: "HIGH" };
+      }
     } else if (section === "Repair") {
       const en = await uiCtx.ui.select?.("Enable repair?", ["Enabled", "Disabled", "Keep current"]);
       if (en && en !== "Keep current") { current.repair = current.repair ?? {}; current.repair.enabled = { value: en === "Enabled", reason: "User chose repair policy", source: "DEFAULT", confidence: "HIGH" }; localAnswers["repair:enabled"] = String(en === "Enabled"); }

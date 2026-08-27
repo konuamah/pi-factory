@@ -177,7 +177,7 @@ async function resolveRequestedModel(
 }> {
   if (!model.provider) {
     throw new ModelProviderResolutionError(
-      `Configured model \"${model.model}\" has no provider, so Factory cannot resolve it. Provide a provider or remove the model from config.`,
+      `Configured model \"${model.model}\" has no provider, so Factory cannot resolve it. Fix it by running the Factory concierge skill (recommended) or /factory models to see detected Pi models, then set a model with provider, e.g. models.planner: { provider: \"openai\", model: \"gpt-4o\" } in .factory/config.yaml.`,
     );
   }
 
@@ -198,7 +198,7 @@ async function resolveRequestedModel(
 
   if (!resolvedModel) {
     throw new ModelProviderResolutionError(
-      `Configured model \"${model.provider}:${model.model}\" could not be resolved by the Pi SDK. No fallback is used.`,
+      `Configured model \"${model.provider}:${model.model}\" could not be resolved by the Pi SDK. No fallback is used. Fix it by running the Factory concierge skill (recommended) or /factory models to see which models this Pi SDK actually exposes, then set models.planner / models.builder / models.reviewer / models.repair in .factory/config.yaml to one of those, e.g. { provider: \"<provider>\", model: \"<model-id>\" }.`,
     );
   }
 

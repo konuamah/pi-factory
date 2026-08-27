@@ -887,7 +887,35 @@ test('verification planner can choose only repo-authoritative commands from pack
   await withTempProject(async (root) => {
     await fs.writeFile(
       path.join(root, 'package.json'),
-      JSON.stringify({ name: 'tmp', type: 'module', scripts: { lint: 'node -e ""', build: 'node -e ""' } }, null, 2),
+      JSON.stringify(
+        {
+          name: 'tmp',
+          type: 'module',
+          scripts: { 'install:all': 'node -e ""', lint: 'node -e ""', build: 'node -e ""' },
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  setup: npm run install:all',
+        '  lint: node -e ""',
+        '  build: node -e ""',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
       'utf8',
     );
 
@@ -902,10 +930,11 @@ test('verification planner can choose only repo-authoritative commands from pack
           outputText: JSON.stringify({
             cwd: root,
             commands: {
+              setup: 'npm run install:all',
               lint: 'node -e ""',
               build: 'node -e ""',
             },
-            rationale: 'Only lint and build exist as package scripts.',
+            rationale: 'Setup, lint, and build are configured Factory commands.',
           }),
           events: [],
         };
@@ -923,7 +952,7 @@ test('verification planner can choose only repo-authoritative commands from pack
     });
 
     const verification = await readJson(result.verificationPath);
-    assert.deepEqual(verification.commands.map((item) => item.name), ['lint', 'build']);
+    assert.deepEqual(verification.commands.map((item) => item.name), ['setup', 'lint', 'build']);
     assert.equal(verification.skill?.id, 'verification-planning');
     assert.match(String(verification.skill?.version ?? ''), /^1\./);
     const logs = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'));
@@ -1453,6 +1482,74 @@ test('verification stages are not executed as builder task branches', async () =
 
     assert.equal(calls.filter((call) => call.label === 'builder').length, 1);
     assert.ok((result.builderExecutionPaths?.length ?? 0) === 1);
+  });
+});
+
+test('dependency hydration runs in task worktree before builder execution', async () => {
+  await withTempProject(async (root) => {
+    const parentCache = path.join(path.dirname(root), 'factory-deps-cache');
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  setup: node -e "require(\'fs\').appendFileSync(\'hydration-order.txt\', \'setup\' + String.fromCharCode(10))"',
+        '  lint: node -e ""',
+        '  typecheck: node -e ""',
+        '  test: node -e ""',
+        '  build: node -e ""',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: true',
+        'dependencies:',
+        '  enabled: true',
+        '  hydrate: auto',
+        `  cacheRoot: ${JSON.stringify(parentCache.replace(/\\/g, '/'))}`,
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+    await execFile('git', ['add', '.'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'factory setup'], { cwd: root });
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt, cwd: input.cwd });
+        const hydrated = await fs.readFile(path.join(input.cwd, 'hydration-order.txt'), 'utf8');
+        assert.match(hydrated, /setup/);
+        await fs.writeFile(path.join(input.cwd, 'builder-after-hydration.txt'), 'builder ran after hydration\n', 'utf8');
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: 'builder completed',
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    assert.equal(calls.filter((call) => call.label === 'builder').length, 1);
+    const eventsRaw = await fs.readFile(path.join(result.runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /dependencies\.hydration_started/);
+    assert.match(eventsRaw, /dependencies\.hydration_completed/);
+    const builderCall = calls.find((call) => call.label === 'builder');
+    assert.ok(builderCall.cwd.includes('.worktrees'));
   });
 });
 

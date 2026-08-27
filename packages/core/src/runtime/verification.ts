@@ -134,6 +134,7 @@ export async function planVerificationExecution(input: {
 export async function runVerificationCommands(input: {
   cwd: string;
   commands: VerificationCommandConfig;
+  env?: Record<string, string>;
 }): Promise<VerificationRunResult> {
   const resolved = await resolveVerificationCwd(input.cwd, input.commands.cwd);
 
@@ -173,6 +174,7 @@ export async function runVerificationCommands(input: {
       const { stdout, stderr } = await execAsync(command, {
         cwd: resolved.cwd,
         windowsHide: true,
+        env: input.env ? { ...process.env, ...input.env } : process.env,
       });
       results.push({
         name,

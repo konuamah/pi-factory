@@ -1199,10 +1199,12 @@ async function runFactoryControllerInner(
   }
 
   const repairExecutor = input.repairExecutor;
+  const repairableFailures = verificationFailureClassification?.perCommand
+    .filter((c) => c.category === "real-code-failure" && c.suggestedAction === "repair") ?? [];
   const shouldAttemptVerificationRepair = verification.overallStatus === "failed"
     && Boolean(repairExecutor)
     && loaded.effectiveConfig.repair.enabled
-    && verificationFailureClassification?.kind === "real code failure";
+    && repairableFailures.length > 0;
   if (verification.overallStatus === "failed" && !shouldAttemptVerificationRepair) {
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
@@ -1305,9 +1307,6 @@ async function runFactoryControllerInner(
 
   let reviewerExecutionPath: string | undefined;
 
-  // Transition to VERIFIED once command verification passed (or was repaired to pass).
-  await movePhase(run.statePath, run.eventsPath, run.runId, input, "verified", "Candidate verified");
-
   if (verification.overallStatus === "failed") {
     const failedState = await updateFactoryRunState({
       statePath: run.statePath,
@@ -1355,6 +1354,9 @@ async function runFactoryControllerInner(
       summaryPath,
     };
   }
+
+  // Verified: only after all required checks pass.
+  await movePhase(run.statePath, run.eventsPath, run.runId, input, "verified", "Candidate verified");
 
   // Contract completion gate: the run only proceeds to review/approval if the
   // contract verification can complete. Otherwise it is BLOCKED.

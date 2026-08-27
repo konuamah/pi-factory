@@ -145,10 +145,17 @@ export interface PrototypeVerificationArtifact {
     canComplete: boolean;
   };
   failureClassification?: {
-    kind: "harness/config" | "repo script/config" | "baseline/unrelated" | "real code failure" | "unknown";
+    kind: string;
     reason: string;
     retryable: boolean;
     suggestedPhase: string;
+    perCommand?: Array<{
+      commandName: string;
+      category: string;
+      reason: string;
+      retryable: boolean;
+      suggestedAction: string;
+    }>;
   };
 }
 

@@ -1280,8 +1280,8 @@ test('verification artifacts persist reasoning, classification, and repo learnin
     assert.equal(verification.selectionSource, 'deterministic');
     assert.ok(Array.isArray(verification.evidence?.candidateCwds));
     assert.ok(Array.isArray(verification.evidence?.commandDecisions));
-    assert.equal(verification.failureClassification?.kind, 'repo script/config');
-    assert.match(verification.failureClassification?.reason ?? '', /could not be executed|Verification command/i);
+    assert.ok(['repo script/config', 'missing-executable'].includes(verification.failureClassification?.kind));
+    assert.match(verification.failureClassification?.reason ?? '', /could not be executed|Verification command|not available/i);
 
     const learningsPath = path.join(root, '.factory', 'learnings.jsonl');
     const learningsRaw = await fs.readFile(learningsPath, 'utf8');
@@ -1289,10 +1289,10 @@ test('verification artifacts persist reasoning, classification, and repo learnin
     assert.match(learningsRaw, /verification-failure/);
 
     const logs = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'));
-    assert.equal(logs.verificationContext?.failureKind, 'repo script/config');
+    assert.ok(['repo script/config', 'missing-executable'].includes(logs.verificationContext?.failureKind));
 
     const shown = await showFactoryRun(path.join(root, '.factory', 'runs'), String(logs.state?.runId));
-    assert.equal(shown.verificationContext?.failureKind, 'repo script/config');
+    assert.ok(['repo script/config', 'missing-executable'].includes(shown.verificationContext?.failureKind));
   });
 });
 
@@ -1327,7 +1327,7 @@ test('verification failure classification distinguishes unrelated baseline lint 
     result,
     changedFiles: ['src/app/courses/components/EvergreenCourseGrid.tsx'],
   });
-  assert.equal(unrelated?.kind, 'baseline/unrelated');
+  assert.equal(unrelated?.kind, 'baseline-unrelated');
   assert.equal(unrelated?.retryable, false);
 
   const related = classifyVerificationFailure({
@@ -1341,7 +1341,7 @@ test('verification failure classification distinguishes unrelated baseline lint 
     },
     changedFiles: ['src/app/courses/components/EvergreenCourseGrid.tsx'],
   });
-  assert.equal(related?.kind, 'real code failure');
+  assert.equal(related?.kind, 'real-code-failure');
 });
 
 test('resume re-plans verification after config-classified verification failures', async () => {

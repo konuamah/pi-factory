@@ -260,7 +260,7 @@ function suggestResumePolicy(
     const failureKind = typeof verification?.failureClassification === "object" && verification?.failureClassification && typeof (verification.failureClassification as { kind?: unknown }).kind === "string"
       ? String((verification.failureClassification as { kind?: unknown }).kind)
       : undefined;
-    if (failureKind === "harness/config" || failureKind === "repo script/config") {
+    if (failureKind === "harness/config" || failureKind === "repo script/config" || failureKind === "missing-executable" || failureKind === "invalid-command" || failureKind === "missing-dependency" || failureKind === "environment-policy") {
       return { resumable: true, suggestedPhase: "verification-planning", nextStatus: "RUNNING", reason: `Resume by re-planning verification because the last failure was classified as ${failureKind}.` };
     }
     return { resumable: true, suggestedPhase: "verification", nextStatus: "RUNNING", reason: failureKind === "real code failure" ? "Resume verification/repair for a real code failure." : "Resume verification stage." };

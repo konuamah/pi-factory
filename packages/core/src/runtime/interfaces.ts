@@ -8,6 +8,12 @@ export interface AgentExecutionInput {
   };
   tools?: string[];
   metadata?: Record<string, unknown>;
+  limits?: {
+    totalRunTimeoutMs?: number;
+    modelTimeoutMs?: number;
+    toolTimeoutMs?: number;
+    maxTurns?: number;
+  };
 }
 
 export interface AgentExecutionResult {

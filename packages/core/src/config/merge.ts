@@ -60,6 +60,12 @@ export function mergeConfigLayers(input: {
         project?.runtime?.maxParallelAgents ??
         global?.runtime?.maxParallelAgents ??
         builtIns.runtime.maxParallelAgents,
+      limits: {
+        ...builtIns.runtime.limits,
+        ...global?.runtime?.limits,
+        ...project?.runtime?.limits,
+        ...runOverrides?.runtime?.limits,
+      },
     },
     ui: {
       showWorkerDetails:

@@ -1,5 +1,12 @@
 export type ModelRole = "discovery" | "planner" | "builder" | "reviewer" | "repair";
 
+export interface ExecutionLimits {
+  totalRunTimeoutMs?: number;
+  modelTimeoutMs?: number;
+  toolTimeoutMs?: number;
+  maxTurns?: number;
+}
+
 export interface ModelSelection {
   provider?: string;
   model: string;
@@ -81,6 +88,7 @@ export interface FactoryBuiltInDefaults {
   models: Partial<Record<ModelRole, ModelSelection>>;
   runtime: {
     maxParallelAgents: number;
+    limits?: ExecutionLimits;
   };
   ui: {
     showWorkerDetails: boolean;
@@ -128,6 +136,7 @@ export interface GlobalFactoryConfig {
   };
   runtime?: {
     maxParallelAgents?: number;
+    limits?: ExecutionLimits;
   };
   ui?: {
     showWorkerDetails?: boolean;
@@ -185,6 +194,7 @@ export interface ProjectFactoryConfig {
   };
   runtime?: {
     maxParallelAgents?: number;
+    limits?: ExecutionLimits;
   };
   git?: {
     baseBranch?: string;
@@ -229,6 +239,7 @@ export interface RunOverrides {
   models?: Partial<Record<ModelRole, ModelSelection>>;
   runtime?: {
     maxParallelAgents?: number;
+    limits?: ExecutionLimits;
   };
   approval?: {
     finalMerge?: "required" | "not-required";
@@ -239,6 +250,7 @@ export interface EffectiveFactoryConfig {
   models: Partial<Record<ModelRole, ModelSelection>>;
   runtime: {
     maxParallelAgents: number;
+    limits?: ExecutionLimits;
   };
   ui: {
     showWorkerDetails: boolean;

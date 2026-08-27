@@ -12,6 +12,12 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
   },
   runtime: {
     maxParallelAgents: 2,
+    limits: {
+      totalRunTimeoutMs: 900_000,
+      modelTimeoutMs: 60_000,
+      toolTimeoutMs: 30_000,
+      maxTurns: 50,
+    },
   },
   ui: {
     showWorkerDetails: false,

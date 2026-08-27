@@ -49,7 +49,21 @@ export class PiAgentExecutor implements AgentExecutor {
     });
 
     try {
-      await created.session.prompt(input.prompt);
+      const promptResult = await withTimeout(
+        () => created.session.prompt(input.prompt),
+        input.limits?.totalRunTimeoutMs,
+        "total-run-timeout",
+      );
+      if (promptResult.kind === "timeout") {
+        await created.session.abort().catch(() => {});
+        return {
+          executionId: input.executionId,
+          status: "failed",
+          outputText: state.outputChunks.join(""),
+          events: state.events,
+          errorMessage: promptResult.message,
+        };
+      }
       const bridged = await this.bridgeDsmlToolMarkup(input.executionId, created.session, state);
       if (!bridged.ok) {
         return {
@@ -390,6 +404,45 @@ function toolToCapability(toolName: string): string | undefined {
     default:
       return undefined;
   }
+}
+
+async function withTimeout<T>(
+  fn: () => Promise<T>,
+  timeoutMs: number | undefined,
+  timeoutType: string,
+): Promise<{ kind: "ok"; value: T } | { kind: "timeout"; message: string }> {
+  if (!timeoutMs || timeoutMs <= 0) {
+    try {
+      return { kind: "ok", value: await fn() };
+    } catch (error) {
+      throw error;
+    }
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve({ kind: "timeout", message: `Agent execution timed out after ${Math.round(timeoutMs / 1000)}s (${timeoutType})` });
+      }
+    }, timeoutMs);
+    void fn().then(
+      (value) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve({ kind: "ok", value });
+        }
+      },
+      (error) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          throw error;
+        }
+      },
+    );
+  });
 }
 
 function isAbortError(error: unknown): boolean {

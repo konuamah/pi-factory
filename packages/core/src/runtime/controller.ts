@@ -2062,6 +2062,7 @@ async function runImplementationTask(input: {
           prompt,
           model: nodeModel.model,
           tools: [...roleTools(nodeRole), ...capabilitiesToToolNames(capabilities.granted)].filter((tool, index, arr) => arr.indexOf(tool) === index),
+          limits: input.config.runtime.limits,
           metadata: {
             role: nodeRole,
             runId: input.runId,

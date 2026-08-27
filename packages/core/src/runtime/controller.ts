@@ -1027,7 +1027,7 @@ async function runFactoryControllerInner(
   const { setup: _setupCommand, ...verificationCommands } = loaded.effectiveConfig.commands;
   const normalizedCommands = normalizeVerificationCommands(verificationCommands);
   // Impact-based verification: filter checks to only those affected by changes.
-  const changedFiles = await getChangedFilesFromBase(executionCwd, worktree.branch);
+  const changedFiles = await getChangedFilesFromBase(executionCwd, loaded.effectiveConfig.git.baseBranch);
   const impactResult = filterVerificationByImpact(normalizedCommands as Record<string, string>, changedFiles);
   if (impactResult.skipped.length > 0) {
     await appendFactoryRunEvent(run.eventsPath, {

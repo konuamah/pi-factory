@@ -793,9 +793,9 @@ async function runFactoryControllerInner(
     executionCwd,
     executionBranch: worktree.branch,
     worktreeLocation: worktree.location ?? loaded.effectiveConfig.git.worktreeDir,
-    allowTaskWorktrees: loaded.effectiveConfig.git.allowWorktrees,
+    allowTaskWorktrees: false,
     tasks: implementationTasks,
-    maxParallelAgents: loaded.effectiveConfig.runtime.maxParallelAgents,
+    maxParallelAgents: 1,
     projectRoot,
     dependencyTasks: plan.tasks,
     roleExecutors: {

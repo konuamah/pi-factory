@@ -48,6 +48,10 @@ Command route:
 
 Builder agents receive explicit bootstrap instructions. They should inspect the repository, try the lightest readiness check, use repository wrappers and lockfiles, and avoid lockfile upgrades or system-wide installs.
 
+### One Worktree Per Run
+
+Factory now uses a single worktree for the entire run. All stages — discovery, planning, implementation, verification, and review — share one worktree. Dependencies installed by the builder remain available during verification. Tasks execute sequentially to avoid conflicts in the shared workspace.
+
 Related source:
 - `packages/core/src/runtime/dependencies.ts`
 - `packages/core/src/runtime/controller.ts`

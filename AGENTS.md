@@ -17,3 +17,4 @@
 - Persist generalized lessons in `learnings.md`.
 - When Factory behavior, commands, setup, workflows, capabilities, runtime, or agent UX changes, update the relevant `docs/factory/` page and Factory skill instructions in the same change.
 - When Factory behavior, commands, setup flows, workflows, capabilities, or agent-facing UX changes, update the relevant `docs/factory/` reference and the Factory Concierge skill instructions in the same change so docs, skills, and implementation stay aligned.
+- Commit documentation, AGENTS.md, and any relevant docs/skills changes together with every implementation change. Do not leave documentation as a separate follow-up step.

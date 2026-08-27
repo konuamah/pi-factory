@@ -1077,7 +1077,7 @@ async function runFactoryControllerInner(
   });
   verification.cwdResolution = verificationPlan.cwdResolution;
   const implementationChangedFiles = uniqueStrings(taskWorkspacesChangedFiles(implementationRun.taskWorkspaces));
-  const verificationFailureClassification = classifyVerificationFailure({
+  let verificationFailureClassification = classifyVerificationFailure({
     plan: verificationPlan,
     result: verification,
     changedFiles: implementationChangedFiles,
@@ -1199,13 +1199,45 @@ async function runFactoryControllerInner(
   }
 
   const repairExecutor = input.repairExecutor;
+  const environmentFailures = verificationFailureClassification?.perCommand
+    .filter((c) => c.suggestedAction === "prepare-environment") ?? [];
+  const shouldAttemptEnvPrep = verification.overallStatus === "failed"
+    && Boolean(repairExecutor)
+    && loaded.effectiveConfig.repair.enabled
+    && environmentFailures.length > 0;
+  if (shouldAttemptEnvPrep && repairExecutor) {
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: "environment-preparation",
+      status: "RUNNING",
+      message: `Preparing environment for: ${environmentFailures.map((f) => f.commandName).join(", ")}`,
+    });
+    const envResult = await repairExecutor.execute({
+      executionId: `${run.runId}-env-prep`,
+      cwd: verification.cwd,
+      prompt: buildEnvironmentPrepPrompt(verification.cwd, environmentFailures),
+      model: loaded.effectiveConfig.models.repair,
+      tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+      metadata: { role: "repair", purpose: "environment-preparation", runId: run.runId },
+    });
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "environment.prep_completed",
+      data: { status: envResult.status },
+    });
+    if (envResult.status === "completed") {
+      verification = await runVerificationCommands({ cwd: verificationPlan.cwd, commands: verificationPlan.commands });
+      verification.cwdResolution = verificationPlan.cwdResolution;
+      verificationFailureClassification = classifyVerificationFailure({ plan: verificationPlan, result: verification, changedFiles: implementationChangedFiles });
+    }
+  }
   const repairableFailures = verificationFailureClassification?.perCommand
     .filter((c) => c.category === "real-code-failure" && c.suggestedAction === "repair") ?? [];
   const shouldAttemptVerificationRepair = verification.overallStatus === "failed"
     && Boolean(repairExecutor)
     && loaded.effectiveConfig.repair.enabled
     && repairableFailures.length > 0;
-  if (verification.overallStatus === "failed" && !shouldAttemptVerificationRepair) {
+  if (verification.overallStatus === "failed" && !shouldAttemptVerificationRepair && !shouldAttemptEnvPrep) {
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
       type: "repair.skipped",
@@ -3693,6 +3725,27 @@ function buildRepairPrompt(
     "Repair the code so verification can pass.",
     "Focus only on the observed failures and avoid unrelated edits.",
   ].filter(Boolean).join("\n");
+}
+
+function buildEnvironmentPrepPrompt(
+  cwd: string,
+  failures: Array<{ commandName: string; category: string; reason: string; suggestedAction: string }>,
+): string {
+  const issues = failures.map((f) => `  - ${f.commandName} (${f.category}): ${f.reason}`).join("\n");
+  return [
+    `The following verification commands failed because the runtime environment is not prepared:`,
+    issues,
+    `Working directory: ${cwd}`,
+    ``,
+    `Do the following in this exact directory:`,
+    `1. Inspect the repository to find how dependencies should be prepared for each failing command.`,
+    `2. For Python: create a .venv if needed, activate it, and install requirements.`,
+    `3. For Node: run npm install if node_modules is missing.`,
+    `4. For any other language: use the appropriate package manager and lockfile.`,
+    `5. Prefer project-local virtual environments and wrappers.`,
+    `6. Do NOT change source code. Do NOT modify config files.`,
+    `7. After preparation, run the failing verification command to confirm it passes.`,
+  ].join("\n");
 }
 
 function buildReviewerPrompt(

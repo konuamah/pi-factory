@@ -18,6 +18,10 @@ Factory docs are the operational registry for Factory Concierge. Start with `doc
 4. If the user requested a specific setting, edit the specific Factory-owned file.
 5. Verify readiness.
 
+`/factory doctor` is the readiness gate for model routing and Pi model availability. Use `/factory models` when the user needs the deeper per-role and per-task routing view before editing `.factory/config.yaml`.
+`CONSTITUTION.md` is also part of readiness. If it is missing, doctor should fail until the constitution is generated or refreshed.
+When Factory Concierge is asked to set up Factory or make the project ready, setup includes assigning Pi-visible models to every Factory role. Do not leave model assignment as a separate manual follow-up when Pi exposes a usable model.
+
 Keep setup transcripts concise. Do not narrate every file read or search. Report the current state, the action taken, and the verification result.
 
 For normal project setup, do not inspect Factory package source, TypeScript schemas, `dist`, binaries, or guessed CLI entrypoints. Use Factory commands, project manifests, and this docs library. Inspect Factory internals only when debugging Factory itself or a confirmed package/build/module-resolution failure.
@@ -89,8 +93,11 @@ A healthy setup should have:
 - git root detected
 - `factory.yaml`
 - `.factory/config.yaml`
+- `CONSTITUTION.md`
 - config loads
 - commands configured
+- every Factory role resolves for `general` and configured task types
+- every resolved provider/model pair is visible in Pi
 - worktree settings valid
 - dependency hydration uses a cache root outside the active repository/worktree
 

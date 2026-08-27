@@ -91,6 +91,38 @@ export async function detectPiModelConfiguration(
   };
 }
 
+export function collectVisiblePiModels(
+  pi: Pick<PiModelConfigurationStatus, "defaultProvider" | "defaultModel" | "configuredModels"> | undefined,
+): ModelSelection[] {
+  const out: ModelSelection[] = [];
+  const seen = new Set<string>();
+
+  const add = (selection?: ModelSelection): void => {
+    if (!selection?.model) {
+      return;
+    }
+    const key = modelSelectionKey(selection);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    out.push(selection);
+  };
+
+  if (pi?.defaultProvider && pi.defaultModel) {
+    add({ provider: pi.defaultProvider, model: pi.defaultModel });
+  }
+  for (const selection of pi?.configuredModels ?? []) {
+    add(selection);
+  }
+
+  return out;
+}
+
+export function modelSelectionKey(selection: Pick<ModelSelection, "provider" | "model">): string {
+  return `${selection.provider ?? ""}:${selection.model}`;
+}
+
 function collectConfiguredModels(input: {
   defaultProvider?: string;
   defaultModel?: string;
@@ -105,7 +137,7 @@ function collectConfiguredModels(input: {
   const add = (provider: string | undefined, model: unknown): void => {
     if (typeof model !== "string" || !model.trim()) return;
     const selection = { ...(provider ? { provider } : {}), model: model.trim() };
-    const key = `${selection.provider ?? ""}:${selection.model}`;
+    const key = modelSelectionKey(selection);
     if (seen.has(key)) return;
     seen.add(key);
     out.push(selection);

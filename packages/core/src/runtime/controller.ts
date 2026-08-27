@@ -48,7 +48,7 @@ import type { VerificationContractPlan, VerificationEngineResult } from "../veri
 import type { ReviewProviderOptions } from "../verification/providers/review.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { classifyVerificationFailure } from "./failure-classification.js";
-import { planVerificationExecution, runVerificationCommands } from "./verification.js";
+import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands } from "./verification.js";
 import { hydrateWorkspaceDependencies, buildDependencyCacheEnv, DependencyHydrationError } from "./dependencies.js";
 
 export interface FactoryRunProgressEvent {
@@ -81,6 +81,7 @@ export interface RunFactoryControllerInput {
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string; candidateSha?: string }) => Promise<boolean>;
+  requestDependencyRemediation?: (candidate: import("./dependencies.js").DependencyHydrationRemediationCandidate) => Promise<boolean>;
   requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
   delayMs?: number;
 }
@@ -284,6 +285,8 @@ async function runFactoryControllerInner(
         type: event.type,
         data: event.data,
       }),
+      onRemediation: input.requestDependencyRemediation,
+      mode: "agent",
     });
   } catch (error) {
     const failedState = await updateFactoryRunState({
@@ -815,6 +818,7 @@ async function runFactoryControllerInner(
     runModelOverrides: input.modelOverrides,
     runDecisions: await loadRunDecisions(run.runDir),
     config: loaded.effectiveConfig,
+    requestDependencyRemediation: input.requestDependencyRemediation,
     onProgress: async (event) => emitProgress(input, event),
     delayMs,
     builderExecutionPaths,
@@ -961,6 +965,8 @@ async function runFactoryControllerInner(
         type: event.type,
         data: event.data,
       }),
+      onRemediation: input.requestDependencyRemediation,
+      mode: "agent",
     });
   } catch (error) {
     const reason = error instanceof DependencyHydrationError
@@ -1018,10 +1024,11 @@ async function runFactoryControllerInner(
       summaryPath,
     };
   }
+  const { setup: _setupCommand, ...verificationCommands } = loaded.effectiveConfig.commands;
   const verificationPlan = await planVerificationExecution({
     cwd: executionCwd,
     goal: input.goal,
-    commands: loaded.effectiveConfig.commands,
+    commands: normalizeVerificationCommands(verificationCommands),
     constitutionContext: repairGuidance.text,
     executor: input.verificationPlannerExecutor,
     model: loaded.effectiveConfig.models.planner,
@@ -1682,6 +1689,7 @@ async function runImplementationTasks(input: {
   runModelOverrides?: Partial<Record<ModelRole, ModelSelection>>;
   runDecisions?: Array<{ requestId: string; question: string; optionId: string; feedback?: string }>;
   config: EffectiveFactoryConfig;
+  requestDependencyRemediation?: RunFactoryControllerInput["requestDependencyRemediation"];
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1763,6 +1771,7 @@ async function runImplementationTasks(input: {
           onProgress: input.onProgress,
           delayMs: input.delayMs,
           builderExecutionPaths: input.builderExecutionPaths,
+          requestDependencyRemediation: input.requestDependencyRemediation,
         }),
       ),
     );
@@ -1803,6 +1812,7 @@ async function runImplementationTask(input: {
   runModelOverrides?: Partial<Record<ModelRole, ModelSelection>>;
   runDecisions?: Array<{ requestId: string; question: string; optionId: string; feedback?: string }>;
   config: EffectiveFactoryConfig;
+  requestDependencyRemediation?: RunFactoryControllerInput["requestDependencyRemediation"];
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
@@ -1860,6 +1870,8 @@ async function runImplementationTask(input: {
         type: event.type,
         data: event.data,
       }),
+      onRemediation: input.requestDependencyRemediation,
+      mode: "agent",
     });
   } catch (error) {
     const reason = error instanceof DependencyHydrationError
@@ -3581,6 +3593,11 @@ function buildCompiledPrompt(goal: string, compiled: CompiledContext, workspaceP
     `Goal: ${goal}`,
     ...(workspacePath ? [`Working directory: ${workspacePath}`] : []),
     ...compiled.instructions,
+    ...(compiled.role === "builder" ? [
+      "Before modifying files, prepare the repository environment yourself: inspect README and project configuration, determine whether dependencies are already usable, and install or synchronize them only when needed.",
+      "Prefer repository-provided wrappers, lockfiles, and setup instructions. Do not replace lockfiles, upgrade dependencies, use sudo, or install system packages unless explicitly required and approved.",
+      "Use the lightest readiness check first, keep setup within the available run budget, and report setup actions and verification results in your final response.",
+    ] : []),
     `Role: ${compiled.role}`,
   ];
   return sections.join("\n");
@@ -3625,6 +3642,9 @@ function buildBuilderPrompt(
     task.dependsOn.length > 0 ? `Depends on: ${task.dependsOn.join(", ")}` : "Depends on: none",
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    "Before modifying files, prepare the repository environment yourself: inspect README and project configuration, determine whether dependencies are already usable, and install or synchronize them only when needed.",
+    "Prefer repository-provided wrappers, lockfiles, and setup instructions. Do not replace lockfiles, upgrade dependencies, use sudo, or install system packages unless explicitly required and approved.",
+    "Use the lightest readiness check first, keep setup within the available run budget, and report setup actions and verification results in your final response.",
     "Implement only the requested task in this repository and leave the workspace ready for verification.",
     "Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.",
   ].filter(Boolean).join("\n");

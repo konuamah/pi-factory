@@ -50,5 +50,8 @@ export async function validateFactorySetup(cwd: string): Promise<SetupValidation
 }
 
 function isOptionalCheck(name: string): boolean {
-  return name.startsWith("doctor:") || name === "constitution";
+  if (name === "doctor:model-routing" || name === "doctor:model-availability") {
+    return false;
+  }
+  return name.startsWith("doctor:");
 }

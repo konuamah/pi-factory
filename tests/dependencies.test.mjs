@@ -8,6 +8,9 @@ import {
   hydrateWorkspaceDependencies,
   loadEffectiveConfig,
   DependencyHydrationError,
+  extractExecutable,
+  preflightSetupCommands,
+  remediateSetupCommands,
 } from '../packages/core/dist/index.js';
 
 async function withWorkspace(configLines, fn, files = {}) {
@@ -162,5 +165,178 @@ test('dependency hydration does not create a shared node_modules symlink', async
     assert.equal(stat.isSymbolicLink(), false);
   }, {
     'package.json': JSON.stringify({ name: 'demo' }, null, 2),
+  });
+});
+
+// --- extractExecutable tests ---
+
+test('extractExecutable parses the first token from a command', () => {
+  assert.equal(extractExecutable('pip install -r requirements.txt'), 'pip');
+  assert.equal(extractExecutable('npm install'), 'npm');
+  assert.equal(extractExecutable('cd frontend && npm install'), 'npm');
+  assert.equal(extractExecutable('./mvnw dependency:resolve'), './mvnw');
+  assert.equal(extractExecutable('uv sync --frozen'), 'uv');
+});
+
+test('extractExecutable returns undefined for cd-only commands', () => {
+  assert.equal(extractExecutable('cd frontend'), undefined);
+  assert.equal(extractExecutable('cd'), undefined);
+});
+
+// --- preflightSetupCommands tests ---
+
+test('preflightSetupCommands passes for available executables', async () => {
+  const result = await preflightSetupCommands([
+    { name: 'install', command: 'node -e "console.log(1)"' },
+  ]);
+  assert.equal(result.ok, true);
+});
+
+test('preflightSetupCommands fails for missing executables', async () => {
+  const result = await preflightSetupCommands([
+    { name: 'install-flask', command: 'pip install -r requirements.txt' },
+  ]);
+  assert.equal(result.ok, false);
+  assert.equal(result.executable, 'pip');
+  assert.equal(result.stepName, 'install-flask');
+  assert.equal(result.command, 'pip install -r requirements.txt');
+});
+
+test('preflightSetupCommands reports alternatives when found', async () => {
+  const result = await preflightSetupCommands([
+    { name: 'setup', command: 'pip install -r requirements.txt' },
+  ]);
+  assert.equal(result.ok, false);
+  // pip3 exists on this machine, pip does not
+  assert.ok(Array.isArray(result.alternatives));
+  assert.ok(result.alternatives.includes('pip3'));
+});
+
+test('preflightSetupCommands skips shell builtins and relative paths', async () => {
+  const result = await preflightSetupCommands([
+    { name: 'go', command: 'cd frontend && npm install' },
+    { name: 'wrapper', command: './mvnw dependency:resolve' },
+    { name: 'script', command: '../scripts/setup.sh' },
+  ]);
+  assert.equal(result.ok, true);
+});
+
+// --- hydrateWorkspaceDependencies preflight integration ---
+
+test('dependency hydration fails at preflight when command is unavailable', async () => {
+  await withWorkspace([
+    'setup: pip install -r requirements.txt',
+  ], async (root, cacheRoot) => {
+    const loaded = await loadEffectiveConfig({ cwd: root });
+    const events = [];
+    await assert.rejects(
+      hydrateWorkspaceDependencies({
+        workspacePath: root,
+        projectRoot: root,
+        config: { ...loaded.effectiveConfig, dependencies: { ...loaded.effectiveConfig.dependencies, cacheRoot } },
+        runId: 'run_test',
+        phase: 'test',
+        onEvent: async (event) => events.push(event),
+      }),
+      DependencyHydrationError,
+    );
+    assert.ok(events.some((e) => e.type === 'dependencies.preflight'));
+    assert.ok(!events.some((e) => e.type === 'dependencies.hydration_started'));
+  }, {
+    'pyproject.toml': '[project]\nname = "demo"\n',
+  });
+});
+
+test('dependency hydration skips preflight for available executables', async () => {
+  await withWorkspace([
+    'setup: node -v',
+  ], async (root, cacheRoot) => {
+    const result = await hydrate(root, cacheRoot);
+    assert.equal(result.result.status, 'completed');
+  }, {
+    'package.json': JSON.stringify({ name: 'demo' }, null, 2),
+  });
+});
+
+// --- remediation tests ---
+
+test('remediateSetupCommands finds pip3 replacement for pip', async () => {
+  const result = await remediateSetupCommands([
+    { name: 'install-flask', command: 'pip install -r requirements.txt' },
+  ]);
+  assert.ok(result);
+  assert.equal(result.executable, 'pip');
+  assert.equal(result.replacement, 'pip3');
+  assert.equal(result.remediatedCommand, 'pip3 install -r requirements.txt');
+  assert.equal(result.temporary, true);
+  assert.equal(result.confidence, 'HIGH');
+});
+
+test('remediateSetupCommands skips available executables', async () => {
+  const result = await remediateSetupCommands([
+    { name: 'install', command: 'npm install' },
+  ]);
+  assert.equal(result, undefined);
+});
+
+test('remediateSetupCommands preserves cd prefix in command', async () => {
+  const result = await remediateSetupCommands([
+    { name: 'install-flask', command: 'cd flask && pip install -r requirements.txt' },
+  ]);
+  assert.ok(result);
+  assert.equal(result.remediatedCommand, 'cd flask && pip3 install -r requirements.txt');
+});
+
+test('dependency hydration accepts approved remediation', async () => {
+  await withWorkspace([
+    'setup: pip --version',
+  ], async (root, cacheRoot) => {
+    const loaded = await loadEffectiveConfig({ cwd: root });
+    const events = [];
+    let offered = false;
+    const result = await hydrateWorkspaceDependencies({
+      workspacePath: root,
+      projectRoot: root,
+      config: { ...loaded.effectiveConfig, dependencies: { ...loaded.effectiveConfig.dependencies, cacheRoot } },
+      runId: 'run_test',
+      phase: 'test',
+      onEvent: async (event) => events.push(event),
+      onRemediation: async (candidate) => {
+        offered = true;
+        assert.equal(candidate.executable, 'pip');
+        assert.equal(candidate.replacement, 'pip3');
+        assert.equal(candidate.temporary, true);
+        return true;
+      },
+    });
+    assert.ok(offered);
+    assert.equal(result.status, 'completed');
+    assert.ok(events.some((e) => e.type === 'dependencies.remediation_approved'));
+  }, {
+    'pyproject.toml': '[project]\nname = "demo"\n',
+  });
+});
+
+test('dependency hydration fails when remediation is rejected', async () => {
+  await withWorkspace([
+    'setup: pip --version',
+  ], async (root, cacheRoot) => {
+    const loaded = await loadEffectiveConfig({ cwd: root });
+    const events = [];
+    await assert.rejects(
+      hydrateWorkspaceDependencies({
+        workspacePath: root,
+        projectRoot: root,
+        config: { ...loaded.effectiveConfig, dependencies: { ...loaded.effectiveConfig.dependencies, cacheRoot } },
+        runId: 'run_test',
+        phase: 'test',
+        onEvent: async (event) => events.push(event),
+        onRemediation: async () => false,
+      }),
+      DependencyHydrationError,
+    );
+    assert.ok(events.some((e) => e.type === 'dependencies.remediation_rejected'));
+  }, {
+    'pyproject.toml': '[project]\nname = "demo"\n',
   });
 });

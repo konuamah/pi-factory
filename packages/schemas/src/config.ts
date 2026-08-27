@@ -5,6 +5,14 @@ export interface ModelSelection {
   model: string;
 }
 
+export interface SetupCommandStep {
+  name?: string;
+  description?: string;
+  command: string;
+}
+
+export type SetupCommandConfig = string | SetupCommandStep[];
+
 export type WorkflowNodeType = "agent" | "command" | "approval" | "task-graph" | "interview";
 
 export type Capability =
@@ -114,7 +122,10 @@ export interface FactoryBuiltInDefaults {
 export type DependencyHydrationMode = "auto" | "always" | "never";
 
 export interface GlobalFactoryConfig {
-  models?: Partial<Record<ModelRole, ModelSelection>>;
+  models?: Partial<Record<ModelRole, ModelSelection>> & {
+    provider?: string;
+    roles?: Partial<Record<ModelRole, ModelSelection>>;
+  };
   runtime?: {
     maxParallelAgents?: number;
   };
@@ -165,11 +176,12 @@ export interface ProjectFactoryConfig {
   taskTypes?: Record<string, TaskTypeDefinition>;
   commands?: {
     cwd?: string;
-    setup?: string;
+    setup?: SetupCommandConfig;
     lint?: string;
     typecheck?: string;
     test?: string;
     build?: string;
+    checks?: Record<string, { description?: string; command: string; timeout?: number }>;
   };
   runtime?: {
     maxParallelAgents?: number;
@@ -194,7 +206,10 @@ export interface ProjectFactoryConfig {
   approval?: {
     finalMerge?: "required" | "not-required";
   };
-  models?: Partial<Record<ModelRole, ModelSelection>>;
+  models?: Partial<Record<ModelRole, ModelSelection>> & {
+    provider?: string;
+    roles?: Partial<Record<ModelRole, ModelSelection>>;
+  };
   dashboard?: {
     enabled?: boolean;
     port?: number;
@@ -237,11 +252,12 @@ export interface EffectiveFactoryConfig {
   };
   commands: {
     cwd?: string;
-    setup?: string;
+    setup?: SetupCommandConfig;
     lint?: string;
     typecheck?: string;
     test?: string;
     build?: string;
+    checks?: Record<string, { description?: string; command: string; timeout?: number }>;
   };
   git: {
     baseBranch: string;

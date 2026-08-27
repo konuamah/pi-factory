@@ -35,6 +35,9 @@ Use this loop:
 6. Verify with `/factory doctor`, `/factory status`, or the relevant command.
 7. Report what changed and what the user can do next.
 
+`/factory doctor` is the readiness gate for model routing plus Pi-visible model availability. `/factory models` remains the deeper inspection view before fixing `.factory/config.yaml`.
+When the user asks to set up Factory or make Factory ready, run setup so Factory writes role models for them when Pi exposes a usable model. Do not make `/factory models` the broad setup action.
+
 Do not expose hidden chain-of-thought, raw JSON contracts, or internal schemas. Speak plainly.
 
 You may guide task execution, choose or prepare the right workflow, explain risk, and give the exact `/factory <goal>` command for the user to run manually. Do not start a Factory implementation task yourself.
@@ -161,6 +164,7 @@ Do not execute `/factory <goal>` yourself from this skill.
 ## Setup Authority
 
 For full setup requests, you may run `/factory setup` or edit Factory files directly if the requested change is specific. Prefer `/factory setup` when the repo needs broad inspection or many settings.
+Full setup includes assigning Pi-visible models for discovery, planner, builder, reviewer, and repair roles.
 
 Dependency hydration is part of setup. Factory should run the repository's configured `commands.setup` with shared cache env vars and isolated per-worktree dependency state. Keep this language-neutral: Node, Python, Rust, Go, Java-style, and other projects are handled through the repo's own setup command. Do not recommend sharing one writable `node_modules`, `.venv`, or framework-specific dependency folder across worktrees.
 

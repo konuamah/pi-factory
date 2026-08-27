@@ -4,11 +4,12 @@ import { parse as parseYaml } from "yaml";
 import { inspectRepositoryForSetup } from "./profile.js";
 import { recommendFromProfile } from "./recommend.js";
 import { loadEffectiveConfig } from "../config/loader.js";
-import { detectPiModelConfiguration } from "./pi-models.js";
+import { collectVisiblePiModels, detectPiModelConfiguration } from "./pi-models.js";
 import { buildFactorySetupContext } from "./setup-context.js";
 import { validateSetupRecommendation } from "./recommend-validate.js";
 import { defaultConstitutionTemplate, defaultWorkflowTemplate } from "./init.js";
-import type { FactorySetupRecommendation } from "@factory/schemas";
+import type { FactorySetupRecommendation, SetupCommandConfig } from "@factory/schemas";
+import type { ModelRole, ModelSelection } from "@factory/schemas";
 import type {
   FactorySetupPlan,
   ProposedFactorySetup,
@@ -17,6 +18,8 @@ import type {
   SetupMode,
   SetupRecommendation,
 } from "./types.js";
+
+const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
 
 export interface PlanFactorySetupInput {
   cwd: string;
@@ -152,7 +155,7 @@ async function buildProposedSetup(
   const lintCommand = pick(existing?.commands?.lint, answers?.["cmd:lint"], recCmd("lint"), findValue("verification:lint"), `${pm} lint`);
   const typecheckCommand = pick(existing?.commands?.typecheck, answers?.["cmd:typecheck"], recCmd("typecheck"), findValue("verification:typecheck"), `${pm} typecheck`);
   const buildCommand = pick(existing?.commands?.build, answers?.["cmd:build"], recCmd("build"), findValue("verification:build"), `${pm} build`);
-  const setupCommand = pick(existing?.commands?.setup, answers?.["cmd:setup"], recCmd("setup"), `${pm} install`);
+  const setupCommand = pickSetupCommand(existing?.commands?.setup, answers?.["cmd:setup"], recCmd("setup"), `${pm} install`);
   const maxParallelAgents = Number(answers?.["runtime:maxParallelAgents"] ?? rec?.runtime?.maxParallelAgents?.value ?? existing?.runtime?.maxParallelAgents ?? 4);
   const repairEnabled = answers?.["repair:enabled"] ? answers["repair:enabled"] === "true" : (rec?.repair?.enabled?.value ?? existing?.repair?.enabled ?? true);
   const maxAttempts = Number(answers?.["repair:maxAttempts"] ?? rec?.repair?.maxAttempts?.value ?? existing?.repair?.maxAttempts ?? 3);
@@ -199,7 +202,7 @@ async function buildProposedSetup(
 
 interface ExistingConfigShape {
   project?: { baseBranch?: string };
-  commands?: { setup?: string; lint?: string; typecheck?: string; test?: string; build?: string };
+  commands?: { setup?: SetupCommandConfig; lint?: string; typecheck?: string; test?: string; build?: string };
   models?: Record<string, unknown>;
   runtime?: { maxParallelAgents?: number };
   dependencies?: { enabled?: boolean; hydrate?: "auto" | "always" | "never"; cacheRoot?: string };
@@ -213,7 +216,7 @@ function buildProjectConfig(input: {
   lintCommand: string;
   typecheckCommand: string;
   buildCommand: string;
-  setupCommand: string;
+  setupCommand: SetupCommandConfig;
   baseBranch: string;
   maxParallelAgents: number;
   repairEnabled: boolean;
@@ -236,7 +239,7 @@ function buildProjectConfig(input: {
     `  baseBranch: ${input.baseBranch}`,
     "",
     "commands:",
-    `  setup: ${input.setupCommand}`,
+    ...renderSetupCommand(input.setupCommand),
     `  lint: ${input.lintCommand}`,
     `  typecheck: ${input.typecheckCommand}`,
     `  test: ${input.testCommand}`,
@@ -280,6 +283,38 @@ function pick(...values: Array<string | unknown | undefined>): string {
   return "";
 }
 
+function pickSetupCommand(...values: Array<SetupCommandConfig | unknown | undefined>): SetupCommandConfig {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+    if (Array.isArray(value) && value.some((step) => isSetupStep(step) && step.command.trim())) {
+      return value.filter((step): step is { name?: string; description?: string; command: string } => isSetupStep(step) && Boolean(step.command.trim()));
+    }
+  }
+  return "";
+}
+
+function isSetupStep(value: unknown): value is { name?: string; description?: string; command: string } {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value) && typeof (value as { command?: unknown }).command === "string";
+}
+
+function renderSetupCommand(setup: SetupCommandConfig): string[] {
+  if (typeof setup === "string") {
+    return [`  setup: ${setup}`];
+  }
+  if (!Array.isArray(setup) || setup.length === 0) {
+    return ["  setup: "];
+  }
+  const lines = ["  setup:"];
+  for (const step of setup) {
+    lines.push(`    - command: ${JSON.stringify(step.command)}`);
+    if (step.name) lines.push(`      name: ${JSON.stringify(step.name)}`);
+    if (step.description) lines.push(`      description: ${JSON.stringify(step.description)}`);
+  }
+  return lines;
+}
+
 function renderDependencyBlock(rec?: FactorySetupRecommendation, existing?: ExistingConfigShape): string {
   const enabled = rec?.dependencies?.enabled?.value ?? existing?.dependencies?.enabled ?? true;
   const hydrate = rec?.dependencies?.hydrate?.value ?? existing?.dependencies?.hydrate ?? "auto";
@@ -302,30 +337,50 @@ function renderTaskTypes(taskTypes: string[] | undefined): string {
 }
 
 function renderModelBlock(pi?: Awaited<ReturnType<typeof detectPiModelConfiguration>>, rec?: FactorySetupRecommendation): string {
-  if (rec?.models && Object.keys(rec.models).length > 0) {
-    const lines: string[] = ["", "models:"];
-    for (const role of ["discovery", "planner", "builder", "reviewer", "repair"] as const) {
-      const entry = rec.models[role];
-      if (!entry) continue;
-      const provider = entry.value.provider ? `provider: ${entry.value.provider}, ` : "";
-      lines.push(`  ${role}: { ${provider}model: ${entry.value.model} }`);
-    }
-    if (lines.length > 2) { lines.push(""); return lines.join("\n"); }
-  }
-  if (!pi?.hasModelSelection) {
+  const visibleDefault = collectVisiblePiModels(pi)[0];
+  const assignments = completeModelAssignments(rec, visibleDefault);
+  if (Object.keys(assignments).length === 0) {
     return "";
   }
-  const model = pi.defaultModel ? pi.defaultModel : "sonnet";
-  const provider = pi.defaultProvider ? `provider: ${pi.defaultProvider}, ` : "";
-  return [
-    "",
-    "models:",
-    `  planner: { ${provider}model: ${model} }`,
-    `  builder: { ${provider}model: ${model} }`,
-    `  reviewer: { ${provider}model: ${model} }`,
-    `  repair: { ${provider}model: ${model} }`,
-    "",
-  ].join("\n");
+
+  const lines: string[] = ["", "models:"];
+  for (const role of MODEL_ROLES) {
+    const selection = assignments[role];
+    if (!selection?.model) continue;
+    const provider = selection.provider ? `provider: ${selection.provider}, ` : "";
+    lines.push(`  ${role}: { ${provider}model: ${selection.model} }`);
+  }
+  if (lines.length <= 2) {
+    return "";
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+function completeModelAssignments(
+  rec: FactorySetupRecommendation | undefined,
+  visibleDefault: ModelSelection | undefined,
+): Partial<Record<ModelRole, ModelSelection>> {
+  const out: Partial<Record<ModelRole, ModelSelection>> = {};
+
+  for (const role of MODEL_ROLES) {
+    const selection = rec?.models?.[role]?.value;
+    if (selection?.model) {
+      out[role] = selection;
+    }
+  }
+
+  if (!visibleDefault) {
+    return out;
+  }
+
+  for (const role of MODEL_ROLES) {
+    if (!out[role]?.model) {
+      out[role] = visibleDefault;
+    }
+  }
+
+  return out;
 }
 
 function renderCapabilityBlock(rec?: FactorySetupRecommendation): string {

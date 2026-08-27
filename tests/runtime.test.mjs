@@ -1485,7 +1485,7 @@ test('verification stages are not executed as builder task branches', async () =
   });
 });
 
-test('dependency hydration runs in task worktree before builder execution', async () => {
+test('dependency preparation is delegated to the builder agent', async () => {
   await withTempProject(async (root) => {
     const parentCache = path.join(path.dirname(root), 'factory-deps-cache');
     await fs.writeFile(
@@ -1522,9 +1522,8 @@ test('dependency hydration runs in task worktree before builder execution', asyn
     const builderExecutor = {
       async execute(input) {
         calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt, cwd: input.cwd });
-        const hydrated = await fs.readFile(path.join(input.cwd, 'hydration-order.txt'), 'utf8');
-        assert.match(hydrated, /setup/);
-        await fs.writeFile(path.join(input.cwd, 'builder-after-hydration.txt'), 'builder ran after hydration\n', 'utf8');
+        assert.match(input.prompt, /prepare the repository environment yourself/i);
+        await fs.writeFile(path.join(input.cwd, 'builder-after-setup.md'), 'builder ran\n', 'utf8');
         return {
           executionId: input.executionId,
           status: 'completed',
@@ -1546,8 +1545,8 @@ test('dependency hydration runs in task worktree before builder execution', asyn
 
     assert.equal(calls.filter((call) => call.label === 'builder').length, 1);
     const eventsRaw = await fs.readFile(path.join(result.runDir, 'events.jsonl'), 'utf8');
-    assert.match(eventsRaw, /dependencies\.hydration_started/);
-    assert.match(eventsRaw, /dependencies\.hydration_completed/);
+    assert.match(eventsRaw, /dependencies\.agent_delegated/);
+    assert.doesNotMatch(eventsRaw, /dependencies\.hydration_completed/);
     const builderCall = calls.find((call) => call.label === 'builder');
     assert.ok(builderCall.cwd.includes('.worktrees'));
   });

@@ -8,6 +8,7 @@
 - Runtime tests: `tests/runtime.test.mjs`
 
 ## Local norms
+- Treat the harness as a universal software-engineering harness, not a framework-specific tool; all core abstractions, workflows, and validation should work across languages, frameworks, runtimes, and project structures, with ecosystem-specific behavior implemented only as optional adapters.
 - Prefer project-adaptive behavior over repo-specific hard-coding.
 - Deterministic scanning should provide evidence; AI should decide ambiguous execution strategy.
 - Ignore generated or transient workspace content when selecting repo guidance.

@@ -229,24 +229,19 @@ async function handleSetup(rest: string[], ctx: FactoryPiCommandContext): Promis
   const setupContext = await (buildFactorySetupContext as (cwd: string) => Promise<import("@factory/schemas").FactorySetupContext>)(ctx.cwd);
   panel.append(`Found: ${setupContext.repository.languages.join(", ") || "none"} · ${setupContext.repository.packageManagers.join(", ") || "none"} · ${Object.values(setupContext.discoveredCommands).filter(Boolean).length} commands`);
 
-  // Step 2: built-in factory-setup skill -> LLM recommendation (fail-loud, no fallback)
-  const { recommendViaFactorySetupSkill } = await import("@factory/core");
-  const executor = await createOptionalSetupExecutor(ctx, (text) => panel.appendStream(text));
-  if (!executor) {
-    const isDestructive = hasExistingSetup && !force;
-    const msg = isDestructive
-      ? "FACTORY_SETUP_REQUIRES_PI_EXECUTOR: Existing setup detected and no Pi executor with auth. Re-run /factory setup with auth or use --force for destructive reset."
-      : "FACTORY_SETUP_REQUIRES_PI_EXECUTOR: No Pi executor with auth — configure ~/.pi/agent/settings.json + auth.json and run /factory setup from Pi with auth. No fallback recommendation will be used (fail-loud).";
-    panel.append(msg);
-    throw new Error(msg);
-  }
+  // Step 2: use deterministic evidence when setup is clear; keep the Pi SDK
+  // LLM on standby for missing or conflicting setup evidence.
+  const { buildDeterministicRecommendation, recommendViaFactorySetupSkill } = await import("@factory/core");
+  const deterministicSetup = hasClearDeterministicSetup(setupContext);
   panel.setPhase("setup-recommendation");
-  panel.setRole("factory-setup");
-  panel.setStatus("streaming");
-  panel.append("Calling factory-setup skill via Pi SDK (fail-loud, no fallback)...");
-  const recommendation = await (recommendViaFactorySetupSkill as unknown as (
-    i: { cwd: string; context: unknown; executor: unknown; onEvent?: (t: string) => void } ) => Promise<import("@factory/schemas").FactorySetupRecommendation>
-  )({ cwd: ctx.cwd, context: setupContext, executor, onEvent: (t: string) => panel.append(t) });
+  panel.setRole(deterministicSetup ? "factory-setup" : "factory-setup-llm");
+  if (deterministicSetup) {
+    panel.setStatus("completed");
+    panel.append("Using repository evidence; Pi SDK LLM not needed.");
+  }
+  const recommendation = deterministicSetup
+    ? buildDeterministicRecommendation(setupContext)
+    : await recommendSetupWithPiSdk(ctx, setupContext, panel, hasExistingSetup, force, recommendViaFactorySetupSkill);
   panel.setStatus("completed");
 
   // Step 3: Steward walk — project understanding + review of every area before writing
@@ -909,6 +904,35 @@ async function runSetupCustomize(
   return { answers: localAnswers, recommendation: current };
 }
 
+function hasClearDeterministicSetup(context: import("@factory/schemas").FactorySetupContext): boolean {
+  const setup = context.discoveredCommands.setup?.trim();
+  const managers = context.repository.packageManagers;
+  if (!setup || managers.length !== 1) return false;
+  return true;
+}
+
+async function recommendSetupWithPiSdk(
+  ctx: FactoryPiCommandContext,
+  context: import("@factory/schemas").FactorySetupContext,
+  panel: ReturnType<typeof mountFactoryStreamingWidget>,
+  hasExistingSetup: boolean,
+  force: boolean,
+  recommend: (input: { cwd: string; context: import("@factory/schemas").FactorySetupContext; executor: import("@factory/core").AgentExecutor; onEvent?: (text: string) => void }) => Promise<import("@factory/schemas").FactorySetupRecommendation>,
+): Promise<import("@factory/schemas").FactorySetupRecommendation> {
+  const executor = await createOptionalSetupExecutor(ctx, (text) => panel.appendStream(text));
+  if (!executor) {
+    const isDestructive = hasExistingSetup && !force;
+    const msg = isDestructive
+      ? "FACTORY_SETUP_REQUIRES_PI_EXECUTOR: Setup evidence is missing or ambiguous and existing setup is protected. Re-run /factory setup with auth or use --force for destructive reset."
+      : "FACTORY_SETUP_REQUIRES_PI_EXECUTOR: Setup evidence is missing or ambiguous. Configure Pi auth and re-run /factory setup, or add commands.setup manually. No fallback recommendation will be used.";
+    panel.append(msg);
+    throw new Error(msg);
+  }
+  panel.setStatus("streaming");
+  panel.append("Setup evidence is missing or ambiguous; asking the Pi SDK LLM for a recommendation...");
+  return recommend({ cwd: ctx.cwd, context, executor, onEvent: (text) => panel.append(text) });
+}
+
 async function createOptionalSetupExecutor(
   ctx: FactoryPiCommandContext,
   onEvent?: (executionId: string, event: { type: string; text?: string; data?: Record<string, unknown> }) => void,
@@ -1023,15 +1047,12 @@ async function handleStatus(ctx: FactoryPiCommandContext, runId?: string): Promi
 async function handleDoctor(ctx: FactoryPiCommandContext): Promise<void> {
   renderIntro(ctx, [
     "Factory doctor is checking whether this repository is ready for Factory runs.",
-    "I’ll verify config, repository files, and git/worktree readiness now.",
+    "I’ll verify config, repository files, git/worktree readiness, and model routing against Pi-visible models now.",
   ]);
 
   const result = await runFactoryDoctor(ctx.cwd);
 
-  renderLines(ctx, [
-    "Factory doctor",
-    ...result.checks.map((check) => `${check.ok ? "OK" : "FAIL"} ${check.name}: ${check.detail}`),
-  ]);
+  renderLines(ctx, doctorWidgetLines(result));
 
   const hasFailure = result.checks.some((check) => !check.ok);
   ctx.ui.notify(hasFailure ? "Factory doctor found issues" : "Factory doctor passed", hasFailure ? "warning" : "info");
@@ -2193,6 +2214,13 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
         `Approve prototype run ${runId} for goal: ${goal}`,
       );
     },
+    requestDependencyRemediation: async (candidate) => {
+      if (!ctx.ui.confirm) return false;
+      return ctx.ui.confirm(
+        "Fix dependency setup for this run?",
+        `${candidate.reason}\n\nOriginal: ${candidate.originalCommand}\nTemporary: ${candidate.remediatedCommand}\n\nProject config will not be changed.`,
+      );
+    },
     requestDecision: async (request) => requestDecisionInput(ctx.ui, request),
   });
 
@@ -2787,6 +2815,44 @@ function clearFactoryWidget(ctx: FactoryPiCommandContext): void {
 
 function renderIntro(ctx: FactoryPiCommandContext, lines: string[]): void {
   renderLines(ctx, ["Factory", "", ...lines]);
+}
+
+function doctorWidgetLines(result: Awaited<ReturnType<typeof runFactoryDoctor>>): string[] {
+  const failed = result.checks.filter((check) => !check.ok);
+  const passed = result.checks.filter((check) => check.ok);
+  const lines = [
+    "Factory doctor",
+    `summary: ${passed.length} ok, ${failed.length} failed`,
+  ];
+
+  if (failed.length > 0) {
+    lines.push("", "Failures");
+    const visibleFailures = failed.slice(0, 6);
+    for (const check of visibleFailures) {
+      lines.push(`FAIL ${check.name}: ${check.detail}`);
+    }
+    if (failed.length > visibleFailures.length) {
+      lines.push(`... ${failed.length - visibleFailures.length} more failure(s). Run /factory models for deeper detail.`);
+    }
+  }
+
+  if (passed.length > 0) {
+    lines.push("", "OK checks");
+    const chunks = chunkNames(passed.map((check) => check.name), 4);
+    for (const chunk of chunks) {
+      lines.push(chunk.join(", "));
+    }
+  }
+
+  return lines;
+}
+
+function chunkNames(values: string[], size: number): string[][] {
+  const chunks: string[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function parseGoalRequest(raw: string): {

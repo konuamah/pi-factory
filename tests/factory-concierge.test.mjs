@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {
   buildResourcePolicyForContext,
@@ -175,6 +176,49 @@ test("factory concierge prompt is docs-first and does not expose repo read tools
   assert.match(capturedInput.prompt, /docs\/factory\/AGENT\.md/);
   assert.match(capturedInput.prompt, /Factory Agent Reference Rules/);
   assert.match(capturedInput.prompt, /Never use `dist\/`/);
+});
+
+test("factory concierge setup intent routes model-readiness failures to setup", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-concierge-setup-"));
+  try {
+    const executor = {
+      async execute() {
+        return {
+          executionId: "x",
+          status: "completed",
+          outputText: JSON.stringify({
+            answer: "Inspect model routing next.",
+            recommendedAction: "inspect-models",
+            why: "Models are failing readiness.",
+            needsApproval: false,
+          }),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    const rec = await recommendViaFactoryConciergeSkill({
+      cwd: root,
+      question: "setup factory",
+      executor,
+      context: {
+        repository: {},
+        existing: { constitutionExists: false },
+        availableModels: [{ provider: "openai-codex", model: "gpt-5.4-mini" }],
+        availableSkills: [],
+        availableCapabilities: [],
+        discoveredCommands: {},
+      },
+    });
+
+    assert.equal(rec.recommendedAction, "run-setup");
+    assert.equal(rec.suggestedCommand, "/factory setup");
+    assert.equal(rec.needsApproval, true);
+    assert.match(rec.handoff, /role models/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 test("factory resource policy blocks generated-output reads", () => {

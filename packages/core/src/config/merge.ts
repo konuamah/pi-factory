@@ -24,11 +24,34 @@ export function mergeConfigLayers(input: {
     runOverrides?.workflowId,
   );
 
+  const normalizeModels = (
+    models?: GlobalFactoryConfig["models"] | ProjectFactoryConfig["models"],
+  ): Partial<FactoryBuiltInDefaults["models"]> => {
+    if (!models) return {};
+    const { provider, roles, ...direct } = models;
+    const nested = roles ?? {};
+    const withProvider = (selection?: { model?: string; provider?: string }) => selection?.model
+      ? { ...selection, ...(!selection.provider && provider ? { provider } : {}) }
+      : selection;
+    const normalized = Object.fromEntries(
+      Object.entries({ ...direct, ...nested }).map(([role, selection]) => [role, withProvider(selection as { model?: string; provider?: string })]),
+    ) as Partial<FactoryBuiltInDefaults["models"]>;
+    // A roles map is a complete project model policy. Reuse its first valid
+    // model for omitted roles instead of leaking provider-less built-in aliases.
+    const fallback = Object.values(normalized).find((selection) => selection?.model);
+    if (roles && fallback) {
+      for (const role of ["discovery", "planner", "builder", "reviewer", "repair"] as const) {
+        if (!normalized[role]) normalized[role] = fallback;
+      }
+    }
+    return normalized;
+  };
+
   return {
     models: {
       ...builtIns.models,
-      ...global?.models,
-      ...project?.models,
+      ...normalizeModels(global?.models),
+      ...normalizeModels(project?.models),
       ...runOverrides?.models,
     },
     runtime: {

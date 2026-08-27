@@ -140,7 +140,11 @@ export async function recommendViaFactoryConciergeSkill(
     );
   }
 
-  return normalizeFactoryConciergeRecommendation(parsed);
+  return applySetupIntentGuard(
+    normalizeFactoryConciergeRecommendation(parsed),
+    input.question,
+    validation,
+  );
 }
 
 export function normalizeFactoryConciergeRecommendation(raw: unknown): FactoryConciergeRecommendation {
@@ -338,4 +342,51 @@ function isAllowedSuggestedCommand(action: FactoryConciergeAction, command: stri
     return /^\/factory cleanup(?: \d+)?$/.test(command);
   }
   return command === COMMANDS[action];
+}
+
+function applySetupIntentGuard(
+  rec: FactoryConciergeRecommendation,
+  question: string,
+  validation: unknown,
+): FactoryConciergeRecommendation {
+  if (rec.recommendedAction === "run-setup" || !isBroadSetupIntent(question) || !hasSetupOrModelFailure(validation)) {
+    return rec;
+  }
+
+  return {
+    ...rec,
+    recommendedAction: "run-setup",
+    why: "Factory setup is the right broad action because readiness has missing setup files or model routing issues.",
+    needsApproval: true,
+    suggestedCommand: COMMANDS["run-setup"],
+    handoff: "Run /factory setup so Factory can write project config, workflows, constitution setup, and Pi-visible role models together.",
+  };
+}
+
+function isBroadSetupIntent(question: string): boolean {
+  const normalized = question.toLowerCase();
+  return /\b(set\s*up|setup|make|finish|fix|repair)\b/.test(normalized) &&
+    /\b(factory|ready|readiness|everything|models?)\b/.test(normalized);
+}
+
+function hasSetupOrModelFailure(validation: unknown): boolean {
+  const record = validation && typeof validation === "object" ? validation as Record<string, unknown> : {};
+  const checks = Array.isArray(record.checks) ? record.checks as Array<Record<string, unknown>> : [];
+  return checks.some((check) => {
+    if (check.ok !== false) {
+      return false;
+    }
+    const name = String(check.name ?? "");
+    return [
+      "workflow",
+      "project-config",
+      "constitution",
+      "config",
+      "doctor:workflow",
+      "doctor:project-config",
+      "doctor:constitution",
+      "doctor:model-routing",
+      "doctor:model-availability",
+    ].includes(name);
+  });
 }

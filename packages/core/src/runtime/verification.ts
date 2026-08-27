@@ -35,6 +35,39 @@ export interface VerificationCommandConfig {
   build?: string;
 }
 
+export interface StructuredVerificationCommands {
+  cwd?: string;
+  setup?: string;
+  lint?: string;
+  typecheck?: string;
+  test?: string;
+  build?: string;
+  checks?: Record<string, { description?: string; command: string; timeout?: number }>;
+}
+
+export function normalizeVerificationCommands(
+  commands: StructuredVerificationCommands,
+): VerificationCommandConfig {
+  const { checks, ...standard } = commands;
+  const normalized: VerificationCommandConfig = {};
+  for (const [name, command] of Object.entries(standard)) {
+    if (typeof command === "string" && command.trim()) {
+      normalized[name as keyof VerificationCommandConfig] = command;
+    }
+  }
+  for (const [name, check] of Object.entries(checks ?? {})) {
+    if (typeof check?.command !== "string" || !check.command.trim()) continue;
+    // Preserve the first check per standard role; all named checks are handled below.
+    const role = name.toLowerCase().includes("lint") ? "lint"
+      : name.toLowerCase().includes("type") ? "typecheck"
+        : name.toLowerCase().includes("test") ? "test"
+          : name.toLowerCase().includes("build") ? "build" : undefined;
+    if (role && !normalized[role]) normalized[role] = check.command;
+    if (!role && !normalized.test) normalized.test = check.command;
+  }
+  return normalized;
+}
+
 export interface VerificationPlan {
   cwd: string;
   cwdResolution: VerificationCwdResolution;

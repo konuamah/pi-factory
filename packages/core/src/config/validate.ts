@@ -29,6 +29,11 @@ export function validateEffectiveConfig(
     throw new Error("commands.cwd must not be empty when provided");
   }
 
+  validateSetupCommand(config.commands.setup);
+  for (const key of ["lint", "typecheck", "test", "build"] as const) {
+    validateCommandString(`commands.${key}`, config.commands[key]);
+  }
+
   if (!Number.isInteger(config.dashboard.port) || config.dashboard.port < 1024 || config.dashboard.port > 65535) {
     throw new Error("dashboard.port must be an integer between 1024 and 65535");
   }
@@ -60,4 +65,42 @@ export function validateEffectiveConfig(
   }
 
   return config;
+}
+
+function validateSetupCommand(value: EffectiveFactoryConfig["commands"]["setup"]): void {
+  if (value === undefined) return;
+  if (typeof value === "string") {
+    if (!value.trim()) {
+      throw new Error("commands.setup must not be empty when provided");
+    }
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("commands.setup must be a shell command string or a list of setup steps with command");
+  }
+  if (value.length === 0) {
+    throw new Error("commands.setup must include at least one setup step when provided as a list");
+  }
+  for (const [index, step] of value.entries()) {
+    const label = `commands.setup[${index}]`;
+    if (!step || typeof step !== "object" || Array.isArray(step)) {
+      throw new Error(`${label} must be an object with command`);
+    }
+    if (typeof step.command !== "string" || !step.command.trim()) {
+      throw new Error(`${label}.command must be a non-empty shell command string`);
+    }
+    if (step.name !== undefined && (typeof step.name !== "string" || !step.name.trim())) {
+      throw new Error(`${label}.name must be a non-empty string when provided`);
+    }
+    if (step.description !== undefined && typeof step.description !== "string") {
+      throw new Error(`${label}.description must be a string when provided`);
+    }
+  }
+}
+
+function validateCommandString(name: string, value: string | undefined): void {
+  if (value === undefined) return;
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${name} must be a non-empty shell command string when provided`);
+  }
 }

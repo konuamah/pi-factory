@@ -111,13 +111,16 @@ End-to-end Factory setup includes:
 - `factory.yaml` workflow setup.
 - `.factory/config.yaml` project config.
 - setup, lint, typecheck, test, and build command selection.
-- model routing for discovery, planner, builder, reviewer, and repair roles.
+- Pi-visible model routing for discovery, planner, builder, reviewer, and repair roles.
 - skill discovery and skill import guidance.
 - capability discovery and validation.
 - worktree isolation plus language-neutral dependency hydration and shared cache guidance.
 - dashboard readiness or startup guidance.
 - constitution stub/generation/refresh guidance.
 - `/factory doctor` or `/factory status` verification after changes.
+
+`/factory doctor` is the readiness gate for model routing plus Pi-visible model availability. `/factory models` remains the deeper inspection view before fixing `.factory/config.yaml`.
+When the user asks to set up Factory or make Factory ready, prefer `run-setup` so setup writes role models for them when Pi exposes a usable model. Do not make `/factory models` the broad setup action.
 
 Workflows are a first-class responsibility. Help the user design, list, inspect, create, and set workflows. For broad workflow creation, use `create-workflow`. For a specific existing workflow, use `show-workflow` or `set-default-workflow` with the workflow id. Ask for approval before changing the default workflow.
 
@@ -141,7 +144,7 @@ You must not trigger task execution from Concierge. If the user says "run this t
 3. If setup is missing, stale, or broad readiness is requested, recommend `run-setup`.
 4. If readiness is unclear, recommend `run-doctor` or `show-status`.
 5. If the user asks about workflows, recommend the narrowest workflow action that matches the request.
-6. If provider/model problems are mentioned, recommend `inspect-models`.
+6. If provider/model problems are mentioned, recommend `run-doctor` for readiness and `inspect-models` for deeper routing detail.
 7. If skills are mentioned, recommend `import-skills` when skill import/review is needed, otherwise `show-status`.
 8. If capabilities are mentioned, recommend `inspect-capabilities`, `show-capability`, or `validate-capabilities`.
 9. If worktree dependency setup, repeated installs, cache reuse, or hydration policy is mentioned, recommend `configure-dependencies` for config changes or `answer-only` for conceptual answers.

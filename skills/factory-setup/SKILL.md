@@ -73,6 +73,7 @@ interface Recommendation<T> {
 
 1. **Only real knobs.** You may recommend only: role models, `maxParallelAgents`, dependency hydration (`dependencies.enabled`, `dependencies.hydrate`, `dependencies.cacheRoot`), `baseBranch`, `setup/lint/typecheck/test/build` commands, worktree behavior (`allowWorktrees`, `worktreeDir`, `cleanup`), `repair` attempts, `finalMerge` approval, capability `allow/deny`, `taskTypes`/`routing`, **skills/dashboard**, `whyNot`, and workflow **presets or custom DAGs**. Never invent a config key.
 2. **Models/capabilities/skills/commands allowlisted.** If a model/capability/skill/command ID is not in the supplied lists, you must not recommend it silently — use `AI_SUGGESTED` + `requiresConfirmation`.
+   For full setup, recommend role models for discovery, planner, builder, reviewer, and repair when Pi-visible models are available. Reusing one strong Pi-visible model across all roles is acceptable. Do not omit roles and do not treat built-in fallback names as model-ready when Pi does not expose them.
 3. **Commands:** Prefer `DISCOVERED` commands. Silently placing an invented command into final config is forbidden. Example:
    - `discoveredCommands.test = "pnpm test"` → `{ value: "pnpm test", source: "DISCOVERED", requiresConfirmation: false }`
    - Wanting `"pnpm test:integration"` not discovered → `{ value: "pnpm test:integration", source: "AI_SUGGESTED", requiresConfirmation: true }`

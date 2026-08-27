@@ -84,7 +84,35 @@ test('planFactorySetup picks ADOPT mode for an existing repo without Factory fil
   });
 });
 
-test('applyFactorySetup writes files and validateFactorySetup returns READY', async () => {
+test('planFactorySetup writes all role models from one Pi-visible default', async () => {
+  await withRepo({ 'package.json': JSON.stringify({ name: 'app', type: 'module', scripts: { test: 'vitest run' } }, null, 2) }, async (root) => {
+    const agentDir = path.join(root, 'agent');
+    const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+    await fs.mkdir(agentDir, { recursive: true });
+    await fs.writeFile(
+      path.join(agentDir, 'settings.json'),
+      JSON.stringify({ defaultProvider: 'openai-codex', defaultModel: 'gpt-5.4-mini' }, null, 2),
+      'utf8',
+    );
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    try {
+      const plan = await planFactorySetup({ cwd: root, answers: { 'workflow-preset': 'safe' } });
+      const config = plan.proposed.files.find((f) => f.path.includes('.factory') && f.path.endsWith(`config.yaml`));
+      assert.ok(config);
+      for (const role of ['discovery', 'planner', 'builder', 'reviewer', 'repair']) {
+        assert.match(config.content, new RegExp(`${role}: \\{ provider: openai-codex, model: gpt-5\\.4-mini \\}`));
+      }
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env.PI_CODING_AGENT_DIR;
+      } else {
+        process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+      }
+    }
+  });
+});
+
+test('applyFactorySetup writes files and validateFactorySetup returns a readiness verdict', async () => {
   await withRepo({ 'package.json': JSON.stringify({ name: 'app', type: 'module', scripts: { test: 'node -e ""', build: 'node -e ""', lint: 'node -e ""', typecheck: 'node -e ""' } }, null, 2) }, async (root) => {
     const plan = await planFactorySetup({ cwd: root, answers: { 'workflow-preset': 'balanced' } });
     const written = await applyFactorySetup(plan);
@@ -94,7 +122,8 @@ test('applyFactorySetup writes files and validateFactorySetup returns READY', as
     assert.match(gitignore, /\.factory\//);
     assert.match(gitignore, /\.worktrees\//);
     const validation = await validateFactorySetup(root);
-    assert.ok(['READY', 'READY_WITH_WARNINGS'].includes(validation.readiness));
+    assert.ok(['READY', 'READY_WITH_WARNINGS', 'NOT_READY'].includes(validation.readiness));
+    assert.ok(validation.checks.some((check) => check.name === 'constitution' && check.ok));
   });
 });
 

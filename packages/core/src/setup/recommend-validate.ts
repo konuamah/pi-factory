@@ -5,7 +5,9 @@ export function validateSetupRecommendation(
   ctx: FactorySetupContext,
 ): FactorySetupRecommendation {
   const allowedModels = new Set(ctx.availableModels.map((m) => `${m.provider ?? ""}:${m.model}`));
-  const defaultModel = ctx.availableModels[0];
+  const visibleModels = visibleSetupModels(ctx);
+  const visibleModelKeys = new Set(visibleModels.map((m) => `${m.provider ?? ""}:${m.model}`));
+  const defaultModel = visibleModels[0];
   const allowedCaps = new Set(ctx.availableCapabilities);
   const allowedSkills = new Set(ctx.availableSkills.map((s) => s.id));
   const allowedPresets = new Set(["balanced", "fast", "safe"]);
@@ -40,12 +42,12 @@ export function validateSetupRecommendation(
     for (const [role, entry] of Object.entries(rec.models)) {
       if (!entry) continue;
       const key = `${entry.value.provider ?? ""}:${entry.value.model}`;
-      if (!allowedModels.has(key)) {
+      if (!visibleModelKeys.has(key)) {
         if (!defaultModel) {
-          throw new Error(`model for ${role} not in availableModels: ${key}`);
+          throw new Error(`model for ${role} not visible in Pi models: ${key}`);
         }
         entry.value = defaultModel;
-        entry.reason = `${entry.reason} Replaced unavailable model ${key} with detected Pi default ${defaultModel.provider ? `${defaultModel.provider}/` : ""}${defaultModel.model}.`;
+        entry.reason = `${entry.reason} Replaced unavailable model ${key} with detected Pi-visible default ${defaultModel.provider ? `${defaultModel.provider}/` : ""}${defaultModel.model}.`;
       }
     }
   }
@@ -158,6 +160,11 @@ export function validateSetupRecommendation(
   // Cross-check: AI_SUGGESTED commands must not be auto-applied later — caller must enforce requiresConfirmation gate
 
   return rec;
+}
+
+function visibleSetupModels(ctx: FactorySetupContext) {
+  const builtInKeys = new Set(Object.values(ctx.existing.builtIn.models).filter(Boolean).map((selection) => `${selection!.provider ?? ""}:${selection!.model}`));
+  return ctx.availableModels.filter((selection) => selection.model && !builtInKeys.has(`${selection.provider ?? ""}:${selection.model}`));
 }
 
 function defaultQuestionOptions(question: string): Array<{ id: string; label: string }> {

@@ -1,6 +1,8 @@
 import type { AgentExecutor } from "../runtime/interfaces.js";
-import type { FactorySetupContext, FactorySetupRecommendation } from "@factory/schemas";
+import type { FactorySetupContext, FactorySetupRecommendation, ModelRole, ModelSelection } from "@factory/schemas";
 import { validateSetupRecommendation } from "./recommend-validate.js";
+
+const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
 
 export interface FactorySetupLlmInput {
   cwd: string;
@@ -69,7 +71,7 @@ export async function recommendViaFactorySetupSkill(
       `FACTORY_SETUP_LLM_INCOMPLETE: LLM did not return projectUnderstanding.summary + workflow — raw output was: ${result.outputText.slice(0, 1200)}`
     );
   }
-  return validateSetupRecommendation(rec, input.context);
+  return validateSetupRecommendation(completeRoleModels(rec, input.context), input.context);
 }
 
 async function loadFactorySetupSkillSource(cwd: string): Promise<string> {
@@ -276,6 +278,33 @@ function normalizeRecommendation(
   return rec;
 }
 
+function completeRoleModels(
+  rec: FactorySetupRecommendation,
+  ctx: FactorySetupContext,
+): FactorySetupRecommendation {
+  const defaultModel = resolveDefaultModel(ctx);
+  if (!defaultModel) {
+    return rec;
+  }
+
+  const completed: FactorySetupRecommendation["models"] = { ...(rec.models ?? {}) };
+  const visibleKeys = new Set(visibleSetupModels(ctx).map(modelKey));
+  for (const role of MODEL_ROLES) {
+    const current = completed[role];
+    if (current?.value?.model && visibleKeys.has(modelKey(current.value))) {
+      continue;
+    }
+    completed[role] = {
+      value: defaultModel,
+      reason: current?.value?.model
+        ? `${current.reason} Replaced with detected Pi-visible setup default ${formatModel(defaultModel)}.`
+        : `Detected from your Pi model configuration; used for ${role} role setup.`,
+    };
+  }
+
+  return { ...rec, models: completed };
+}
+
 function normalizeCommands(
   raw: Record<string, unknown>,
   ctx: FactorySetupContext,
@@ -421,11 +450,18 @@ export function buildDeterministicRecommendation(ctx: FactorySetupContext): Fact
 }
 
 function resolveDefaultModel(context: FactorySetupContext): { provider?: string; model: string } | undefined {
-  // buildFactorySetupContext orders the user's actual Pi default first.
-  if (context.availableModels[0]?.provider) return context.availableModels[0];
-  // Fall back to any configured model with a provider.
-  const anyWithProvider = context.availableModels.find((m) => m.provider);
-  if (anyWithProvider) return anyWithProvider;
-  // Or first available at all (built-ins like opus/sonnet are allowed).
-  return context.availableModels[0];
+  return visibleSetupModels(context)[0];
+}
+
+function visibleSetupModels(context: FactorySetupContext): ModelSelection[] {
+  const builtInKeys = new Set(Object.values(context.existing.builtIn.models).filter(Boolean).map((selection) => modelKey(selection!)));
+  return context.availableModels.filter((selection) => selection.model && !builtInKeys.has(modelKey(selection)));
+}
+
+function modelKey(selection: ModelSelection): string {
+  return `${selection.provider ?? ""}:${selection.model}`;
+}
+
+function formatModel(selection: ModelSelection): string {
+  return selection.provider ? `${selection.provider}/${selection.model}` : selection.model;
 }

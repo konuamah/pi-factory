@@ -8,7 +8,7 @@ import { discoverFactoryProject } from "../project/discovery.js";
 import { initializeCapabilitySystem, listRegisteredCapabilities } from "../capabilities/index.js";
 import { discoverSkillFiles, parseSkillFile, skillFileToContract } from "../skills/loader.js";
 import { inspectRepositoryForSetup } from "./profile.js";
-import { detectPiModelConfiguration } from "./pi-models.js";
+import { collectVisiblePiModels, detectPiModelConfiguration } from "./pi-models.js";
 import type { FactorySetupContext, SkillSummary } from "@factory/schemas";
 import type { Capability } from "@factory/schemas";
 import type { ModelSelection } from "@factory/schemas";
@@ -75,8 +75,12 @@ export async function buildFactorySetupContext(cwd: string): Promise<FactorySetu
 }
 
 function collectAvailableModels(pi: Awaited<ReturnType<typeof detectPiModelConfiguration>> | undefined): ModelSelection[] {
-  const models: ModelSelection[] = [];
+  const models = collectVisiblePiModels(pi);
   const seen = new Set<string>();
+
+  for (const model of models) {
+    seen.add(`${model.provider ?? ""}:${model.model}`);
+  }
 
   const add = (m?: ModelSelection): void => {
     if (!m?.model) return;
@@ -86,14 +90,6 @@ function collectAvailableModels(pi: Awaited<ReturnType<typeof detectPiModelConfi
     models.push(m);
   };
 
-  // User's actual Pi default (commandcode/Spark etc.) first — not opus/sonnet.
-  // This ensures setup uses the same LLM you are chatting with.
-  if (pi?.defaultProvider && pi?.defaultModel) {
-    add({ provider: pi.defaultProvider, model: pi.defaultModel });
-  }
-  for (const model of pi?.configuredModels ?? []) {
-    add(model);
-  }
   // Keep built-ins last; configured Pi models should be preferred.
   for (const role of ["discovery", "planner", "builder", "reviewer", "repair"] as const) {
     add(builtInDefaults.models[role]);

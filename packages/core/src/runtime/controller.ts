@@ -1025,10 +1025,26 @@ async function runFactoryControllerInner(
     };
   }
   const { setup: _setupCommand, ...verificationCommands } = loaded.effectiveConfig.commands;
+  const normalizedCommands = normalizeVerificationCommands(verificationCommands);
+  // Impact-based verification: filter checks to only those affected by changes.
+  const changedFiles = await getChangedFilesFromBase(executionCwd, worktree.branch);
+  const impactResult = filterVerificationByImpact(normalizedCommands as Record<string, string>, changedFiles);
+  if (impactResult.skipped.length > 0) {
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "verification.impact_filtered",
+      data: {
+        changedFiles,
+        selectedChecks: impactResult.selected,
+        skippedChecks: impactResult.skipped,
+      },
+    });
+  }
+  const filteredVerificationCommands = impactResult.commands;
   const verificationPlan = await planVerificationExecution({
     cwd: executionCwd,
     goal: input.goal,
-    commands: normalizeVerificationCommands(verificationCommands),
+    commands: filteredVerificationCommands,
     constitutionContext: repairGuidance.text,
     executor: input.verificationPlannerExecutor,
     model: loaded.effectiveConfig.models.planner,
@@ -2754,6 +2770,71 @@ async function gitChangedFiles(cwd: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+async function getChangedFilesFromBase(cwd: string, branch: string | undefined): Promise<string[]> {
+  const baseBranch = branch || "main";
+  try {
+    const { stdout } = await execFileAsync("git", ["diff", "--name-only", `origin/${baseBranch}`, "HEAD"], { cwd, windowsHide: true });
+    return stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+interface ImpactResult {
+  commands: Record<string, unknown>;
+  selected: Array<{ name: string; command: string; reason: string }>;
+  skipped: Array<{ name: string; command: string; reason: string }>;
+}
+
+const HIGH_IMPACT_ROOT_FILES = new Set([
+  "package.json", "package-lock.json", "pnpm-lock.yaml",
+  "tsconfig.json", "tsconfig.node.json",
+  "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
+  "factory.yaml", ".factory/config.yaml",
+]);
+
+function filterVerificationByImpact(
+  commands: Record<string, string>,
+  changedFiles: string[],
+): ImpactResult {
+  if (changedFiles.length === 0) {
+    return { commands, selected: Object.entries(commands).map(([name, command]) => ({ name, command, reason: "No change data; running all checks" })), skipped: [] };
+  }
+
+  const hasHighImpactChange = changedFiles.some((file) => {
+    const basename = path.basename(file);
+    return HIGH_IMPACT_ROOT_FILES.has(basename);
+  });
+  if (hasHighImpactChange) {
+    return { commands, selected: Object.entries(commands).map(([name, command]) => ({ name, command, reason: "High-impact root file changed" })), skipped: [] };
+  }
+
+  const selected: Record<string, string> = {};
+  const skipped: Array<{ name: string; command: string; reason: string }> = [];
+
+  for (const [name, command] of Object.entries(commands)) {
+    if (name === "cwd") continue;
+    const checkDir = extractCommandCwd(command);
+    if (!checkDir) {
+      selected[name] = command;
+      continue;
+    }
+    const hasOverlap = changedFiles.some((file) => file.startsWith(checkDir));
+    if (hasOverlap) {
+      selected[name] = command;
+    } else {
+      skipped.push({ name, command, reason: `No changed files under ${checkDir}` });
+    }
+  }
+
+  return { commands: selected, selected: Object.entries(selected).map(([name, command]) => ({ name, command, reason: `Changed files under ${extractCommandCwd(command) ?? "."}` })), skipped };
+}
+
+function extractCommandCwd(command: string): string | undefined {
+  const match = command.match(/^\s*cd\s+([^&;|]+?)\s*&&/);
+  return match ? match[1].trim() : undefined;
 }
 
 function resolveNodeRole(task: PlannerTask): ModelRole {

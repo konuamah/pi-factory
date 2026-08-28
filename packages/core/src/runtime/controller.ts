@@ -3256,7 +3256,11 @@ function validatePlannerOutput(value: string | undefined): { ok: true } | { ok: 
   if (!text) {
     return { ok: true };
   }
-  // Narrow phrases that unambiguously delegate discovery to the builder
+  // Narrow phrases that unambiguously delegate discovery to the builder.
+  // Strip quoted spans first: the planner often echoes its own constraint
+  // examples ("...like 'search for', 'find where', or 'identify the relevant file'"),
+  // which are not real delegation instructions.
+  const unquoted = text.replace(/'[^']*'/g, "").replace(/"/g, "");
   const broadDiscoveryLanguage = [
     "search for the file",
     "search for where",
@@ -3272,7 +3276,7 @@ function validatePlannerOutput(value: string | undefined): { ok: true } | { ok: 
     "search the codebase for",
     "search the repository for",
   ];
-  const match = broadDiscoveryLanguage.find((term) => text.includes(term));
+  const match = broadDiscoveryLanguage.find((term) => unquoted.includes(term));
   if (match) {
     return { ok: false, reason: `Planner delegated broad discovery to Builder: "${match}"` };
   }

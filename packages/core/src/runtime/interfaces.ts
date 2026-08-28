@@ -16,9 +16,15 @@ export interface AgentExecutionInput {
   };
 }
 
+export type AbortReason =
+  | { type: "total-run-timeout"; limitMs: number; elapsedMs: number }
+  | { type: "tool-timeout"; limitMs: number; toolName?: string }
+  | { type: "max-turns"; limit: number; observedTurns: number; };
+
 export interface AgentExecutionResult {
   executionId: string;
   status: "completed" | "failed" | "cancelled" | "aborted";
+  abortReason?: AbortReason;
   outputText: string;
   events: Array<{
     type: string;

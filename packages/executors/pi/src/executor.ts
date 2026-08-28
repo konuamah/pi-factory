@@ -56,9 +56,12 @@ export class PiAgentExecutor implements AgentExecutor {
       );
       if (promptResult.kind === "timeout") {
         await created.session.abort().catch(() => {});
+        const abortReason = { type: "total-run-timeout" as const, limitMs: input.limits?.totalRunTimeoutMs ?? 0, elapsedMs: input.limits?.totalRunTimeoutMs ?? 0 };
+        state.events.push({ type: "executor.aborted", data: abortReason });
         return {
           executionId: input.executionId,
           status: "aborted",
+          abortReason,
           outputText: state.outputChunks.join(""),
           events: state.events,
           errorMessage: promptResult.message,
@@ -412,13 +415,9 @@ async function withTimeout<T>(
   timeoutType: string,
 ): Promise<{ kind: "ok"; value: T } | { kind: "timeout"; message: string }> {
   if (!timeoutMs || timeoutMs <= 0) {
-    try {
-      return { kind: "ok", value: await fn() };
-    } catch (error) {
-      throw error;
-    }
+    return { kind: "ok", value: await fn() };
   }
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
       if (!settled) {
@@ -438,7 +437,7 @@ async function withTimeout<T>(
         if (!settled) {
           settled = true;
           clearTimeout(timer);
-          throw error;
+          reject(error);
         }
       },
     );

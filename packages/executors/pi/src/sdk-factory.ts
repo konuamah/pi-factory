@@ -172,6 +172,19 @@ function extractEventText(event: Record<string, unknown>): string | undefined {
     if (typeof content === "string") {
       return content;
     }
+    if (Array.isArray(content)) {
+      // SDK 0.84+ emits full assistant messages as content-block arrays on
+      // message_end/turn_end; no text_delta stream events fire.
+      const text = content
+        .map((block) => {
+          if (typeof block === "string") return block;
+          const b = asRecord(block);
+          return typeof b?.text === "string" ? b.text : undefined;
+        })
+        .filter((value): value is string => typeof value === "string")
+        .join("");
+      return text || undefined;
+    }
   }
 
   return undefined;

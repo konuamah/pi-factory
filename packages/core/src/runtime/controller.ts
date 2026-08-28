@@ -3486,16 +3486,19 @@ async function collectDiscoveryFiles(cwd: string): Promise<string[]> {
   }
 }
 
+// Universal cache/build dirs. These are language-agnostic and project-agnostic.
+const UNIVERSAL_SKIP_DIRS = new Set([
+  ".git", ".factory", ".worktrees", "node_modules", ".next", "dist", "build",
+  "coverage", "target", ".venv", "venv", "__pycache__", "vendor/pi-factory",
+]);
+
+// Capture/artifact dirs: timestamped browser snapshots, logs, screenshots.
+// Matched by content shape, not repo-specific names — any tool's dumps land here.
+const CAPTURE_DIR_PATTERN = /(playwright|mcp|capture|snapshot|screenshot|dump|artifacts)/i;
+
 function shouldSkipDiscoveryDirectory(name: string, relativePath: string): boolean {
-  return name === ".git"
-    || name === ".factory"
-    || name === ".worktrees"
-    || name === "node_modules"
-    || name === ".next"
-    || name === "dist"
-    || name === "build"
-    || name === "coverage"
-    || relativePath === "vendor/pi-factory";
+  return UNIVERSAL_SKIP_DIRS.has(relativePath) || UNIVERSAL_SKIP_DIRS.has(name)
+    || CAPTURE_DIR_PATTERN.test(name);
 }
 
 function extractDiscoveryTerms(goal: string): string[] {

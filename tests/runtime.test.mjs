@@ -247,7 +247,9 @@ test('invalid discovery output fails loudly before planning', async () => {
       /Discovery failed: Discovery returned invalid structured JSON/,
     );
 
-    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    // Initial attempt + one JSON-repair attempt; both returned prose, so it
+    // still fails loud without reaching the planner.
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 2);
     assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
     const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
     const runDir = path.join(root, '.factory', 'runs', runs.at(-1));

@@ -523,7 +523,7 @@ async function runFactoryControllerInner(
         truncated: discoveryEvidence.truncated,
       },
     });
-    const discoveryResult = await discoveryExecutor.execute({
+    let discoveryResult = await discoveryExecutor.execute({
       executionId: `${run.runId}-discovery`,
       cwd: executionCwd,
       prompt: buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills), discoveryEvidence),
@@ -537,7 +537,34 @@ async function runFactoryControllerInner(
       },
     });
     discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, discoveryResult);
-    const discoveryValidation = await validateDiscoveryOutput(discoveryResult.outputText, executionCwd, discoveryEvidence);
+    let discoveryValidation = await validateDiscoveryOutput(discoveryResult.outputText, executionCwd, discoveryEvidence);
+    // LLM repair pass: only for model-compliance failures (no output / invalid
+    // JSON). Semantic failures (missing files, unobserved files, no evidence,
+    // explicit DISCOVERY_FAILED) fail loud — re-prompting cannot fix those.
+    const repairEligible = !discoveryValidation.ok
+      && (discoveryValidation.reason === "Discovery returned no output"
+        || discoveryValidation.reason === "Discovery returned invalid structured JSON");
+    if (repairEligible) {
+      const repair = await discoveryExecutor.execute({
+        executionId: `${run.runId}-discovery-repair`,
+        cwd: executionCwd,
+        prompt: [
+          "Your previous response was not valid structured JSON, so it was rejected.",
+          "Convert it into the required DiscoveryContract JSON and respond with JSON only — no prose, no markdown fences.",
+          'Shape: {"status":"complete","files":["path/to/file"],"evidence":[{"status":"confirmed","file":"path","finding":"..."}],"unknowns":[],"summary":"..."}',
+          "Every file must exist in the evidence packet. Status must be complete or failed.",
+          "",
+          "Your previous response:",
+          discoveryResult.outputText.slice(0, 6000),
+        ].join("\n\n"),
+        model: discoveryModel.model,
+        tools: [],
+        limits: loaded.effectiveConfig.runtime.limits,
+        metadata: { role: "discovery", stage: "discovery-json-repair", runId: run.runId },
+      });
+      discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, { ...repair, executionId: `${run.runId}-discovery-repair` });
+      discoveryValidation = await validateDiscoveryOutput(repair.outputText, executionCwd, discoveryEvidence);
+    }
     if (!discoveryValidation.ok) {
       await appendFactoryRunEvent(run.eventsPath, {
         timestamp: new Date().toISOString(),
@@ -545,6 +572,7 @@ async function runFactoryControllerInner(
         data: {
           discoveryExecutionPath,
           reason: discoveryValidation.reason,
+          rawPreview: discoveryResult.outputText.slice(0, 400),
         },
       });
       await updateFactoryRunState({

@@ -16,6 +16,7 @@ import {
   writePrototypeBuilderExecutionArtifact,
   writePrototypeDiscoveryExecutionArtifact,
   writePrototypeFinalMergeArtifact,
+  writePrototypeAbortDecisionArtifact,
   writePrototypeIntegrationArtifact,
   writePrototypePlanArtifact,
   writePrototypePlannerExecutionArtifact,
@@ -2208,8 +2209,9 @@ async function runImplementationTask(input: {
           let decision: AbortDecision = { action: "stop", reason: "no decision executor available" };
           const decisionExecutor = input.roleExecutors.repair ?? input.roleExecutors.builder;
           if (decisionExecutor) {
+            const decisionExecutionId = `${input.runId}-abort-decision-${input.task.id}`;
             const decisionResult = await decisionExecutor.execute({
-              executionId: `${input.runId}-abort-decision-${input.task.id}`,
+              executionId: decisionExecutionId,
               cwd: workspace.path,
               prompt: buildAbortDecisionPrompt({
                 goal: input.goal,
@@ -2223,6 +2225,15 @@ async function runImplementationTask(input: {
               metadata: { role: "repair", purpose: "abort-decision", runId: input.runId },
             });
             decision = parseAbortDecision(decisionResult.outputText);
+            await writePrototypeAbortDecisionArtifact(input.runDir, {
+              taskId: input.task.id,
+              originalExecutionId: builderResult.executionId,
+              decisionExecutionId: decisionExecutionId,
+              decision,
+              abortReason: builderResult.abortReason,
+              attempt: 1,
+              decidedAt: new Date().toISOString(),
+            });
           }
           await appendFactoryRunEvent(input.eventsPath, {
             timestamp: new Date().toISOString(),

@@ -113,6 +113,37 @@ export async function resumeLatestFactoryRun(runsDir: string): Promise<ResumeFac
     };
   }
 
+  if (currentStatus === "ABORTED") {
+    const next = await updateFactoryRunState({
+      statePath: latest.statePath,
+      patch: {
+        status: recovery.nextStatus,
+        phase: recovery.suggestedPhase,
+      },
+    });
+    await appendFactoryRunEvent(eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "run.resume_requested",
+      data: {
+        previousStatus: currentStatus,
+        previousPhase: currentPhase,
+        suggestedPhase: recovery.suggestedPhase,
+        nextStatus: recovery.nextStatus,
+        policyReason: recovery.policyReason,
+        checks: recovery.checks,
+      },
+    });
+    return {
+      resumed: true,
+      reason: "Latest aborted run re-opened for continuation",
+      runDir: latest.runDir,
+      statePath: latest.statePath,
+      eventsPath,
+      state: next,
+      recovery,
+    };
+  }
+
   if (currentStatus === "CANCELLED" || currentStatus === "FAILED") {
     const next = await updateFactoryRunState({
       statePath: latest.statePath,

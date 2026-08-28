@@ -357,6 +357,23 @@ export async function writePrototypeFinalMergeArtifact(
   return filePath;
 }
 
+export async function writePrototypeAbortDecisionArtifact(
+  runDir: string,
+  artifact: {
+    taskId: string;
+    originalExecutionId?: string;
+    decisionExecutionId?: string;
+    decision: { action: string; reason: string; instructions?: string };
+    abortReason?: unknown;
+    attempt: number;
+    decidedAt: string;
+  },
+): Promise<string> {
+  const filePath = path.join(runDir, "abort-decision.json");
+  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
 export async function writePrototypeSummaryArtifact(
   runDir: string,
   artifact: PrototypeSummaryArtifact,

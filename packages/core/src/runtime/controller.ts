@@ -42,6 +42,7 @@ import {
 } from "../models/index.js";
 import { appendModelLedgerEntry } from "../runs/model-ledger.js";
 import { appendDecisionLedgerEntry, findPendingDecision } from "../decisions/index.js";
+import type { AbortDecision } from "./interfaces.js";
 import type { DecisionRequest, DecisionResult } from "../decisions/index.js";
 import { gatherVerificationRequirements, initializeVerificationProviders, runVerificationEngine } from "../verification/index.js";
 import type { VerificationContractPlan, VerificationEngineResult } from "../verification/index.js";
@@ -2202,6 +2203,59 @@ async function runImplementationTask(input: {
       workspace.changedFiles = committedChange.changedFiles;
 
       if (builderResult.status !== "completed") {
+        if (builderResult.status === "aborted") {
+          // Ask the LLM how to proceed after a Factory-owned abort.
+          let decision: AbortDecision = { action: "stop", reason: "no decision executor available" };
+          const decisionExecutor = input.roleExecutors.repair ?? input.roleExecutors.builder;
+          if (decisionExecutor) {
+            const decisionResult = await decisionExecutor.execute({
+              executionId: `${input.runId}-abort-decision-${input.task.id}`,
+              cwd: workspace.path,
+              prompt: buildAbortDecisionPrompt({
+                goal: input.goal,
+                taskTitle: input.task.title,
+                abortReason: builderResult.abortReason,
+                partialOutput: builderResult.outputText,
+                attempt: 1,
+              }),
+              model: input.roleModels.repair ?? input.roleModels.builder,
+              tools: ["read", "grep", "find", "ls"],
+              metadata: { role: "repair", purpose: "abort-decision", runId: input.runId },
+            });
+            decision = parseAbortDecision(decisionResult.outputText);
+          }
+          await appendFactoryRunEvent(input.eventsPath, {
+            timestamp: new Date().toISOString(),
+            type: "task.abort_decision",
+            data: { taskId: input.task.id, decision, abortReason: builderResult.abortReason },
+          });
+          if (decision.action === "retry" || decision.action === "resume" || decision.action === "change-strategy") {
+            builderAttempt = await executeBuilder("no-change-retry", builderResult);
+            const retriedResult = builderAttempt.result;
+            if (retriedResult.status === "completed") {
+              const committedRetry = await commitWorkspaceChanges(workspace.path, input.task);
+              workspace.changedFiles = committedRetry.changedFiles;
+              await updatePrototypeTaskArtifact({ runDir: input.runDir, taskId: input.task.id, patch: { status: "done" } });
+              await appendFactoryRunEvent(input.eventsPath, {
+                timestamp: new Date().toISOString(),
+                type: "task.completed",
+                data: { taskId: input.task.id, stage: input.task.stage, title: input.task.title, workspacePath: workspace.path, workspaceBranch: workspace.branch },
+              });
+              return { ok: true, task: input.task, workspace };
+            }
+            await updatePrototypeTaskArtifact({ runDir: input.runDir, taskId: input.task.id, patch: { status: "aborted" } });
+            await appendFactoryRunEvent(input.eventsPath, {
+              timestamp: new Date().toISOString(),
+              type: "task.aborted",
+              data: {
+                taskId: input.task.id, stage: input.task.stage, title: input.task.title, builderExecutionPath, builderStatus: retriedResult.status,
+                reason: `abort decision ${decision.action} did not complete: ${retriedResult.errorMessage ?? retriedResult.status}`,
+                workspacePath: workspace.path, workspaceBranch: workspace.branch,
+              },
+            });
+            return { ok: false, task: input.task, workspace, terminalStatus: "aborted" };
+          }
+        }
         const terminalStatus = builderResult.status === "aborted" ? "aborted" : "failed";
         await updatePrototypeTaskArtifact({
           runDir: input.runDir,
@@ -3955,6 +4009,49 @@ function buildReviewerPrompt(
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Review the candidate and report whether it looks ready for approval.",
     "Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly.",
+  ].filter(Boolean).join("\n");
+}
+
+export function parseAbortDecision(text: string | undefined): AbortDecision {
+  if (!text) return { action: "stop", reason: "No decision output; stopping." };
+  try {
+    const trimmed = text.trim();
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    const parsed = JSON.parse((fenced ? fenced[1] : trimmed).trim()) as Record<string, unknown>;
+    const action = String(parsed.action ?? "").toLowerCase();
+    if (action === "retry") return { action: "retry", reason: String(parsed.reason ?? "retry") };
+    if (action === "resume") return { action: "resume", reason: String(parsed.reason ?? "resume") };
+    if (action === "change-strategy") {
+      return { action: "change-strategy", reason: String(parsed.reason ?? "change"), instructions: String(parsed.instructions ?? parsed.strategy ?? "change approach") };
+    }
+    if (action === "stop") return { action: "stop", reason: String(parsed.reason ?? "stop") };
+    return { action: "stop", reason: `Unknown action: ${action}; stopping.` };
+  } catch {
+    return { action: "stop", reason: "Malformed decision JSON; stopping." };
+  }
+}
+
+export function buildAbortDecisionPrompt(input: {
+  goal: string;
+  taskTitle: string;
+  abortReason?: { type: string; limitMs?: number; limit?: number; elapsedMs?: number };
+  partialOutput?: string;
+  attempt: number;
+}): string {
+  return [
+    `Factory aborted the task because a hard timeout was reached.`,
+    `Goal: ${input.goal}`,
+    `Task: ${input.taskTitle}`,
+    `Abort type: ${input.abortReason?.type ?? "unknown"}`,
+    `Attempt: ${input.attempt}`,
+    input.partialOutput ? `Partial output (truncated):\n${input.partialOutput.slice(0, 1000)}` : undefined,
+    ``,
+    `Factory limits are fixed and cannot be changed.`,
+    `Choose one action and return JSON only:`,
+    `  {"action":"retry","reason":"..."}`,
+    `  {"action":"resume","reason":"..."}`,
+    `  {"action":"change-strategy","reason":"...","instructions":"..."}`,
+    `  {"action":"stop","reason":"..."}`,
   ].filter(Boolean).join("\n");
 }
 

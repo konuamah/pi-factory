@@ -21,6 +21,12 @@ export type AbortReason =
   | { type: "tool-timeout"; limitMs: number; toolName?: string }
   | { type: "max-turns"; limit: number; observedTurns: number; };
 
+export type AbortDecision =
+  | { action: "retry"; reason: string }
+  | { action: "resume"; reason: string }
+  | { action: "change-strategy"; reason: string; instructions: string }
+  | { action: "stop"; reason: string };
+
 export interface AgentExecutionResult {
   executionId: string;
   status: "completed" | "failed" | "cancelled" | "aborted";

@@ -129,13 +129,33 @@ export class PiAgentExecutor implements AgentExecutor {
   }
 
   private captureEvent(state: PiExecutorState, event: PiSessionEvent): void {
-    state.events.push({
-      type: event.type,
-      data: event.data,
-    });
+    // Bound stored events: keep the first 200 and last 200, flag truncation.
+    // Raw SDK streams can otherwise bloat artifacts to tens of MB.
+    const EVENT_BUDGET = 200;
+    if (state.events.length < EVENT_BUDGET) {
+      state.events.push({
+        type: event.type,
+        data: event.data,
+      });
+    } else if (state.events.length === EVENT_BUDGET) {
+      state.events.push({
+        type: "executor.events_truncated",
+        data: { reason: `Event stream truncated at ${EVENT_BUDGET} entries; retained head only.` },
+      });
+      state.truncated = true;
+    } else if (state.events.length >= EVENT_BUDGET + 200) {
+      // Drop middle events once we pass the tail budget.
+      state.events.splice(EVENT_BUDGET + 1, 100);
+    }
 
     if (event.text) {
+      // Cap retained output to the last ~64KB so artifacts stay small.
       state.outputChunks.push(event.text);
+      let total = state.outputChunks.join("").length;
+      while (total > 65536 && state.outputChunks.length > 1) {
+        state.outputChunks.shift();
+        total = state.outputChunks.join("").length;
+      }
     }
   }
 

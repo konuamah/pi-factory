@@ -1396,6 +1396,7 @@ test('verification failure classification distinguishes unrelated baseline lint 
     plan,
     result,
     changedFiles: ['src/app/courses/components/EvergreenCourseGrid.tsx'],
+    baseCheckResults: [{ name: 'lint', command: 'npm run lint', result: result.commands[0] }],
   });
   assert.equal(unrelated?.kind, 'baseline-unrelated');
   assert.equal(unrelated?.retryable, false);

@@ -49,8 +49,8 @@ import { gatherVerificationRequirements, initializeVerificationProviders, runVer
 import type { VerificationContractPlan, VerificationEngineResult } from "../verification/index.js";
 import type { ReviewProviderOptions } from "../verification/providers/review.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
-import { classifyVerificationFailure } from "./failure-classification.js";
-import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands, type StructuredVerificationCommands } from "./verification.js";
+import { classifyVerificationFailure, resolveFailureRelation } from "./failure-classification.js";
+import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands, type StructuredVerificationCommands, type VerificationCommandResult } from "./verification.js";
 import { hydrateWorkspaceDependencies, buildDependencyCacheEnv, DependencyHydrationError } from "./dependencies.js";
 
 export interface FactoryRunProgressEvent {
@@ -1040,6 +1040,7 @@ async function runFactoryControllerInner(
   const verificationSelection = resolveWorkflowVerificationCommands(loaded.effectiveConfig);
   const normalizedCommands = normalizeVerificationCommands(verificationSelection.commands);
   const changedFiles = await getChangedFilesFromBase(executionCwd, loaded.effectiveConfig.git.baseBranch);
+  const baseSha = await resolveBaseSha(executionCwd, loaded.effectiveConfig.git.baseBranch);
   const impactResult = input.verificationPlannerExecutor
     ? undefined
     : filterVerificationByImpact(normalizedCommands as Record<string, string>, changedFiles);
@@ -1110,10 +1111,23 @@ async function runFactoryControllerInner(
   });
   verification.cwdResolution = verificationPlan.cwdResolution;
   const implementationChangedFiles = uniqueStrings(taskWorkspacesChangedFiles(implementationRun.taskWorkspaces));
+  // Resolve unknown code failures (files not directly changed) against the
+  // base SHA: same failure at base = baseline-unrelated; base passes = introduced.
+  let baseCheckResults: Array<{ name: string; command: string; result: VerificationCommandResult | undefined }> = [];
+  if (baseSha) {
+    baseCheckResults = await runBaselineChecks({
+      cwd: executionCwd,
+      baseSha,
+      verificationPlan,
+      changedFiles: implementationChangedFiles,
+      verification,
+    });
+  }
   let verificationFailureClassification = classifyVerificationFailure({
     plan: verificationPlan,
     result: verification,
     changedFiles: implementationChangedFiles,
+    baseCheckResults,
   });
   let verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
     ...verification,
@@ -2346,6 +2360,45 @@ async function runImplementationTask(input: {
   return { ok: true, task: input.task, workspace };
 }
 
+async function runBaselineChecks(input: {
+  cwd: string;
+  baseSha: string;
+  verificationPlan: Awaited<ReturnType<typeof planVerificationExecution>>;
+  changedFiles: string[];
+  verification: Awaited<ReturnType<typeof runVerificationCommands>>;
+}): Promise<Array<{ name: string; command: string; result: VerificationCommandResult | undefined }>> {
+  const results: Array<{ name: string; command: string; result: VerificationCommandResult | undefined }> = [];
+  // Only compare failed commands whose failure is not directly attributable.
+  const failed = input.verification.commands.filter((c) => c.status === "failed" || c.status === "timed-out");
+  if (failed.length === 0) return results;
+
+  const baseCwd = path.join(input.cwd, ".factory-baseline-check");
+  try {
+    // Create a lightweight detached checkout at the base SHA for comparison.
+    await fs.mkdir(baseCwd, { recursive: true });
+    await execFileAsync("git", ["clone", "--no-checkout", "--shared", input.cwd, baseCwd], { cwd: input.cwd, windowsHide: true });
+    await execFileAsync("git", ["checkout", input.baseSha], { cwd: baseCwd, windowsHide: true });
+
+    for (const failedCommand of failed) {
+      const baseRun = await runVerificationCommands({
+        cwd: baseCwd,
+        commands: { [failedCommand.name]: failedCommand.command } as Record<string, string>,
+        timeouts: input.verificationPlan.timeouts,
+      });
+      results.push({
+        name: failedCommand.name,
+        command: failedCommand.command,
+        result: baseRun.commands[0],
+      });
+    }
+  } catch {
+    // Baseline check is best-effort; fall back to unknown relation.
+  } finally {
+    await fs.rm(baseCwd, { recursive: true, force: true }).catch(() => {});
+  }
+  return results;
+}
+
 async function runIntegrationPhase(input: {
   runDir: string;
   eventsPath: string;
@@ -2852,6 +2905,17 @@ async function gitChangedFiles(cwd: string): Promise<string[]> {
       .filter((file) => file && file !== "NUL");
   } catch {
     return [];
+  }
+}
+
+async function resolveBaseSha(cwd: string, branch: string | undefined): Promise<string | undefined> {
+  const baseBranch = branch || "main";
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", `origin/${baseBranch}`], { cwd, windowsHide: true });
+    const sha = stdout.trim();
+    return sha || undefined;
+  } catch {
+    return undefined;
   }
 }
 

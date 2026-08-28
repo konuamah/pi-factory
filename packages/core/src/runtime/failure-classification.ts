@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { VerificationCommandResult, VerificationPlan, VerificationRunResult } from "./verification.js";
 
 export type FailureCategory =
@@ -10,6 +11,12 @@ export type FailureCategory =
   | "baseline-unrelated"
   | "harness/config"
   | "unknown";
+
+export type FailureRelation =
+  | "direct"      // failing file was changed by this task
+  | "introduced"  // base passes, task introduces the failure
+  | "baseline-unrelated" // base fails too
+  | "unknown";    // not matched; base comparison required
 
 export interface CommandFailureClassification {
   commandName: string;
@@ -35,9 +42,43 @@ export function classifyVerificationFailures(input: {
   plan: VerificationPlan;
   result: VerificationRunResult;
   changedFiles?: string[];
+  baseCheckResults?: Array<{ name: string; command: string; result: VerificationCommandResult | undefined }>;
 }): CommandFailureClassification[] {
   const failed = input.result.commands.filter((command) => command.status === "failed" || command.status === "timed-out");
-  return failed.map((command) => classifySingleCommand(command, input.result.cwd, input.changedFiles));
+  return failed.map((command) => classifySingleCommand(command, input.result.cwd, input.changedFiles, input.plan.evidence.rootCwd, input.baseCheckResults?.find((b) => b.name === command.name)?.result));
+}
+
+export function normalizeRepoPath(value: string): string {
+  return path.posix.normalize(value.replace(/\\/g, "/").replace(/^\.\/+/, ""));
+}
+
+export function sameFailure(a: VerificationCommandResult, b: VerificationCommandResult): boolean {
+  return a.exitCode === b.exitCode && (a.stderr ?? "").trim() === (b.stderr ?? "").trim();
+}
+
+export function resolveFailureRelation(input: {
+  current: VerificationCommandResult;
+  baseResult?: VerificationCommandResult;
+}): FailureRelation {
+  if (!input.baseResult) {
+    return "unknown";
+  }
+  return sameFailure(input.current, input.baseResult) ? "baseline-unrelated" : "introduced";
+}
+
+/**
+ * Exact full-path match against changed files, using one path basis.
+ * changedFiles are repo-root-relative; error files are verification-cwd-relative.
+ * Both are resolved to absolute paths before comparing.
+ */
+export function isDirectlyChanged(
+  errorFile: string,
+  changedFiles: string[],
+  repoRoot: string,
+  cwd: string,
+): boolean {
+  const errorAbs = path.resolve(cwd, normalizeRepoPath(errorFile));
+  return changedFiles.some((changed) => path.resolve(repoRoot, normalizeRepoPath(changed)) === errorAbs);
 }
 
 /**
@@ -48,6 +89,7 @@ export function classifyVerificationFailure(input: {
   plan: VerificationPlan;
   result: VerificationRunResult;
   changedFiles?: string[];
+  baseCheckResults?: Array<{ name: string; command: string; result: VerificationCommandResult | undefined }>;
 }): VerificationFailureClassification | undefined {
   if (input.result.overallStatus !== "failed") {
     return undefined;
@@ -98,6 +140,8 @@ function classifySingleCommand(
   command: VerificationCommandResult,
   cwd: string,
   changedFiles?: string[],
+  repoRoot?: string,
+  baseResult?: VerificationCommandResult,
 ): CommandFailureClassification {
   const text = `${command.stderr ?? ""}\n${command.stdout ?? ""}`.toLowerCase();
 
@@ -179,26 +223,47 @@ function classifySingleCommand(
 
   // Real code failure (TypeScript errors, test failures, lint errors on code)
   if (looksLikeCodeFailure(command)) {
-    // Check if failure is unrelated to changes (baseline)
-    if (changedFiles && changedFiles.length > 0) {
-      const failureFiles = extractReferencedFiles(command, cwd);
-      // Paths may be relative to the verification cwd (src/...) while changed
-      // files are repo-root-relative (frontend/landoptima/src/...). Match by
-      // suffix overlap so they compare correctly across project roots.
-      const normalizedChanged = changedFiles.map((f) => f.replace(/\\/g, "/").replace(/^\.\//, ""));
-      const hasRelatedFailure = failureFiles.some((f) => {
-        const normalized = f.replace(/\\/g, "/").replace(/^\.\//, "");
-        return normalizedChanged.some((c) => c === normalized || c.endsWith(`/${normalized}`) || normalized.endsWith(`/${c}`));
-      });
-      if (failureFiles.length > 0 && !hasRelatedFailure) {
+    const failureFiles = extractReferencedFiles(command, cwd);
+    if (failureFiles.length > 0) {
+      const direct = repoRoot && changedFiles?.length
+        ? failureFiles.some((f) => isDirectlyChanged(f, changedFiles, repoRoot, cwd))
+        : false;
+      if (direct) {
+        return {
+          commandName: command.name,
+          category: "real-code-failure",
+          reason: extractFirstLine(text),
+          retryable: true,
+          suggestedAction: "repair",
+        };
+      }
+      // No exact match: decide via base-SHA comparison.
+      const relation = resolveFailureRelation({ current: command, baseResult });
+      if (relation === "baseline-unrelated") {
         return {
           commandName: command.name,
           category: "baseline-unrelated",
-          reason: `Failure outside implemented files: ${failureFiles.slice(0, 3).join(", ")}`,
+          reason: `Failure also present at base SHA: ${failureFiles.slice(0, 3).join(", ")}`,
           retryable: false,
           suggestedAction: "ignore",
         };
       }
+      if (relation === "introduced") {
+        return {
+          commandName: command.name,
+          category: "real-code-failure",
+          reason: `Failure introduced by task (base passed): ${failureFiles.slice(0, 3).join(", ")}`,
+          retryable: true,
+          suggestedAction: "repair",
+        };
+      }
+      return {
+        commandName: command.name,
+        category: "unknown",
+        reason: `Failure in files not directly changed: ${failureFiles.slice(0, 3).join(", ")} — baseline comparison unavailable.`,
+        retryable: true,
+        suggestedAction: "diagnose",
+      };
     }
     return {
       commandName: command.name,

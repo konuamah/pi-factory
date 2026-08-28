@@ -197,6 +197,9 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(builderPrompt, /Likely files: src\/index\.ts/);
     assert.match(builderPrompt, /Use the native Pi tools provided to you; do not print DSML\/XML\/tool-call markup as text/);
     assert.match(builderPrompt, /Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits/);
+    assert.match(builderPrompt, /Do not run the authoritative verification suite/);
+    assert.match(builderPrompt, /Factory verification owns that after Builder returns/);
+    assert.doesNotMatch(builderPrompt, /verification results/);
     assert.match(reviewerPrompt, /Selected skills:/);
     assert.match(reviewerPrompt, /acceptance-review@1\.0\.0/);
     assert.match(reviewerPrompt, /Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly\./);
@@ -284,6 +287,9 @@ test('workflow plan skills are applied to built-in planner prompt with full skil
       ].join('\n'),
       'utf8',
     );
+    await execFile('git', ['add', '.'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'configure named checks'], { cwd: root });
+    await execFile('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: root });
 
     const calls = [];
     const plannerExecutor = makeExecutor('planner', calls);
@@ -687,6 +693,70 @@ test('discovery with existing but unobserved files fails loudly before planning'
 
     assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
     assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
+  });
+});
+
+test('discovery sanitizes invalid evidence paths without failing planning', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: JSON.stringify({
+            status: 'complete',
+            files: ['src/index.ts'],
+            evidence: [
+              {
+                status: 'confirmed',
+                file: 'src/nested/index.ts',
+                finding: 'This evidence points at the implementation file with the wrong path.',
+              },
+              {
+                status: 'confirmed',
+                file: 'src/missing.ts',
+                finding: 'This evidence has no valid discovered-file match and should be dropped.',
+              },
+              {
+                status: 'confirmed',
+                file: 'src/index.ts',
+                finding: 'src/index.ts exists and is the demo implementation surface.',
+              },
+            ],
+            unknowns: [],
+          }),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      discoveryExecutor,
+      plannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'reject' }),
+      requestApproval: async () => true,
+    });
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 1);
+
+    const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
+    assert.match(plannerPrompt, /Validated Discovery result \(authoritative pre-planning evidence\):/);
+    assert.match(plannerPrompt, /src\/index\.ts exists and is the demo implementation surface\./);
+    assert.doesNotMatch(plannerPrompt, /src\/missing\.ts/);
+
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const eventText = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventText, /discovery\.evidence_sanitized/);
+    assert.match(eventText, /Corrected discovery evidence file src\/nested\/index\.ts -> src\/index\.ts/);
+    assert.match(eventText, /Dropped invalid discovery evidence file src\/missing\.ts/);
   });
 });
 
@@ -1482,6 +1552,262 @@ test('verification stages are not executed as builder task branches', async () =
 
     assert.equal(calls.filter((call) => call.label === 'builder').length, 1);
     assert.ok((result.builderExecutionPaths?.length ?? 0) === 1);
+  });
+});
+
+test('verification uses named workflow checks and preserves their names', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: named-checks',
+        'workflows:',
+        '  - id: named-checks',
+        '    name: Named Checks',
+        '    stages:',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '      - name: build',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '      - name: verify',
+        '        type: command',
+        '        commands: ["lint-frontend", "build-frontend"]',
+        '        dependsOn: [build]',
+        '      - name: approval',
+        '        type: approval',
+        '        dependsOn: [verify]',
+      ].join('\n'),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  checks:',
+        '    lint-frontend:',
+        '      command: node -e ""',
+        '      timeout: 5',
+        '    build-frontend:',
+        '      command: node -e ""',
+        '      timeout: 5',
+        '    test-python:',
+        '      command: node -e "process.exit(1)"',
+        '      timeout: 5',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const verification = await readJson(result.verificationPath);
+    assert.deepEqual(verification.commands.map((command) => command.name), ['lint-frontend', 'build-frontend']);
+    assert.deepEqual(verification.commands.map((command) => command.status), ['passed', 'passed']);
+    assert.deepEqual(verification.commands.map((command) => command.timeoutMs), [5000, 5000]);
+  });
+});
+
+test('llm verification planner chooses impact-aware subset from workflow checks', async () => {
+  await withTempProject(async (root) => {
+    await execFile('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: root });
+    await fs.mkdir(path.join(root, 'frontend/landoptima/src/app/components'), { recursive: true });
+    await fs.mkdir(path.join(root, 'flask/tests'), { recursive: true });
+    await fs.mkdir(path.join(root, 'node_modules'), { recursive: true });
+    await fs.writeFile(path.join(root, 'frontend/landoptima/src/app/components/App.tsx'), 'export default function App() { return null; }\n');
+    await execFile('git', ['add', '.'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'add app roots'], { cwd: root });
+    await execFile('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: root });
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: named-checks',
+        'workflows:',
+        '  - id: named-checks',
+        '    name: Named Checks',
+        '    stages:',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '      - name: build',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '      - name: verify',
+        '        type: command',
+        '        commands: ["lint-frontend", "build-frontend", "test-python"]',
+        '        dependsOn: [build]',
+        '      - name: approval',
+        '        type: approval',
+        '        dependsOn: [verify]',
+      ].join('\n'),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  checks:',
+        '    lint-frontend:',
+        '      command: node -e ""',
+        '      timeout: 5',
+        '    build-frontend:',
+        '      command: node -e ""',
+        '      timeout: 5',
+        '    test-python:',
+        '      command: node -e "process.exit(1)"',
+        '      timeout: 5',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
+        await fs.writeFile(path.join(input.cwd, 'frontend/landoptima/src/app/components/Navbar.tsx'), 'export default function Navbar() { return null; }\n');
+        return { executionId: input.executionId, status: 'completed', outputText: 'builder completed', events: [] };
+      },
+      async cancel() {},
+    };
+    const verificationPlannerExecutor = {
+      async execute(input) {
+        calls.push({ label: 'verification-planner', executionId: input.executionId, prompt: input.prompt });
+        assert.ok(input.prompt.includes('frontend/landoptima/src/app/components/Navbar.tsx'));
+        assert.match(input.prompt, /test-python/);
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: JSON.stringify({
+            cwd: root,
+            commands: { 'lint-frontend': 'node -e ""' },
+            rationale: 'Navbar touched only frontend UI files; run the light frontend check and skip backend tests.',
+          }),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add navbar',
+      plannerExecutor,
+      builderExecutor,
+      verificationPlannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const verification = await readJson(result.verificationPath);
+    assert.deepEqual(verification.commands.map((command) => command.name), ['lint-frontend']);
+    assert.equal(verification.selectionSource, 'ai');
+    assert.match(verification.rationale, /skip backend tests/i);
+  });
+});
+
+test('verification command timeout fails in verification without re-entering builder', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: timeout-check',
+        'workflows:',
+        '  - id: timeout-check',
+        '    name: Timeout Check',
+        '    stages:',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '      - name: build',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '      - name: verify',
+        '        type: command',
+        '        commands: ["smoke-frontend"]',
+        '        dependsOn: [build]',
+        '      - name: approval',
+        '        type: approval',
+        '        dependsOn: [verify]',
+      ].join('\n'),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  checks:',
+        '    smoke-frontend:',
+        '      command: node -e "setTimeout(() => {}, 5000)"',
+        '      timeout: 1',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const verification = await readJson(result.verificationPath);
+    const summary = await readJson(result.summaryPath);
+    assert.equal(calls.filter((call) => call.label === 'builder').length, 1);
+    assert.equal(summary.phase, 'verification-failed');
+    assert.equal(verification.commands[0].name, 'smoke-frontend');
+    assert.equal(verification.commands[0].status, 'timed-out');
+    assert.equal(verification.failureClassification.kind, 'timeout');
   });
 });
 

@@ -121,8 +121,10 @@ End-to-end Factory setup includes:
 
 `/factory doctor` is the readiness gate for model routing plus Pi-visible model availability. `/factory models` remains the deeper inspection view before fixing `.factory/config.yaml`.
 When the user asks to set up Factory or make Factory ready, prefer `run-setup` so setup writes role models for them when Pi exposes a usable model. Do not make `/factory models` the broad setup action.
+When troubleshooting Discovery failures, remember that Factory now keeps `files[]` validation strict but sanitizes invalid `evidence[]` file paths by correcting a unique basename match from validated discovered files or dropping the bad evidence item with a warning event.
 
 Workflows are a first-class responsibility. Help the user design, list, inspect, create, and set workflows. For broad workflow creation, use `create-workflow`. For a specific existing workflow, use `show-workflow` or `set-default-workflow` with the workflow id. Ask for approval before changing the default workflow.
+When advising on stuck builders or test blockers, keep phase responsibility strict: Builder implements only; `verify`/`verification` command stages own lint, build, tests, smoke/e2e, and other run-blocking checks; Repair reacts only after verification failures. Named verify commands must match configured standard commands or `commands.checks` entries, and long-running checks should have `timeout` in seconds. Treat the workflow command list as an allowlist: with an LLM verification planner, Factory supplies changed files and lets the planner choose the smallest useful subset; without one, Factory uses deterministic changed-path filtering.
 
 Dependency hydration is a first-class setup responsibility. Explain that Factory runs the configured `commands.setup` with shared cache env vars while keeping each worktree's installed dependency state isolated. Do not make the guidance Node-only: support Node, Python, Rust, Go, Java-style, and other projects through the repository's own setup command. Never recommend sharing one writable `node_modules`, `.venv`, or framework-specific dependency folder across worktrees.
 

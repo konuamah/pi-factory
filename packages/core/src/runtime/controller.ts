@@ -48,7 +48,7 @@ import type { VerificationContractPlan, VerificationEngineResult } from "../veri
 import type { ReviewProviderOptions } from "../verification/providers/review.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { classifyVerificationFailure } from "./failure-classification.js";
-import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands } from "./verification.js";
+import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands, type StructuredVerificationCommands } from "./verification.js";
 import { hydrateWorkspaceDependencies, buildDependencyCacheEnv, DependencyHydrationError } from "./dependencies.js";
 
 export interface FactoryRunProgressEvent {
@@ -549,6 +549,16 @@ async function runFactoryControllerInner(
       });
       throw new Error(`Discovery failed: ${discoveryValidation.reason}`);
     }
+    if (discoveryValidation.warnings.length > 0) {
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "discovery.evidence_sanitized",
+        data: {
+          discoveryExecutionPath,
+          warnings: discoveryValidation.warnings,
+        },
+      });
+    }
     discoveryOutputText = JSON.stringify(discoveryValidation.discovery, null, 2);
     discoveryFileHints = normalizeDiscoveryFileHints(discoveryValidation.discovery.files ?? []);
     await appendFactoryRunEvent(run.eventsPath, {
@@ -1024,12 +1034,13 @@ async function runFactoryControllerInner(
       summaryPath,
     };
   }
-  const { setup: _setupCommand, ...verificationCommands } = loaded.effectiveConfig.commands;
-  const normalizedCommands = normalizeVerificationCommands(verificationCommands);
-  // Impact-based verification: filter checks to only those affected by changes.
+  const verificationSelection = resolveWorkflowVerificationCommands(loaded.effectiveConfig);
+  const normalizedCommands = normalizeVerificationCommands(verificationSelection.commands);
   const changedFiles = await getChangedFilesFromBase(executionCwd, loaded.effectiveConfig.git.baseBranch);
-  const impactResult = filterVerificationByImpact(normalizedCommands as Record<string, string>, changedFiles);
-  if (impactResult.skipped.length > 0) {
+  const impactResult = input.verificationPlannerExecutor
+    ? undefined
+    : filterVerificationByImpact(normalizedCommands as Record<string, string>, changedFiles);
+  if (impactResult && impactResult.skipped.length > 0) {
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
       type: "verification.impact_filtered",
@@ -1040,11 +1051,13 @@ async function runFactoryControllerInner(
       },
     });
   }
-  const filteredVerificationCommands = impactResult.commands;
+  const filteredVerificationCommands = impactResult?.commands ?? normalizedCommands;
   const verificationPlan = await planVerificationExecution({
     cwd: executionCwd,
     goal: input.goal,
     commands: filteredVerificationCommands,
+    timeouts: verificationSelection.timeouts,
+    changedFiles,
     constitutionContext: repairGuidance.text,
     executor: input.verificationPlannerExecutor,
     model: loaded.effectiveConfig.models.planner,
@@ -1087,6 +1100,7 @@ async function runFactoryControllerInner(
   let verification = await runVerificationCommands({
     cwd: verificationPlan.cwd,
     commands: verificationPlan.commands,
+    timeouts: verificationPlan.timeouts,
     env: loaded.effectiveConfig.dependencies.enabled && loaded.effectiveConfig.dependencies.hydrate !== "never"
       ? await buildDependencyCacheEnv(loaded.effectiveConfig.dependencies.cacheRoot)
       : undefined,
@@ -1242,7 +1256,7 @@ async function runFactoryControllerInner(
       data: { status: envResult.status },
     });
     if (envResult.status === "completed") {
-      verification = await runVerificationCommands({ cwd: verificationPlan.cwd, commands: verificationPlan.commands });
+      verification = await runVerificationCommands({ cwd: verificationPlan.cwd, commands: verificationPlan.commands, timeouts: verificationPlan.timeouts });
       verification.cwdResolution = verificationPlan.cwdResolution;
       verificationFailureClassification = classifyVerificationFailure({ plan: verificationPlan, result: verification, changedFiles: implementationChangedFiles });
     }
@@ -1303,6 +1317,7 @@ async function runFactoryControllerInner(
       verification = await runVerificationCommands({
         cwd: verificationPlan.cwd,
         commands: verificationPlan.commands,
+        timeouts: verificationPlan.timeouts,
       });
       verification.cwdResolution = verificationPlan.cwdResolution;
       const changedAfterRepair = await gitChangedFiles(executionCwd);
@@ -2776,14 +2791,19 @@ async function getChangedFilesFromBase(cwd: string, branch: string | undefined):
   const baseBranch = branch || "main";
   try {
     const { stdout } = await execFileAsync("git", ["diff", "--name-only", `origin/${baseBranch}`, "HEAD"], { cwd, windowsHide: true });
-    return stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    return stdout.split(/\r?\n/).map((l) => l.trim()).filter(isImplementationChangedFile);
   } catch {
     return [];
   }
 }
 
+function isImplementationChangedFile(file: string): boolean {
+  if (!file) return false;
+  return !file.startsWith(".factory/runs/");
+}
+
 interface ImpactResult {
-  commands: Record<string, unknown>;
+  commands: Record<string, string>;
   selected: Array<{ name: string; command: string; reason: string }>;
   skipped: Array<{ name: string; command: string; reason: string }>;
 }
@@ -2794,6 +2814,50 @@ const HIGH_IMPACT_ROOT_FILES = new Set([
   "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
   "factory.yaml", ".factory/config.yaml",
 ]);
+
+function resolveWorkflowVerificationCommands(config: EffectiveFactoryConfig): {
+  commands: StructuredVerificationCommands;
+  timeouts: Record<string, number>;
+} {
+  const { setup: _setupCommand, ...allCommands } = config.commands;
+  const verifyStage = config.resolvedWorkflow?.stages.find((stage) =>
+    ["verify", "verification"].includes(stage.name.toLowerCase())
+  );
+  const requested = verifyStage?.commands ?? [];
+  const timeouts: Record<string, number> = {};
+
+  if (requested.length === 0) {
+    for (const [name, check] of Object.entries(config.commands.checks ?? {})) {
+      if (typeof check.timeout === "number" && Number.isFinite(check.timeout) && check.timeout > 0) {
+        timeouts[name] = Math.round(check.timeout * 1000);
+      }
+    }
+    return { commands: allCommands, timeouts };
+  }
+
+  const selected: StructuredVerificationCommands = {};
+  for (const name of requested) {
+    if (name === "cwd" || name === "setup") {
+      throw new Error(`Verification workflow command cannot use reserved command name: ${name}`);
+    }
+    const standard = config.commands[name as keyof typeof config.commands];
+    if (typeof standard === "string" && standard.trim()) {
+      selected[name] = standard;
+      continue;
+    }
+    const check = config.commands.checks?.[name];
+    if (typeof check?.command === "string" && check.command.trim()) {
+      selected.checks = { ...(selected.checks ?? {}), [name]: check };
+      if (typeof check.timeout === "number" && Number.isFinite(check.timeout) && check.timeout > 0) {
+        timeouts[name] = Math.round(check.timeout * 1000);
+      }
+      continue;
+    }
+    throw new Error(`Verification workflow references unknown configured command: ${name}`);
+  }
+
+  return { commands: selected, timeouts };
+}
 
 function filterVerificationByImpact(
   commands: Record<string, string>,
@@ -3045,6 +3109,8 @@ interface DiscoveryContract {
   reason?: string;
 }
 
+type DiscoveryEvidenceItem = NonNullable<DiscoveryContract["evidence"]>[number];
+
 interface DiscoveryEvidencePacket {
   root: string;
   observedFiles: string[];
@@ -3059,7 +3125,11 @@ interface DiscoveryEvidencePacket {
   truncated: boolean;
 }
 
-async function validateDiscoveryOutput(value: string | undefined, cwd: string, evidencePacket: DiscoveryEvidencePacket): Promise<{ ok: true; discovery: DiscoveryContract } | { ok: false; reason: string }> {
+async function validateDiscoveryOutput(
+  value: string | undefined,
+  cwd: string,
+  evidencePacket: DiscoveryEvidencePacket,
+): Promise<{ ok: true; discovery: DiscoveryContract; warnings: string[] } | { ok: false; reason: string }> {
   const text = value?.trim() ?? "";
   if (!text) {
     return { ok: false, reason: "Discovery returned no output" };
@@ -3092,24 +3162,13 @@ async function validateDiscoveryOutput(value: string | undefined, cwd: string, e
     return { ok: false, reason: `Discovery referenced files not observed by Factory evidence: ${unobservedFiles.join(", ")}` };
   }
 
-  const evidence = Array.isArray(parsed.evidence) ? parsed.evidence : [];
-  if (!evidence.some((item) => item?.status === "confirmed" && isConcreteFile(item.file) && item.finding?.trim())) {
+  const sanitizedEvidence = await sanitizeDiscoveryEvidence(cwd, Array.isArray(parsed.evidence) ? parsed.evidence : [], files, evidencePacket);
+  parsed.evidence = sanitizedEvidence.evidence;
+  if (!sanitizedEvidence.evidence.some((item) => item?.status === "confirmed" && isConcreteFile(item.file) && item.finding?.trim())) {
     return { ok: false, reason: "Discovery did not provide confirmed evidence tied to a concrete file" };
   }
-  const evidenceFiles = evidence
-    .filter((item) => item?.status === "confirmed" && item.finding?.trim())
-    .map((item) => item.file)
-    .filter((file): file is string => isConcreteFile(file));
-  const missingEvidenceFiles = await findMissingDiscoveryFiles(cwd, evidenceFiles);
-  if (missingEvidenceFiles.length > 0) {
-    return { ok: false, reason: `Discovery evidence references files that do not exist: ${missingEvidenceFiles.join(", ")}` };
-  }
-  const unobservedEvidenceFiles = findUnobservedDiscoveryFiles(evidenceFiles, evidencePacket);
-  if (unobservedEvidenceFiles.length > 0) {
-    return { ok: false, reason: `Discovery evidence references files not observed by Factory evidence: ${unobservedEvidenceFiles.join(", ")}` };
-  }
 
-  return { ok: true, discovery: parsed };
+  return { ok: true, discovery: parsed, warnings: sanitizedEvidence.warnings };
 }
 
 function findUnobservedDiscoveryFiles(files: string[], evidencePacket: DiscoveryEvidencePacket): string[] {
@@ -3302,6 +3361,50 @@ async function findMissingDiscoveryFiles(cwd: string, files: string[]): Promise<
     }
   }
   return [...new Set(missing)];
+}
+
+async function sanitizeDiscoveryEvidence(
+  cwd: string,
+  evidence: DiscoveryEvidenceItem[],
+  files: string[],
+  evidencePacket: DiscoveryEvidencePacket,
+): Promise<{ evidence: DiscoveryEvidenceItem[]; warnings: string[] }> {
+  const warnings: string[] = [];
+  const observedFiles = new Set(evidencePacket.observedFiles);
+  const validDiscoveredFiles = [...new Set(
+    files
+      .map(normalizeDiscoveryFilePath)
+      .filter((file): file is string => Boolean(file)),
+  )];
+  const discoveredFilesByBasename = new Map<string, string[]>();
+  for (const file of validDiscoveredFiles) {
+    const basename = path.basename(file);
+    const existing = discoveredFilesByBasename.get(basename) ?? [];
+    existing.push(file);
+    discoveredFilesByBasename.set(basename, existing);
+  }
+
+  const sanitized: DiscoveryEvidenceItem[] = [];
+  for (const item of evidence) {
+    const rawFile = typeof item?.file === "string" ? item.file.trim().replace(/`/g, "") : "";
+    const normalizedFile = normalizeDiscoveryFilePath(item?.file);
+    if (normalizedFile && observedFiles.has(normalizedFile) && await fileExists(path.join(cwd, normalizedFile))) {
+      sanitized.push({ ...item, file: normalizedFile });
+      continue;
+    }
+
+    const basename = rawFile ? path.basename(rawFile) : "";
+    const matches = basename ? discoveredFilesByBasename.get(basename) ?? [] : [];
+    if (matches.length === 1) {
+      warnings.push(`Corrected discovery evidence file ${rawFile || "(missing)"} -> ${matches[0]}`);
+      sanitized.push({ ...item, file: matches[0] });
+      continue;
+    }
+
+    warnings.push(`Dropped invalid discovery evidence file ${rawFile || "(missing)"}`);
+  }
+
+  return { evidence: sanitized, warnings };
 }
 
 function normalizeDiscoveryFilePath(value: string | undefined): string | undefined {
@@ -3682,7 +3785,7 @@ function buildPlannerPrompt(
     "- A narrow read/inspection step is allowed only for concrete files named by Discovery.",
     "",
     "3. VERIFICATION CONTRACT",
-    "- List the exact checks, commands, or manual assertions that should prove the change works.",
+    "- List the exact checks, commands, or manual assertions that Factory verification should use to prove the change works.",
     "- Tie each check to the risk or requirement it covers.",
     "- If a configured command is not appropriate, explain why and choose the weakest valid verification that still gives useful signal.",
     "",
@@ -3699,7 +3802,7 @@ function buildPlannerPrompt(
     "- Do not broaden scope beyond the requested outcome.",
     "- Do not propose unrelated documentation rewrites or adjacent cleanup unless clearly required.",
     "- Do not repeat the prompt, Discovery Report, or project guidance context.",
-    "- Keep the plan concise but operational: the Builder should know where to start, what to change, and how to verify.",
+    "- Keep the plan concise but operational: the Builder should know where to start and what to change, while Factory verification owns the run-blocking checks.",
     "- End with exactly: WAITING_FOR_APPROVAL",
   ].filter(Boolean).join("\n");
 }
@@ -3712,7 +3815,8 @@ function buildCompiledPrompt(goal: string, compiled: CompiledContext, workspaceP
     ...(compiled.role === "builder" ? [
       "Before modifying files, prepare the repository environment yourself: inspect README and project configuration, determine whether dependencies are already usable, and install or synchronize them only when needed.",
       "Prefer repository-provided wrappers, lockfiles, and setup instructions. Do not replace lockfiles, upgrade dependencies, use sudo, or install system packages unless explicitly required and approved.",
-      "Use the lightest readiness check first, keep setup within the available run budget, and report setup actions and verification results in your final response.",
+      "Use only short, bounded local commands when needed to understand or compile-check your own edits, and report setup actions in your final response.",
+      "Do not run the authoritative verification suite, start persistent servers, wait on smoke/e2e checks, or decide whether the task is verified; Factory verification owns that after Builder returns.",
     ] : []),
     `Role: ${compiled.role}`,
   ];
@@ -3760,7 +3864,8 @@ function buildBuilderPrompt(
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Before modifying files, prepare the repository environment yourself: inspect README and project configuration, determine whether dependencies are already usable, and install or synchronize them only when needed.",
     "Prefer repository-provided wrappers, lockfiles, and setup instructions. Do not replace lockfiles, upgrade dependencies, use sudo, or install system packages unless explicitly required and approved.",
-    "Use the lightest readiness check first, keep setup within the available run budget, and report setup actions and verification results in your final response.",
+    "Use only short, bounded local commands when needed to understand or compile-check your own edits, and report setup actions in your final response.",
+    "Do not run the authoritative verification suite, start persistent servers, wait on smoke/e2e checks, or decide whether the task is verified; Factory verification owns that after Builder returns.",
     "Implement only the requested task in this repository and leave the workspace ready for verification.",
     "Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.",
   ].filter(Boolean).join("\n");

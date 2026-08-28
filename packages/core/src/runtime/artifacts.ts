@@ -75,10 +75,11 @@ export interface PrototypeVerificationArtifact {
   commands: Array<{
     name: string;
     command: string;
-    status: "configured" | "missing" | "passed" | "failed";
+    status: "configured" | "missing" | "passed" | "failed" | "timed-out";
     exitCode?: number;
     stdout?: string;
     stderr?: string;
+    timeoutMs?: number;
   }>;
   overallStatus: "passed" | "failed" | "incomplete";
   selectionSource?: "configured" | "ai" | "deterministic";

@@ -2181,6 +2181,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     branchName: `factory-${trimmedGoal.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "run"}`,
     discoveryExecutor: executorBundle?.discoveryExecutor,
     plannerExecutor: executorBundle?.plannerExecutor,
+    verificationPlannerExecutor: executorBundle?.verificationPlannerExecutor,
     builderExecutor: executorBundle?.builderExecutor,
     repairExecutor: executorBundle?.repairExecutor,
     reviewerExecutor: executorBundle?.reviewerExecutor,
@@ -2923,6 +2924,7 @@ async function createOptionalExecutorBundle(
   | {
       discoveryExecutor: AgentExecutor;
       plannerExecutor: AgentExecutor;
+      verificationPlannerExecutor: AgentExecutor;
       builderExecutor: AgentExecutor;
       repairExecutor: AgentExecutor;
       reviewerExecutor: AgentExecutor;
@@ -2954,6 +2956,7 @@ async function createOptionalExecutorBundle(
   return {
     discoveryExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
     plannerExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
+    verificationPlannerExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
     builderExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
     repairExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
     reviewerExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),

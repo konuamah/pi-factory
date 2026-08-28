@@ -39,9 +39,9 @@ Each stage should include:
 Use `agent` for model work:
 
 - planner: planning and repo reasoning
-- builder: implementation
+- builder: implementation only
 - reviewer: risk review
-- repair: fix failed checks
+- repair: fix verification failures after command/contract checks run
 
 Use `interview` before planning when Factory must ask the user questions first.
 
@@ -56,6 +56,10 @@ Use `command` for verification:
 - test
 - build
 - project-specific scripts
+
+Builder agents may run short, bounded local commands when needed to understand their own edits, but all run-blocking checks belong in `command` verification stages. Do not put smoke/e2e ownership in the builder contract. If a verification command can hang, configure it as a named check with `timeout` in seconds.
+
+When a `verify` or `verification` stage lists `commands`, those names must match configured standard commands (`lint`, `typecheck`, `test`, `build`) or entries under `.factory/config.yaml` `commands.checks`. This list is the allowed verification set for that stage. When an LLM verification planner is available, Factory gives it the goal, changed files, and allowed checks so it can choose the smallest useful subset. If no verification planner is available, Factory falls back to deterministic changed-path filtering. If the command list is omitted, Factory allows all configured verification commands.
 
 Use `approval` before irreversible or user-owned decisions.
 

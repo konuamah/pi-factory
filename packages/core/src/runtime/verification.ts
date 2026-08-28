@@ -11,10 +11,11 @@ const execAsync = promisify(exec);
 export interface VerificationCommandResult {
   name: string;
   command: string;
-  status: "passed" | "failed" | "missing";
+  status: "passed" | "failed" | "missing" | "timed-out";
   exitCode?: number;
   stdout?: string;
   stderr?: string;
+  timeoutMs?: number;
 }
 
 export interface VerificationRunResult {
@@ -33,6 +34,7 @@ export interface VerificationCommandConfig {
   typecheck?: string;
   test?: string;
   build?: string;
+  [name: string]: string | undefined;
 }
 
 export interface StructuredVerificationCommands {
@@ -43,6 +45,7 @@ export interface StructuredVerificationCommands {
   test?: string;
   build?: string;
   checks?: Record<string, { description?: string; command: string; timeout?: number }>;
+  [name: string]: string | Record<string, { description?: string; command: string; timeout?: number }> | undefined;
 }
 
 export function normalizeVerificationCommands(
@@ -57,13 +60,7 @@ export function normalizeVerificationCommands(
   }
   for (const [name, check] of Object.entries(checks ?? {})) {
     if (typeof check?.command !== "string" || !check.command.trim()) continue;
-    // Preserve the first check per standard role; all named checks are handled below.
-    const role = name.toLowerCase().includes("lint") ? "lint"
-      : name.toLowerCase().includes("type") ? "typecheck"
-        : name.toLowerCase().includes("test") ? "test"
-          : name.toLowerCase().includes("build") ? "build" : undefined;
-    if (role && !normalized[role]) normalized[role] = check.command;
-    if (!role && !normalized.test) normalized.test = check.command;
+    normalized[name] = check.command;
   }
   return normalized;
 }
@@ -72,6 +69,7 @@ export interface VerificationPlan {
   cwd: string;
   cwdResolution: VerificationCwdResolution;
   commands: VerificationCommandConfig;
+  timeouts?: Record<string, number>;
   selectionSource: "configured" | "ai" | "deterministic";
   rationale?: string;
   skill: {
@@ -97,6 +95,7 @@ export interface VerificationCommandDecision {
 export interface VerificationEvidence {
   rootCwd: string;
   configuredCwd?: string;
+  changedFiles?: string[];
   candidateCwds: Array<{
     path: string;
     relativePath: string;
@@ -125,6 +124,7 @@ export async function planVerificationExecution(input: {
   cwd: string;
   goal: string;
   commands: VerificationCommandConfig;
+  timeouts?: Record<string, number>;
   constitutionContext?: string;
   executor?: AgentExecutor;
   model?: {
@@ -132,15 +132,16 @@ export async function planVerificationExecution(input: {
     model: string;
   };
   runId?: string;
+  changedFiles?: string[];
   allowDeterministicFallback?: boolean;
 }): Promise<VerificationPlan> {
   await initializeFactorySkills(input.cwd);
-  const evidence = await discoverVerificationEvidence(input.cwd, input.commands);
+  const evidence = await discoverVerificationEvidence(input.cwd, input.commands, input.changedFiles);
   const selectedSkill = resolveVerificationPlanningSkill(input.goal, evidence);
 
   if (!input.executor) {
     if (input.allowDeterministicFallback) {
-      return buildDeterministicVerificationPlan(evidence, selectedSkill);
+      return buildDeterministicVerificationPlan(evidence, selectedSkill, input.timeouts);
     }
     throw new VerificationPlanningError("VERIFICATION_PLANNER_MISSING_EXECUTOR: Verification planning requires an LLM executor. No deterministic fallback is allowed.");
   }
@@ -161,12 +162,13 @@ export async function planVerificationExecution(input: {
   if (!parsed) {
     throw new VerificationPlanningError("VERIFICATION_PLANNER_INVALID_JSON: Verification planner returned invalid structured JSON.");
   }
-  return sanitizeVerificationPlan(parsed, evidence, selectedSkill);
+  return sanitizeVerificationPlan(parsed, evidence, selectedSkill, input.timeouts);
 }
 
 export async function runVerificationCommands(input: {
   cwd: string;
   commands: VerificationCommandConfig;
+  timeouts?: Record<string, number>;
   env?: Record<string, string>;
 }): Promise<VerificationRunResult> {
   const resolved = await resolveVerificationCwd(input.cwd, input.commands.cwd);
@@ -207,6 +209,7 @@ export async function runVerificationCommands(input: {
       const { stdout, stderr } = await execAsync(command, {
         cwd: resolved.cwd,
         windowsHide: true,
+        timeout: input.timeouts?.[name],
         env: input.env ? { ...process.env, ...input.env } : process.env,
       });
       results.push({
@@ -216,25 +219,31 @@ export async function runVerificationCommands(input: {
         exitCode: 0,
         stdout,
         stderr,
+        ...(input.timeouts?.[name] ? { timeoutMs: input.timeouts[name] } : {}),
       });
     } catch (error) {
       const execError = error as Error & {
         code?: number;
         stdout?: string;
         stderr?: string;
+        killed?: boolean;
+        signal?: NodeJS.Signals;
       };
+      const timeoutMs = input.timeouts?.[name];
+      const timedOut = Boolean(timeoutMs) && execError.killed === true && execError.signal === "SIGTERM";
       results.push({
         name,
         command,
-        status: "failed",
+        status: timedOut ? "timed-out" : "failed",
         exitCode: typeof execError.code === "number" ? execError.code : undefined,
         stdout: execError.stdout,
-        stderr: execError.stderr,
+        stderr: timedOut ? `Verification command timed out after ${timeoutMs}ms` : execError.stderr,
+        ...(timeoutMs ? { timeoutMs } : {}),
       });
     }
   }
 
-  const hasFailed = results.some((result) => result.status === "failed");
+  const hasFailed = results.some((result) => result.status === "failed" || result.status === "timed-out");
   const hasMissing = results.some((result) => result.status === "missing");
 
   return {
@@ -248,6 +257,7 @@ export async function runVerificationCommands(input: {
 async function discoverVerificationEvidence(
   executionCwd: string,
   commands: VerificationCommandConfig,
+  changedFiles: string[] = [],
 ): Promise<VerificationEvidence> {
   const rootScripts = await readPackageScripts(executionCwd);
   const nestedPackageRoots = await findNestedProjectRoots(executionCwd, 3);
@@ -296,6 +306,7 @@ async function discoverVerificationEvidence(
   return {
     rootCwd: executionCwd,
     configuredCwd: typeof commands.cwd === "string" && commands.cwd.trim() ? commands.cwd : undefined,
+    changedFiles,
     candidateCwds,
     configuredCommands: commands,
     allowedCommands,
@@ -306,6 +317,7 @@ async function discoverVerificationEvidence(
 async function buildDeterministicVerificationPlan(
   evidence: VerificationEvidence,
   selectedSkill: { id: string; version: string; mode: "verification" | "repair"; selectionReasons: string[] },
+  timeouts: Record<string, number> = {},
 ): Promise<VerificationPlan> {
   const resolved = await resolveVerificationCwd(evidence.rootCwd, evidence.configuredCwd);
   const chosenCandidate = evidence.candidateCwds.find((candidate) => path.normalize(candidate.path) === path.normalize(resolved.cwd));
@@ -319,6 +331,7 @@ async function buildDeterministicVerificationPlan(
     cwd: resolved.cwd,
     cwdResolution: resolved.resolution,
     commands: selectedCommands,
+    timeouts: pickCommandTimeouts(timeouts, selectedCommands),
     selectionSource: evidence.configuredCwd ? "configured" : "deterministic",
     rationale: evidence.configuredCwd
       ? `Using configured commands.cwd (${evidence.configuredCwd}).`
@@ -410,9 +423,14 @@ function firstSetupCommand(
 function commandLikelyExistsForScript(command: string, scriptName: string, packageScripts: string[]): boolean {
   const normalized = command.trim().toLowerCase();
   if (/^(pnpm|npm|yarn)\s+(run\s+)?[a-z0-9:_-]+$/i.test(normalized)) {
-    return packageScripts.includes(scriptName);
+    return packageScripts.includes(extractPackageScriptName(command) ?? scriptName);
   }
   return true;
+}
+
+function extractPackageScriptName(command: string): string | undefined {
+  const match = command.trim().match(/^(?:pnpm|npm|yarn)\s+(?:run\s+)?([a-z0-9:_-]+)$/i);
+  return match?.[1];
 }
 
 function explainCommandSelection(
@@ -421,7 +439,10 @@ function explainCommandSelection(
   packageScripts: string[],
 ): VerificationCommandDecision[] {
   const decisions: VerificationCommandDecision[] = [];
-  for (const name of ["setup", "lint", "typecheck", "test", "build"] as const) {
+  for (const name of uniqueStrings([...Object.keys(commands), ...Object.keys(selectedCommands)])) {
+    if (name === "cwd") {
+      continue;
+    }
     const configured = commands[name];
     const selected = selectedCommands[name];
     if (!configured) {
@@ -444,9 +465,9 @@ function explainCommandSelection(
         command: configured,
         reason: name === "setup" || packageScripts.length === 0
           ? "Configured command selected."
-          : packageScripts.includes(name)
-            ? `Configured command selected because package script '${name}' exists.`
-            : "Configured command selected.",
+          : packageScripts.includes(extractPackageScriptName(configured) ?? name)
+            ? `Configured command selected because package script '${extractPackageScriptName(configured) ?? name}' exists.`
+          : "Configured command selected.",
       });
       continue;
     }
@@ -456,7 +477,7 @@ function explainCommandSelection(
       selected: false,
       command: configured,
       reason: packageScripts.length > 0 && /^(pnpm|npm|yarn)\s+(run\s+)?[a-z0-9:_-]+$/i.test(configured.trim())
-        ? `Skipped because package script '${name}' was not found in the selected package.`
+        ? `Skipped because package script '${extractPackageScriptName(configured) ?? name}' was not found in the selected package.`
         : "Configured command was omitted by verification planning.",
     });
   }
@@ -472,14 +493,16 @@ function buildVerificationPlannerPrompt(
     `Goal: ${goal}`,
     "Choose the most appropriate verification working directory and commands for this repository.",
     "You are the verification planner. Deterministic code only collected evidence; you must decide from the allowlisted evidence.",
-    "Prefer the weakest valid plan that matches the repository's real structure. Include setup/install when the selected cwd has missing dependency markers and a setup command is available.",
+    "Prefer the weakest valid plan that matches the repository's real structure and the actual changed files. Omit checks for untouched areas unless the change is high-risk or cross-cutting.",
+    "Include setup/install when the selected cwd has missing dependency markers and a setup command is available.",
     "Fail-safe rule: only choose commands from allowedCommands or configured Factory commands. Do not invent shell commands.",
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    `Changed files: ${JSON.stringify(evidence.changedFiles ?? [], null, 2)}`,
     `Configured commands: ${JSON.stringify(evidence.configuredCommands, null, 2)}`,
     `Allowed commands: ${JSON.stringify(evidence.allowedCommands, null, 2)}`,
     `Verification candidates: ${JSON.stringify(evidence.candidateCwds, null, 2)}`,
     "Return JSON only with shape:",
-    '{"cwd":"<candidate path>","commands":{"setup":"...","lint":"...","build":"..."},"rationale":"short reason"}',
+    '{"cwd":"<candidate path>","commands":{"setup":"...","lint":"...","build":"...","build-frontend":"..."},"rationale":"short reason"}',
     "Only include commands that should actually run for this repo. Omit missing/non-authoritative stages.",
   ].filter(Boolean).join("\n\n");
 }
@@ -511,6 +534,7 @@ function sanitizeVerificationPlan(
   parsed: { cwd?: string; commands?: VerificationCommandConfig; rationale?: string },
   evidence: VerificationEvidence,
   selectedSkill: { id: string; version: string; mode: "verification" | "repair"; selectionReasons: string[] },
+  timeouts: Record<string, number> = {},
 ): VerificationPlan {
   const allowedCwds = new Set(evidence.candidateCwds.map((candidate) => path.normalize(candidate.path)));
   if (typeof parsed.cwd !== "string" || !allowedCwds.has(path.normalize(parsed.cwd))) {
@@ -523,6 +547,7 @@ function sanitizeVerificationPlan(
     cwd: chosenCwd,
     cwdResolution: determineResolutionFromEvidence(evidence, chosenCwd),
     commands,
+    timeouts: pickCommandTimeouts(timeouts, commands),
     selectionSource: "ai",
     rationale: typeof parsed.rationale === "string" && parsed.rationale.trim() ? parsed.rationale.trim() : undefined,
     skill: selectedSkill,
@@ -534,6 +559,16 @@ function sanitizeVerificationPlan(
   };
 }
 
+function pickCommandTimeouts(timeouts: Record<string, number>, commands: VerificationCommandConfig): Record<string, number> {
+  const selected: Record<string, number> = {};
+  for (const name of Object.keys(commands)) {
+    if (typeof timeouts[name] === "number") {
+      selected[name] = timeouts[name];
+    }
+  }
+  return selected;
+}
+
 function validateSelectedCommands(
   selected: VerificationCommandConfig | undefined,
   evidence: VerificationEvidence,
@@ -543,7 +578,10 @@ function validateSelectedCommands(
     throw new VerificationPlanningError("VERIFICATION_PLANNER_EMPTY_COMMANDS: Verification planner selected no commands.");
   }
   const result: VerificationCommandConfig = {};
-  for (const name of ["setup", "lint", "typecheck", "test", "build"] as const) {
+  for (const name of Object.keys(selected)) {
+    if (name === "cwd") {
+      continue;
+    }
     const requested = selected?.[name];
     if (!requested) {
       continue;

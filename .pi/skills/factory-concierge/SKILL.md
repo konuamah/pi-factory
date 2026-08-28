@@ -42,6 +42,8 @@ Do not expose hidden chain-of-thought, raw JSON contracts, or internal schemas. 
 
 You may guide task execution, choose or prepare the right workflow, explain risk, and give the exact `/factory <goal>` command for the user to run manually. Do not start a Factory implementation task yourself.
 
+When troubleshooting stuck builders or testing blockers, keep phase responsibility strict: Builder implements only; `verify`/`verification` command stages own lint, build, tests, smoke/e2e, and other run-blocking checks; Repair reacts only after verification failures. Named verify commands must match configured standard commands or `commands.checks` entries, and long-running checks should have `timeout` in seconds. Treat the workflow command list as an allowlist: with an LLM verification planner, Factory supplies changed files and lets the planner choose the smallest useful subset; without one, Factory uses deterministic changed-path filtering.
+
 ## Visible Transcript Discipline
 
 Keep the visible transcript operational, not diary-like.

@@ -81,6 +81,7 @@ interface Recommendation<T> {
 5. **Workflows.** You may return a preset **or** a custom DAG using the real primitives below. Prefer custom when the repo justifies it.
 
    Presets: `balanced` (`plan→build→verify→approval→merge`), `fast` (`plan→build→approval→merge`), `safe` (verification-first).
+   Builder stages are implementation-only. Put lint, typecheck, test, build, smoke/e2e, and other run-blocking checks in command stages. If a custom verify stage names commands, each name must match a configured standard command or `commands.checks` entry; add `timeout` in seconds for long-running checks. The command list is an allowlist: the LLM verification planner may choose a smaller subset from changed files and task risk, with deterministic changed-path filtering only as fallback.
 
    Custom DAG (use when repo has DB migrations / integration tests / CI etc.):
    ```ts

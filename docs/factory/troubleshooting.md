@@ -50,6 +50,47 @@ Fix:
 - require confirmation before applying
 - prefer package scripts when present
 
+## Discovery Evidence Path Typo
+
+Symptom:
+
+```text
+Discovery failed: Discovery evidence references files that do not exist: ...
+```
+
+Current behavior:
+
+- `files[]` remains strict. If Discovery claims an implementation file that does not exist, Factory still fails the run.
+- `evidence[]` is softer. Factory now tries one safe correction using a unique basename match from Discovery's validated `files[]`.
+- If no unique discovered-file match exists, Factory drops that bad evidence item and records a `discovery.evidence_sanitized` warning in the run events instead of failing Discovery immediately.
+
+Example:
+
+```text
+bad evidence: frontend/landoptima/globals.css
+validated files[]: frontend/landoptima/src/app/globals.css
+result: evidence path is corrected to frontend/landoptima/src/app/globals.css
+```
+
+## Builder Stuck During Smoke Testing
+
+Symptom:
+
+```text
+phase: implementation
+builder output mentions smoke testing or a dev server
+verify never starts
+repair never becomes eligible
+```
+
+Fix:
+
+- Keep Builder implementation-only. It may run short, bounded local commands to understand or compile-check its own edits, but it must not own the authoritative verification suite.
+- Put lint, build, unit/integration tests, smoke/e2e, and project-specific checks in the `verify`/`verification` command stage.
+- Add `commands.checks.<name>.timeout` for smoke/e2e or any command that could hang. Timeout values are seconds in `.factory/config.yaml`.
+- Treat verify-stage commands as an allowlist. With an LLM verification planner, Factory should choose the smallest useful subset from the goal and changed files; without one, deterministic changed-path filtering is the fallback.
+- Repair runs only after verification classifies a failure. It should not compensate for a builder that never returned.
+
 ## Widget Truncated
 
 Keep TUI widgets short during select prompts. Use compact summaries and separate details views for long content.

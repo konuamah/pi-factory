@@ -5,6 +5,7 @@ export type FailureCategory =
   | "invalid-command"
   | "missing-dependency"
   | "environment-policy"
+  | "timeout"
   | "real-code-failure"
   | "baseline-unrelated"
   | "harness/config"
@@ -35,7 +36,7 @@ export function classifyVerificationFailures(input: {
   result: VerificationRunResult;
   changedFiles?: string[];
 }): CommandFailureClassification[] {
-  const failed = input.result.commands.filter((command) => command.status === "failed");
+  const failed = input.result.commands.filter((command) => command.status === "failed" || command.status === "timed-out");
   return failed.map((command) => classifySingleCommand(command, input.result.cwd, input.changedFiles));
 }
 
@@ -69,6 +70,7 @@ export function classifyVerificationFailure(input: {
     "harness/config",
     "invalid-command",
     "environment-policy",
+    "timeout",
     "missing-executable",
     "missing-dependency",
     "real-code-failure",
@@ -98,6 +100,16 @@ function classifySingleCommand(
   changedFiles?: string[],
 ): CommandFailureClassification {
   const text = `${command.stderr ?? ""}\n${command.stdout ?? ""}`.toLowerCase();
+
+  if (command.status === "timed-out") {
+    return {
+      commandName: command.name,
+      category: "timeout",
+      reason: `Verification command timed out: ${command.command}`,
+      retryable: true,
+      suggestedAction: "diagnose",
+    };
+  }
 
   // Forced failures from harness
   if (command.name === "forced-failure" || /FACTORY_PI_FORCE_VERIFY_FAIL/.test(command.command)) {
@@ -248,6 +260,7 @@ function suggestedPhaseForCategory(category: FailureCategory): string {
     case "missing-executable": return "verification-planning";
     case "missing-dependency": return "verification-planning";
     case "environment-policy": return "verification-planning";
+    case "timeout": return "verification";
     case "real-code-failure": return "verification";
     case "baseline-unrelated": return "verification";
     case "unknown": return "verification";

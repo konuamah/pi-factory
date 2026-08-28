@@ -137,6 +137,7 @@ export async function planVerificationExecution(input: {
   };
   runId?: string;
   changedFiles?: string[];
+  planContract?: string;
   allowDeterministicFallback?: boolean;
 }): Promise<VerificationPlan> {
   await initializeFactorySkills(input.cwd);
@@ -153,7 +154,7 @@ export async function planVerificationExecution(input: {
   const result = await input.executor.execute({
     executionId: `${input.runId ?? "verification"}-verification-plan`,
     cwd: input.cwd,
-    prompt: buildVerificationPlannerPrompt(input.goal, evidence, input.constitutionContext),
+    prompt: buildVerificationPlannerPrompt(input.goal, evidence, input.constitutionContext, input.planContract),
     model: input.model,
     tools: ["read", "grep", "find", "ls"],
     metadata: {
@@ -174,6 +175,7 @@ export async function planVerificationExecution(input: {
         "Convert your plan into JSON and respond with JSON only — no prose, no markdown, no code fences.",
         'Required shape: {"cwd":"<candidate path>","commands":{"<stage>":"<command>"},"rationale":"short reason"}',
         "cwd must be one of the candidate paths; commands must come from the allowed list.",
+        ...(input.planContract ? ["Prioritize commands that map to the implementation plan's verification contract:", input.planContract] : []),
         "",
         "Your previous response:",
         result.outputText.slice(0, 4000),
@@ -518,6 +520,7 @@ function buildVerificationPlannerPrompt(
   goal: string,
   evidence: VerificationEvidence,
   constitutionContext?: string,
+  planContract?: string,
 ): string {
   return [
     `Goal: ${goal}`,
@@ -527,6 +530,7 @@ function buildVerificationPlannerPrompt(
     "Include setup/install when the selected cwd has missing dependency markers and a setup command is available.",
     "Fail-safe rule: only choose commands from allowedCommands or configured Factory commands. Do not invent shell commands.",
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    planContract ? `Implementation plan verification contract (the planner's intended checks — prioritize these when they map to allowlisted commands):\n${planContract}` : undefined,
     `Changed files: ${JSON.stringify(evidence.changedFiles ?? [], null, 2)}`,
     `Configured commands: ${JSON.stringify(evidence.configuredCommands, null, 2)}`,
     `Allowed commands: ${JSON.stringify(evidence.allowedCommands, null, 2)}`,

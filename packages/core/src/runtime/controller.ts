@@ -1057,6 +1057,7 @@ async function runFactoryControllerInner(
     });
   }
   const filteredVerificationCommands = impactResult?.commands ?? normalizedCommands;
+  const planContract = await readPlanVerificationContract(path.join(run.runDir, "plan.json"));
   const verificationPlan = await planVerificationExecution({
     cwd: executionCwd,
     goal: input.goal,
@@ -1067,6 +1068,7 @@ async function runFactoryControllerInner(
     executor: input.verificationPlannerExecutor,
     model: loaded.effectiveConfig.models.planner,
     runId: run.runId,
+    planContract,
     allowDeterministicFallback: !input.verificationPlannerExecutor,
   });
   await writePrototypeVerificationPlanArtifact(run.runDir, {
@@ -1315,6 +1317,7 @@ async function runFactoryControllerInner(
       const repairHandoff = buildPhaseHandoff({
         goal: input.goal,
         changedFiles: implementationChangedFiles,
+        builderNotes: await readBuilderNotes(builderExecutionPaths),
         baselineSummary: baseCheckResults.length > 0
           ? baseCheckResults.filter((b) => b.result).map((b) => `${b.name}: ${b.result?.status === "failed" ? "fails at base" : "passes at base"}`).join("; ")
           : undefined,
@@ -1521,7 +1524,7 @@ async function runFactoryControllerInner(
     const reviewerResult = await input.reviewerExecutor.execute({
       executionId: `${run.runId}-reviewer`,
       cwd: executionCwd,
-      prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills), buildPhaseHandoff({ goal: input.goal, changedFiles: implementationChangedFiles })),
+      prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills), buildPhaseHandoff({ goal: input.goal, changedFiles: implementationChangedFiles, builderNotes: await readBuilderNotes(builderExecutionPaths) })),
       model: loaded.effectiveConfig.models.reviewer,
       tools: ["read", "grep", "find", "ls"],
       metadata: {
@@ -2920,6 +2923,38 @@ async function gitChangedFiles(cwd: string): Promise<string[]> {
       .filter((file) => file && file !== "NUL");
   } catch {
     return [];
+  }
+}
+
+async function readBuilderNotes(builderExecutionPaths: string[]): Promise<string | undefined> {
+  const notes: string[] = [];
+  for (const filePath of builderExecutionPaths) {
+    try {
+      const raw = await fs.readFile(filePath, "utf8");
+      const artifact = JSON.parse(raw) as { taskId?: string; outputText?: string };
+      const output = artifact.outputText ?? "";
+      // Prefer an explicit report tail; fall back to the first meaningful lines.
+      const report = output.match(/report\s*:\s*([\s\S]*)$/i)?.[1]
+        ?? output.split(/\n{2,}/).slice(-3).join("\n");
+      const summary = report.trim().slice(0, 800);
+      if (summary) notes.push(`[${artifact.taskId ?? "builder"}] ${summary}`);
+    } catch {
+      // best effort
+    }
+  }
+  return notes.length ? notes.join("\n\n") : undefined;
+}
+
+async function readPlanVerificationContract(planPath: string): Promise<string | undefined> {
+  try {
+    const raw = await fs.readFile(planPath, "utf8");
+    const plan = JSON.parse(raw) as Record<string, unknown>;
+    const planText = typeof plan.planText === "string" ? plan.planText : "";
+    const marker = planText.match(/3\.\s*VERIFICATION\s*CONTRACT([\s\S]*?)(?:4\.\s*RISKS|$)/i);
+    if (marker?.[1]?.trim()) return marker[1].trim().slice(0, 4000);
+    return undefined;
+  } catch {
+    return undefined;
   }
 }
 

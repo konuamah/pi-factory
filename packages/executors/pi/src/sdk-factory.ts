@@ -29,6 +29,20 @@ export function createPiSdkSessionFactory(
         cwd: input.cwd,
         sessionManager,
       };
+      // Session-local provider timeout from Factory policy. Never mutates
+      // global Pi settings; each execution gets its own in-memory manager.
+      const limits = input.limits as { modelTimeoutMs?: number } | undefined;
+      if (sdk.SettingsManager?.inMemory && limits?.modelTimeoutMs) {
+        const settings = sdk.SettingsManager.inMemory();
+        settings.applyOverrides({
+          retry: {
+            provider: {
+              timeoutMs: limits.modelTimeoutMs,
+            },
+          },
+        } as never);
+        createOptions.settingsManager = settings;
+      }
       const diagnostics: PiSessionFactoryResult["diagnostics"] = [];
 
       const tools = input.tools && input.tools.length > 0 ? input.tools : undefined;
@@ -294,6 +308,11 @@ interface PiSdkModule {
   createAgentSession(options: Record<string, unknown>): Promise<{ session: PiSdkAgentSession }>;
   SessionManager: {
     inMemory(cwd?: string): unknown;
+  };
+  SettingsManager?: {
+    inMemory?(settings?: unknown): {
+      applyOverrides(overrides: unknown): void;
+    };
   };
   createReadOnlyTools?(cwd?: string): Array<{ name: string; execute: (toolCallId: string, args: unknown, signal?: AbortSignal, onUpdate?: unknown, ctx?: unknown) => Promise<unknown> }>;
   createCodingTools?(cwd?: string): Array<{ name: string; execute: (toolCallId: string, args: unknown, signal?: AbortSignal, onUpdate?: unknown, ctx?: unknown) => Promise<unknown> }>;

@@ -9,6 +9,7 @@
 
 ## Local norms
 - Treat the harness as a universal software-engineering harness, not a framework-specific tool; all core abstractions, workflows, and validation should work across languages, frameworks, runtimes, and project structures, with ecosystem-specific behavior implemented only as optional adapters.
+- Prioritize using the Pi SDK as the primary execution and integration layer for agent sessions, tools, and lifecycle events. Prefer native SDK primitives (session.abort, waitForIdle, lifecycle events, tool signal/timeout, SettingsManager) over custom replacements, while keeping Factory policy authoritative for hard limits.
 - Timeout policy is deterministic harness code; what to do after a timeout is LLM decision. The LLM cannot extend or override resource limits. Tool timeouts, total runtime, and max turns are enforced by Factory, not by model output.
 - Prefer project-adaptive behavior over repo-specific hard-coding.
 - Deterministic scanning should provide evidence; AI should decide ambiguous execution strategy.

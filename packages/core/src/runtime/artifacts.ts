@@ -5,7 +5,7 @@ export interface PrototypeTaskArtifact {
   id: string;
   title: string;
   stage: string;
-  status: "pending" | "done" | "running" | "failed";
+  status: "pending" | "done" | "running" | "failed" | "aborted";
   dependsOn: string[];
   type?: string;
   role?: string;
@@ -162,7 +162,7 @@ export interface PrototypeVerificationArtifact {
 
 export interface PrototypePlannerExecutionArtifact {
   executionId: string;
-  status: "completed" | "failed" | "cancelled";
+  status: "completed" | "failed" | "cancelled" | "aborted";
   outputText: string;
   events: Array<{
     type: string;
@@ -173,7 +173,7 @@ export interface PrototypePlannerExecutionArtifact {
 
 export interface PrototypeDiscoveryExecutionArtifact {
   executionId: string;
-  status: "completed" | "failed" | "cancelled";
+  status: "completed" | "failed" | "cancelled" | "aborted";
   outputText: string;
   events: Array<{
     type: string;
@@ -185,7 +185,7 @@ export interface PrototypeDiscoveryExecutionArtifact {
 export interface PrototypeRepairExecutionArtifact {
   attempt: number;
   executionId: string;
-  status: "completed" | "failed" | "cancelled";
+  status: "completed" | "failed" | "cancelled" | "aborted";
   outputText: string;
   events: Array<{
     type: string;
@@ -196,7 +196,7 @@ export interface PrototypeRepairExecutionArtifact {
 
 export interface PrototypeReviewerExecutionArtifact {
   executionId: string;
-  status: "completed" | "failed" | "cancelled";
+  status: "completed" | "failed" | "cancelled" | "aborted";
   outputText: string;
   events: Array<{
     type: string;
@@ -210,7 +210,7 @@ export interface PrototypeBuilderExecutionArtifact {
   workspacePath?: string;
   workspaceBranch?: string;
   executionId: string;
-  status: "completed" | "failed" | "cancelled";
+  status: "completed" | "failed" | "cancelled" | "aborted";
   outputText: string;
   events: Array<{
     type: string;

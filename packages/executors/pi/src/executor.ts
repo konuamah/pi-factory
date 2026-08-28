@@ -58,7 +58,7 @@ export class PiAgentExecutor implements AgentExecutor {
         await created.session.abort().catch(() => {});
         return {
           executionId: input.executionId,
-          status: "failed",
+          status: "aborted",
           outputText: state.outputChunks.join(""),
           events: state.events,
           errorMessage: promptResult.message,

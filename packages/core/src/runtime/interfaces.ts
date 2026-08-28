@@ -18,7 +18,7 @@ export interface AgentExecutionInput {
 
 export interface AgentExecutionResult {
   executionId: string;
-  status: "completed" | "failed" | "cancelled";
+  status: "completed" | "failed" | "cancelled" | "aborted";
   outputText: string;
   events: Array<{
     type: string;

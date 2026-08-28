@@ -835,14 +835,15 @@ async function runFactoryControllerInner(
   });
 
   if (!implementationRun.ok) {
+    const isAborted = implementationRun.failedPhase === "implementation-aborted";
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
-      type: "run.failed",
-      data: { reason: `implementation task failed: ${implementationRun.failedTask.id}` },
+      type: isAborted ? "run.aborted" : "run.failed",
+      data: { reason: `implementation task ${isAborted ? "aborted" : "failed"}: ${implementationRun.failedTask.id}` },
     });
     const failedState = await updateFactoryRunState({
       statePath: run.statePath,
-      patch: { status: "FAILED", phase: implementationRun.failedPhase },
+      patch: { status: isAborted ? "ABORTED" : "FAILED", phase: implementationRun.failedPhase },
     });
     const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
       runId: run.runId,
@@ -1848,7 +1849,8 @@ async function runImplementationTasks(input: {
         completed.add(result.task.id);
         continue;
       }
-      return { ok: false, failedTask: result.task, failedPhase: "implementation-failed", taskWorkspaces };
+      const failedPhase = result.terminalStatus === "aborted" ? "implementation-aborted" : "implementation-failed";
+      return { ok: false, failedTask: result.task, failedPhase, taskWorkspaces };
     }
   }
 
@@ -1883,7 +1885,7 @@ async function runImplementationTask(input: {
   builderExecutionPaths: string[];
 }): Promise<
   | { ok: true; task: PlannerTask; workspace: TaskWorkspaceSelection }
-  | { ok: false; task: PlannerTask; workspace: TaskWorkspaceSelection }
+  | { ok: false; task: PlannerTask; workspace: TaskWorkspaceSelection; terminalStatus?: string }
 > {
   const workspace = await resolveTaskWorkspace({
     cwd: input.executionCwd,
@@ -2200,14 +2202,15 @@ async function runImplementationTask(input: {
       workspace.changedFiles = committedChange.changedFiles;
 
       if (builderResult.status !== "completed") {
+        const terminalStatus = builderResult.status === "aborted" ? "aborted" : "failed";
         await updatePrototypeTaskArtifact({
           runDir: input.runDir,
           taskId: input.task.id,
-          patch: { status: "failed" },
+          patch: { status: terminalStatus },
         });
         await appendFactoryRunEvent(input.eventsPath, {
           timestamp: new Date().toISOString(),
-          type: "task.failed",
+          type: terminalStatus === "aborted" ? "task.aborted" : "task.failed",
           data: {
             taskId: input.task.id,
             stage: input.task.stage,
@@ -2219,7 +2222,7 @@ async function runImplementationTask(input: {
             workspaceBranch: workspace.branch,
           },
         });
-        return { ok: false, task: input.task, workspace };
+        return { ok: false, task: input.task, workspace, terminalStatus };
       }
       if (!committedChange.committed) {
         await updatePrototypeTaskArtifact({

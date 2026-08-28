@@ -182,8 +182,14 @@ function classifySingleCommand(
     // Check if failure is unrelated to changes (baseline)
     if (changedFiles && changedFiles.length > 0) {
       const failureFiles = extractReferencedFiles(command, cwd);
-      const changedSet = new Set(changedFiles);
-      const hasRelatedFailure = failureFiles.some((f) => changedSet.has(f));
+      // Paths may be relative to the verification cwd (src/...) while changed
+      // files are repo-root-relative (frontend/landoptima/src/...). Match by
+      // suffix overlap so they compare correctly across project roots.
+      const normalizedChanged = changedFiles.map((f) => f.replace(/\\/g, "/").replace(/^\.\//, ""));
+      const hasRelatedFailure = failureFiles.some((f) => {
+        const normalized = f.replace(/\\/g, "/").replace(/^\.\//, "");
+        return normalizedChanged.some((c) => c === normalized || c.endsWith(`/${normalized}`) || normalized.endsWith(`/${c}`));
+      });
       if (failureFiles.length > 0 && !hasRelatedFailure) {
         return {
           commandName: command.name,

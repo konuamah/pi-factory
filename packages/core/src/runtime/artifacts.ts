@@ -306,8 +306,9 @@ export async function writePrototypePlannerExecutionArtifact(
 export async function writePrototypeDiscoveryExecutionArtifact(
   runDir: string,
   artifact: PrototypeDiscoveryExecutionArtifact,
+  suffix?: string,
 ): Promise<string> {
-  const filePath = path.join(runDir, "discovery-execution.json");
+  const filePath = path.join(runDir, suffix ? `discovery-${suffix}-execution.json` : "discovery-execution.json");
   await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
   return filePath;
 }

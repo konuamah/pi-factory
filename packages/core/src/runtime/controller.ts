@@ -544,26 +544,56 @@ async function runFactoryControllerInner(
     const repairEligible = !discoveryValidation.ok
       && (discoveryValidation.reason === "Discovery returned no output"
         || discoveryValidation.reason === "Discovery returned invalid structured JSON");
+    let repairArtifactPath: string | undefined;
     if (repairEligible) {
-      const repair = await discoveryExecutor.execute({
-        executionId: `${run.runId}-discovery-repair`,
-        cwd: executionCwd,
-        prompt: [
-          "Your previous response was not valid structured JSON, so it was rejected.",
-          "Convert it into the required DiscoveryContract JSON and respond with JSON only — no prose, no markdown fences.",
-          'Shape: {"status":"complete","files":["path/to/file"],"evidence":[{"status":"confirmed","file":"path","finding":"..."}],"unknowns":[],"summary":"..."}',
-          "Every file must exist in the evidence packet. Status must be complete or failed.",
-          "",
-          "Your previous response:",
-          discoveryResult.outputText.slice(0, 6000),
-        ].join("\n\n"),
-        model: discoveryModel.model,
-        tools: [],
-        limits: loaded.effectiveConfig.runtime.limits,
-        metadata: { role: "discovery", stage: "discovery-json-repair", runId: run.runId },
-      });
-      discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, { ...repair, executionId: `${run.runId}-discovery-repair` });
-      discoveryValidation = await validateDiscoveryOutput(repair.outputText, executionCwd, discoveryEvidence);
+      const repairPrompt = [
+        "Your previous response was not valid structured JSON, so it was rejected.",
+        "Convert it into the required DiscoveryContract JSON and respond with JSON only — no prose, no markdown fences.",
+        'Shape: {"status":"complete","files":["path/to/file"],"evidence":[{"status":"confirmed","file":"path","finding":"..."}],"unknowns":[],"summary":"..."}',
+        "Every file must exist in the evidence packet. Status must be complete or failed.",
+        "",
+        "Your previous response:",
+        discoveryResult.outputText.slice(0, 6000),
+      ].join("\n\n");
+      // Early-out: if the first response was a prompt echo, skip the wasted
+      // repair round-trip and go straight to the deterministic fallback.
+      const echoed = looksLikePromptEcho(discoveryResult.outputText, buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills), discoveryEvidence));
+      if (!echoed) {
+        const repair = await discoveryExecutor.execute({
+          executionId: `${run.runId}-discovery-repair`,
+          cwd: executionCwd,
+          prompt: repairPrompt,
+          model: discoveryModel.model,
+          tools: [],
+          limits: loaded.effectiveConfig.runtime.limits,
+          metadata: { role: "discovery", stage: "discovery-json-repair", runId: run.runId },
+        });
+        repairArtifactPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, { ...repair, executionId: `${run.runId}-discovery-repair` }, "repair");
+        discoveryValidation = await validateDiscoveryOutput(repair.outputText, executionCwd, discoveryEvidence);
+      } else {
+        discoveryValidation = { ok: false, reason: "Discovery returned invalid structured JSON (prompt echo detected)" };
+      }
+    }
+    // Deterministic fallback: after attempt + repair fail, build a safe contract
+    // from the already-collected evidence packet instead of failing the run.
+    let usedDiscoveryFallback = false;
+    if (!discoveryValidation.ok) {
+      const fallbackReason = discoveryValidation.reason;
+      const fallbackContract = buildDeterministicDiscoveryContract(discoveryEvidence);
+      const fallbackValidation = await validateDiscoveryOutput(JSON.stringify(fallbackContract), executionCwd, discoveryEvidence);
+      if (fallbackValidation.ok) {
+        usedDiscoveryFallback = true;
+        discoveryValidation = fallbackValidation;
+        await appendFactoryRunEvent(run.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "discovery.used_fallback",
+          data: {
+            reason: fallbackReason,
+            fallbackFiles: fallbackContract.files?.length ?? 0,
+            fallbackEvidence: fallbackContract.evidence?.length ?? 0,
+          },
+        });
+      }
     }
     if (!discoveryValidation.ok) {
       await appendFactoryRunEvent(run.eventsPath, {
@@ -571,6 +601,7 @@ async function runFactoryControllerInner(
         type: "discovery.invalid_output",
         data: {
           discoveryExecutionPath,
+          repairArtifactPath,
           reason: discoveryValidation.reason,
           rawPreview: discoveryResult.outputText.slice(0, 400),
         },
@@ -3345,6 +3376,46 @@ interface DiscoveryEvidencePacket {
   }>;
   terms: string[];
   truncated: boolean;
+}
+
+/**
+ * Build a safe DiscoveryContract purely from deterministic evidence.
+ * Never fabricates semantic conclusions the collector did not establish.
+ */
+function buildDeterministicDiscoveryContract(packet: DiscoveryEvidencePacket): DiscoveryContract {
+  const files = packet.candidateFiles.slice(0, 20);
+  const byFile = new Map<string, DiscoveryEvidenceItem[]>();
+  for (const snippet of packet.snippets) {
+    const entry = byFile.get(snippet.file) ?? [];
+    entry.push({
+      status: "confirmed",
+      file: snippet.file,
+      finding: snippet.text.slice(0, 500),
+    });
+    byFile.set(snippet.file, entry);
+  }
+  // Only include files that have real snippets (confirmed evidence), plus
+  // top candidate files without fabricating findings about them.
+  const evidence: DiscoveryEvidenceItem[] = [...byFile.entries()]
+    .map(([, items]) => items[0])
+    .slice(0, 20);
+  return {
+    status: "complete",
+    files,
+    evidence,
+    unknowns: [
+      "LLM discovery did not produce a valid contract; deterministic evidence-based fallback used.",
+    ],
+  };
+}
+
+function looksLikePromptEcho(output: string, prompt: string): boolean {
+  if (!output || !prompt) return false;
+  const probe = prompt
+    .split(/\n{2,}/)
+    .filter((chunk) => chunk.trim().length >= 40)
+    .slice(0, 3);
+  return probe.some((chunk) => output.includes(chunk.trim().slice(0, 120)));
 }
 
 async function validateDiscoveryOutput(

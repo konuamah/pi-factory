@@ -23,6 +23,7 @@ export class PiAgentExecutor implements AgentExecutor {
       model: input.model,
       tools: gatedTools,
       metadata: input.metadata,
+      limits: input.limits,
     });
 
     const state: PiExecutorState = {

@@ -26,6 +26,7 @@ export interface PiSessionFactoryInput {
   model?: AgentExecutionInput["model"];
   tools?: string[];
   metadata?: Record<string, unknown>;
+  limits?: AgentExecutionInput["limits"];
 }
 
 export interface PiSessionFactoryDiagnostic {

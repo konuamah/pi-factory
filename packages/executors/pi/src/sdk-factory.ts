@@ -34,7 +34,7 @@ export function createPiSdkSessionFactory(
       const tools = input.tools && input.tools.length > 0 ? input.tools : undefined;
       let executableTools: Array<{ name: string; execute: (args: unknown) => Promise<unknown> }> | undefined;
       if (tools) {
-        const createdTools = (options.createTools ?? createBuiltinTools)(sdk, input.cwd, tools);
+        const createdTools = (options.createTools ?? createBuiltinTools)(sdk, input.cwd, tools, (input.limits as { toolTimeoutMs?: number } | undefined)?.toolTimeoutMs);
         const missingTools = findMissingTools(tools, createdTools);
         if (missingTools.length > 0) {
           throw new Error(`Pi SDK did not provide required Factory tool(s): ${missingTools.join(", ")}`);
@@ -230,7 +230,12 @@ function buildGateContext(
   };
 }
 
-function createBuiltinTools(sdk: PiSdkModule, cwd: string, names: string[]): Array<{ name: string; execute: (args: unknown) => Promise<unknown> }> {
+function createBuiltinTools(
+  sdk: PiSdkModule,
+  cwd: string,
+  names: string[],
+  maxToolTimeoutMs?: number,
+): Array<{ name: string; execute: (args: unknown) => Promise<unknown> }> {
   const all = [...(sdk.createReadOnlyTools?.(cwd) ?? []), ...(sdk.createCodingTools?.(cwd) ?? [])];
   const byName = new Map(all.map((tool) => [tool.name, tool]));
   return names
@@ -238,7 +243,18 @@ function createBuiltinTools(sdk: PiSdkModule, cwd: string, names: string[]): Arr
     .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool))
     .map((tool) => ({
       name: tool.name,
-      execute: async (args: unknown) => await tool.execute(`factory-${tool.name}-${Date.now()}`, args),
+      execute: async (args: unknown) => {
+        // Clamp model-supplied bash timeout to Factory's hard ceiling.
+        // Model cannot extend the tool limit.
+        let callArgs = args;
+        if (tool.name === "bash" && maxToolTimeoutMs && args && typeof args === "object" && !Array.isArray(args)) {
+          const record = args as Record<string, unknown>;
+          if (typeof record.timeout === "number") {
+            callArgs = { ...record, timeout: Math.min(record.timeout, maxToolTimeoutMs) };
+          }
+        }
+        return await tool.execute(`factory-${tool.name}-${Date.now()}`, callArgs);
+      },
     }));
 }
 

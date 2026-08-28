@@ -158,6 +158,84 @@ test('Pi SDK tool objects stay executable through Factory bridge', async () => {
   assert.deepEqual(invocations[0].params, { command: 'pwd' });
 });
 
+test('Pi executor aborts prompt on model timeout', async () => {
+  let abortCalled = false;
+  const session = {
+    async prompt() {
+      await new Promise(() => {});
+    },
+    subscribe() {
+      return () => {};
+    },
+    async abort() {
+      abortCalled = true;
+    },
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: {
+      async create() {
+        return { session };
+      },
+    },
+  });
+
+  const result = await executor.execute({
+    executionId: 'exec-model-timeout',
+    cwd: process.cwd(),
+    prompt: 'build',
+    limits: {
+      modelTimeoutMs: 10,
+      totalRunTimeoutMs: 1000,
+    },
+  });
+
+  assert.equal(result.status, 'aborted');
+  assert.equal(result.abortReason?.type, 'model-timeout');
+  assert.equal(abortCalled, true);
+  assert.match(result.errorMessage ?? '', /model-timeout/);
+});
+
+test('Pi executor fails on provider error event', async () => {
+  const session = {
+    listener: undefined,
+    async prompt() {
+      this.listener?.({
+        type: 'message_start',
+        data: {
+          message: {
+            stopReason: 'error',
+            errorMessage: '402 Insufficient Balance',
+          },
+        },
+      });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {},
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: {
+      async create() {
+        return { session };
+      },
+    },
+  });
+
+  const result = await executor.execute({
+    executionId: 'exec-provider-error',
+    cwd: process.cwd(),
+    prompt: 'build',
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.errorMessage, '402 Insufficient Balance');
+  assert.equal(result.events.some((event) => event.type === 'executor.provider_error'), true);
+});
+
 test('DSML parser accepts single-pipe delimiter variants', async () => {
   const prompts = [];
   const toolCalls = [];

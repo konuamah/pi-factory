@@ -18,6 +18,7 @@ export interface AgentExecutionInput {
 
 export type AbortReason =
   | { type: "total-run-timeout"; limitMs: number; elapsedMs: number }
+  | { type: "model-timeout"; limitMs: number; elapsedMs: number }
   | { type: "tool-timeout"; limitMs: number; toolName?: string }
   | { type: "max-turns"; limit: number; observedTurns: number; };
 

@@ -88,8 +88,38 @@ Fix:
 - Keep Builder implementation-only. It may run short, bounded local commands to understand or compile-check its own edits, but it must not own the authoritative verification suite.
 - Put lint, build, unit/integration tests, smoke/e2e, and project-specific checks in the `verify`/`verification` command stage.
 - Add `commands.checks.<name>.timeout` for smoke/e2e or any command that could hang. Timeout values are seconds in `.factory/config.yaml`.
-- Treat verify-stage commands as an allowlist. With an LLM verification planner, Factory should choose the smallest useful subset from the goal and changed files; without one, deterministic changed-path filtering is the fallback.
+- Treat verify-stage commands as preferred policy hints. With an LLM verification planner, Factory supplies the implementation files the builder actually changed, the configured checks, and safe repo-discovered commands so the planner can choose the smallest useful subset; without one, deterministic changed-path filtering over configured checks is the fallback.
 - Repair runs only after verification classifies a failure. It should not compensate for a builder that never returned.
+
+## Provider Error Reaches Verification
+
+Symptom:
+
+```text
+builder provider reports 402 Insufficient Balance
+Factory still commits or enters verification
+```
+
+Fix:
+
+- Treat Pi SDK model/provider error events as builder failures.
+- Do not commit an empty or partial implementation after a provider error.
+- Do not enter verification; the run should fail fast in implementation so model routing or account balance can be fixed directly.
+
+## Pi Supervisor Registration Fails
+
+Symptom:
+
+```text
+Pi extension registration fails with missing lifecycle hooks.
+```
+
+Fix:
+
+- Confirm the installed Pi host exposes the real Pi extension primitives: `pi.on("input", ...)`, `pi.on("before_agent_start", ...)`, `pi.on("tool_call", ...)`, `pi.on("tool_result", ...)`, `pi.on("agent_end", ...)`, and `pi.setModel(...)`.
+- If those hooks are unavailable, use a supervisor-capable Pi host or extension API version.
+- The supervisor is advisory. Pi still owns the active coding-agent loop, tool execution, edits, and terminal commands.
+- The supervisor does not use hidden Pi SDK sessions for normal interactive work.
 
 ## Widget Truncated
 

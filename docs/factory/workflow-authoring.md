@@ -59,11 +59,29 @@ Use `command` for verification:
 
 Builder agents may run short, bounded local commands when needed to understand their own edits, but all run-blocking checks belong in `command` verification stages. Do not put smoke/e2e ownership in the builder contract. If a verification command can hang, configure it as a named check with `timeout` in seconds.
 
-When a `verify` or `verification` stage lists `commands`, those names must match configured standard commands (`lint`, `typecheck`, `test`, `build`) or entries under `.factory/config.yaml` `commands.checks`. This list is the allowed verification set for that stage. When an LLM verification planner is available, Factory gives it the goal, changed files, and allowed checks so it can choose the smallest useful subset. If no verification planner is available, Factory falls back to deterministic changed-path filtering. If the command list is omitted, Factory allows all configured verification commands.
+When a `verify` or `verification` stage lists `commands`, those names must match configured standard commands (`lint`, `typecheck`, `test`, `build`) or entries under `.factory/config.yaml` `commands.checks`. This list is the preferred policy set for that stage. When an LLM verification planner is available, Factory gives it the goal, the implementation files the builder actually changed, the configured checks, and safe repo-discovered commands so it can choose the smallest useful subset. It may select a safe discovered script that was not configured, but if it selects a configured command it must keep the configured check name. If no verification planner is available, Factory falls back to deterministic changed-path filtering over configured checks. If the command list is omitted, Factory allows all configured verification commands.
 
 Use `approval` before irreversible or user-owned decisions.
 
 Use `task-graph` only when a step should expand into subtasks.
+
+## Pi Supervisory Mode
+
+The packaged Pi extension supervises a normal interactive Pi coding-agent session through lifecycle hooks. In that mode Pi remains the executor: it owns the prompt loop, tool calls, file edits, and terminal commands. Factory does not start hidden Pi SDK agent sessions for normal interactive work.
+
+The supervisor layer is advisory and session-local:
+
+- user input is classified as inspect, plan, implement, verify, repair, review, or general
+- the turn is mapped to an existing model role
+- the configured provider/model is resolved through Pi's `ctx.modelRegistry`
+- `setModel` is used to switch to the configured role model
+- a compact turn contract is appended to the active prompt
+- relevant skill and verification hints are limited to the current turn
+- edit/write tool calls record touched files
+- check-like shell commands and failed tool results are tracked as evidence
+- `/supervisor status` shows the current session classification, model role, touched files, observed checks, and failures
+
+If a Pi host does not expose these hooks, extension registration fails loudly. This mode intentionally targets supervisor-capable Pi hosts rather than command-only compatibility.
 
 ## Explicit Skills
 

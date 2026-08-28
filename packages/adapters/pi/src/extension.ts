@@ -1,5 +1,6 @@
 import type { FactoryPiExtensionApiLike } from "./types.js";
 import { getFactoryCommandCompletions, handleFactoryCommand } from "./gateway.js";
+import { registerSupervisoryPiHooks } from "./supervisor.js";
 
 export function registerFactoryPiExtension(pi: FactoryPiExtensionApiLike): void {
   pi.registerCommand("factory", {
@@ -9,6 +10,7 @@ export function registerFactoryPiExtension(pi: FactoryPiExtensionApiLike): void 
       await handleFactoryCommand(args, ctx);
     },
   });
+  registerSupervisoryPiHooks(pi);
 
   // Opt-in auto-start: dashboard.enabled in effective config (global < project < built-ins).
   // Non-blocking, pi-scoped singleton; dies with pi process (no orphan daemon).

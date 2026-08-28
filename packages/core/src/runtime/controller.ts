@@ -44,7 +44,7 @@ import {
 } from "../models/index.js";
 import { appendModelLedgerEntry } from "../runs/model-ledger.js";
 import { appendDecisionLedgerEntry, findPendingDecision } from "../decisions/index.js";
-import type { AbortDecision } from "./interfaces.js";
+import type { AbortDecision, AgentExecutionInput } from "./interfaces.js";
 import type { DecisionRequest, DecisionResult } from "../decisions/index.js";
 import { gatherVerificationRequirements, initializeVerificationProviders, runVerificationEngine } from "../verification/index.js";
 import type { VerificationContractPlan, VerificationEngineResult } from "../verification/index.js";
@@ -529,6 +529,7 @@ async function runFactoryControllerInner(
       prompt: buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills), discoveryEvidence),
       model: discoveryModel.model,
       tools: ["read", "grep", "find", "ls"],
+      limits: loaded.effectiveConfig.runtime.limits,
       metadata: {
         role: "discovery",
         runId: run.runId,
@@ -612,6 +613,7 @@ async function runFactoryControllerInner(
       prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text, renderSkillBundleForPrompt(plannerSkills), discoveryOutputText, interviewContext),
       model: plannerModel.model,
       tools: ["read", "grep", "find", "ls"],
+      limits: loaded.effectiveConfig.runtime.limits,
       metadata: {
         role: "planner",
         runId: run.runId,
@@ -630,6 +632,7 @@ async function runFactoryControllerInner(
         executor: input.plannerExecutor,
         model: plannerModel.model,
         runId: run.runId,
+        limits: loaded.effectiveConfig.runtime.limits,
       });
       if (llmValidation.ok) {
         plannerValidation = { ok: true };
@@ -899,6 +902,7 @@ async function runFactoryControllerInner(
       runId: run.runId,
       repairExecutor: input.repairExecutor,
       repairModel: loaded.effectiveConfig.models.repair,
+      limits: loaded.effectiveConfig.runtime.limits,
       repairGuidanceContext: repairGuidance.text,
       repairSkillBundleText: renderSkillBundleForPrompt(repairSkills),
     });
@@ -1040,7 +1044,9 @@ async function runFactoryControllerInner(
   }
   const verificationSelection = resolveWorkflowVerificationCommands(loaded.effectiveConfig);
   const normalizedCommands = normalizeVerificationCommands(verificationSelection.commands);
-  const changedFiles = await getChangedFilesFromBase(executionCwd, loaded.effectiveConfig.git.baseBranch);
+  const implementationChangedFiles = uniqueStrings(taskWorkspacesChangedFiles(implementationRun.taskWorkspaces));
+  const baseChangedFiles = await getChangedFilesFromBase(executionCwd, loaded.effectiveConfig.git.baseBranch);
+  const changedFiles = implementationChangedFiles.length > 0 ? implementationChangedFiles : baseChangedFiles;
   const baseSha = await resolveBaseSha(executionCwd, loaded.effectiveConfig.git.baseBranch);
   const impactResult = input.verificationPlannerExecutor
     ? undefined
@@ -1066,6 +1072,7 @@ async function runFactoryControllerInner(
     constitutionContext: repairGuidance.text,
     executor: input.verificationPlannerExecutor,
     model: loaded.effectiveConfig.models.planner,
+    limits: loaded.effectiveConfig.runtime.limits,
     runId: run.runId,
     allowDeterministicFallback: !input.verificationPlannerExecutor,
   });
@@ -1118,7 +1125,6 @@ async function runFactoryControllerInner(
       : undefined,
   });
   verification.cwdResolution = verificationPlan.cwdResolution;
-  const implementationChangedFiles = uniqueStrings(taskWorkspacesChangedFiles(implementationRun.taskWorkspaces));
   // Resolve unknown code failures (files not directly changed) against the
   // base SHA: same failure at base = baseline-unrelated; base passes = introduced.
   let baseCheckResults: Array<{ name: string; command: string; result: VerificationCommandResult | undefined }> = [];
@@ -1273,6 +1279,7 @@ async function runFactoryControllerInner(
       prompt: buildEnvironmentPrepPrompt(verification.cwd, environmentFailures),
       model: loaded.effectiveConfig.models.repair,
       tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+      limits: loaded.effectiveConfig.runtime.limits,
       metadata: { role: "repair", purpose: "environment-preparation", runId: run.runId },
     });
     await appendFactoryRunEvent(run.eventsPath, {
@@ -1325,6 +1332,7 @@ async function runFactoryControllerInner(
         prompt: buildRepairPrompt(input.goal, verification, repairGuidance.text, renderSkillBundleForPrompt(repairSkills), repairHandoff),
         model: loaded.effectiveConfig.models.repair,
         tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+        limits: loaded.effectiveConfig.runtime.limits,
         metadata: {
           role: "repair",
           runId: run.runId,
@@ -1524,6 +1532,7 @@ async function runFactoryControllerInner(
       prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills), buildPhaseHandoff({ goal: input.goal, changedFiles: implementationChangedFiles })),
       model: loaded.effectiveConfig.models.reviewer,
       tools: ["read", "grep", "find", "ls"],
+      limits: loaded.effectiveConfig.runtime.limits,
       metadata: {
         role: "reviewer",
         runId: run.runId,
@@ -2251,6 +2260,7 @@ async function runImplementationTask(input: {
               }),
               model: input.roleModels.repair ?? input.roleModels.builder,
               tools: ["read", "grep", "find", "ls"],
+              limits: input.config.runtime.limits,
               metadata: { role: "repair", purpose: "abort-decision", runId: input.runId },
             });
             decision = parseAbortDecision(decisionResult.outputText);
@@ -2423,6 +2433,7 @@ async function runIntegrationPhase(input: {
   runId: string;
   repairExecutor?: AgentExecutor;
   repairModel?: { provider?: string; model: string };
+  limits?: AgentExecutionInput["limits"];
   repairGuidanceContext?: string;
   repairSkillBundleText?: string;
 }): Promise<string | undefined> {
@@ -2491,6 +2502,7 @@ async function runIntegrationPhase(input: {
         conflictingFiles: failure.conflictingFiles,
         repairExecutor: input.repairExecutor,
         repairModel: input.repairModel,
+        limits: input.limits,
         repairGuidanceContext: input.repairGuidanceContext,
         repairSkillBundleText: input.repairSkillBundleText,
       });
@@ -2532,6 +2544,7 @@ async function attemptIntegrationAutoRepair(input: {
   conflictingFiles: string[];
   repairExecutor?: AgentExecutor;
   repairModel?: { provider?: string; model: string };
+  limits?: AgentExecutionInput["limits"];
   repairGuidanceContext?: string;
   repairSkillBundleText?: string;
 }): Promise<boolean> {
@@ -2555,6 +2568,7 @@ async function attemptIntegrationAutoRepair(input: {
     prompt: buildIntegrationRepairPrompt(input.goal, input.branch, input.conflictingFiles, input.repairGuidanceContext, input.repairSkillBundleText),
     model: input.repairModel,
     tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+    limits: input.limits,
     metadata: {
       role: "repair",
       runId: input.runId,
@@ -3178,6 +3192,7 @@ async function validatePlannerOutputWithLLM(input: {
   executor: AgentExecutor;
   model?: { provider?: string; model: string };
   runId?: string;
+  limits?: AgentExecutionInput["limits"];
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const result = await input.executor.execute({
     executionId: `${input.runId ?? "planner"}-validation`,
@@ -3185,6 +3200,7 @@ async function validatePlannerOutputWithLLM(input: {
     prompt: buildPlannerValidationPrompt(input.plannerOutput),
     model: input.model,
     tools: [],
+    limits: input.limits,
     metadata: { role: "planner-validation", runId: input.runId },
   });
   const parsed = parsePlannerValidationResult(result.outputText);

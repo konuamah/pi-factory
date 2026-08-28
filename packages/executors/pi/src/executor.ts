@@ -51,12 +51,12 @@ export class PiAgentExecutor implements AgentExecutor {
     try {
       const promptResult = await withTimeout(
         () => created.session.prompt(input.prompt),
-        input.limits?.totalRunTimeoutMs,
-        "total-run-timeout",
+        input.limits?.modelTimeoutMs,
+        "model-timeout",
       );
       if (promptResult.kind === "timeout") {
         await created.session.abort().catch(() => {});
-        const abortReason = { type: "total-run-timeout" as const, limitMs: input.limits?.totalRunTimeoutMs ?? 0, elapsedMs: input.limits?.totalRunTimeoutMs ?? 0 };
+        const abortReason = { type: "model-timeout" as const, limitMs: input.limits?.modelTimeoutMs ?? 0, elapsedMs: input.limits?.modelTimeoutMs ?? 0 };
         state.events.push({ type: "executor.aborted", data: abortReason });
         return {
           executionId: input.executionId,
@@ -65,6 +65,17 @@ export class PiAgentExecutor implements AgentExecutor {
           outputText: state.outputChunks.join(""),
           events: state.events,
           errorMessage: promptResult.message,
+        };
+      }
+      const providerError = latestProviderError(state);
+      if (providerError) {
+        state.events.push({ type: "executor.provider_error", data: providerError });
+        return {
+          executionId: input.executionId,
+          status: "failed",
+          outputText: state.outputChunks.join(""),
+          events: state.events,
+          errorMessage: providerError.errorMessage,
         };
       }
       const bridged = await this.bridgeDsmlToolMarkup(input.executionId, created.session, state);
@@ -361,6 +372,17 @@ function summarizeToolResult(result: unknown): Record<string, unknown> {
     preview: text.slice(0, 1000),
     truncated: text.length > 1000,
   };
+}
+
+function latestProviderError(state: PiExecutorState): { errorMessage: string } | undefined {
+  for (const event of [...state.events].reverse()) {
+    const message = (event.data as Record<string, unknown> | undefined)?.message as Record<string, unknown> | undefined;
+    const errorMessage = message?.errorMessage ?? (event.data as Record<string, unknown> | undefined)?.errorMessage;
+    if (message?.stopReason === "error" && typeof errorMessage === "string" && errorMessage.trim()) {
+      return { errorMessage };
+    }
+  }
+  return undefined;
 }
 
 function extractToolName(event: PiSessionEvent): string | undefined {

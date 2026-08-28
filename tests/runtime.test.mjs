@@ -1089,6 +1089,66 @@ test('verification planner discovers framework evidence and accepts llm-selected
   });
 });
 
+test('verification planner can select discovered package script outside configured checks', async () => {
+  await withTempProject(async (root) => {
+    const appDir = path.join(root, 'frontend', 'landoptima');
+    await fs.mkdir(path.join(appDir, 'node_modules'), { recursive: true });
+    await fs.writeFile(
+      path.join(appDir, 'package.json'),
+      JSON.stringify({
+        name: 'landoptima-web',
+        type: 'module',
+        scripts: {
+          build: 'node -e ""',
+        },
+      }, null, 2),
+      'utf8',
+    );
+
+    const plan = await planVerificationExecution({
+      cwd: root,
+      goal: 'Verify a small frontend UI change',
+      commands: {},
+      changedFiles: ['frontend/landoptima/src/app/components/Navbar.tsx'],
+      executor: verificationExecutorFor({
+        cwd: appDir,
+        commands: {
+          'frontend-build': 'npm run build',
+        },
+        rationale: 'The change is inside the nested frontend package, so use its discovered build script.',
+      }),
+    });
+
+    assert.equal(plan.cwd, appDir);
+    assert.deepEqual(plan.commands, { 'frontend-build': 'npm run build' });
+    assert.equal(plan.selectionSource, 'ai');
+    assert.ok(plan.evidence.allowedCommands.includes('npm run build'));
+    assert.equal(plan.evidence.commandDecisions.find((decision) => decision.name === 'frontend-build')?.configured, false);
+  }, { rootPackage: false });
+});
+
+test('verification planner rejects renamed configured command', async () => {
+  await withTempProject(async (root) => {
+    await assert.rejects(
+      () => planVerificationExecution({
+        cwd: root,
+        goal: 'Verify',
+        commands: {
+          'lint-frontend': 'node -e ""',
+        },
+        executor: verificationExecutorFor({
+          cwd: root,
+          commands: {
+            lint: 'node -e ""',
+          },
+          rationale: 'Run lint.',
+        }),
+      }),
+      /VERIFICATION_PLANNER_INVALID_COMMAND_NAME/,
+    );
+  });
+});
+
 test('ai verification planner cannot omit discovered setup when package dependencies are missing', async () => {
   await withTempProject(async (root) => {
     await fs.writeFile(
@@ -1693,6 +1753,12 @@ test('llm verification planner chooses impact-aware subset from workflow checks'
       ].join('\n'),
       'utf8',
     );
+    await execFile('git', ['add', '.'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'configure named checks'], { cwd: root });
+    await execFile('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: root });
+    await fs.writeFile(path.join(root, 'flask/tests/test_old.py'), 'def test_old():\n    assert True\n', 'utf8');
+    await execFile('git', ['add', 'flask/tests/test_old.py'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'stale backend branch diff'], { cwd: root });
 
     const calls = [];
     const plannerExecutor = makeExecutor('planner', calls);
@@ -1708,6 +1774,7 @@ test('llm verification planner chooses impact-aware subset from workflow checks'
       async execute(input) {
         calls.push({ label: 'verification-planner', executionId: input.executionId, prompt: input.prompt });
         assert.ok(input.prompt.includes('frontend/landoptima/src/app/components/Navbar.tsx'));
+        assert.equal(input.prompt.includes('flask/tests/test_old.py'), false);
         assert.match(input.prompt, /test-python/);
         return {
           executionId: input.executionId,

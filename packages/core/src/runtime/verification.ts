@@ -3,7 +3,7 @@ import type { Dirent } from "node:fs";
 import path from "node:path";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { AgentExecutor } from "./interfaces.js";
+import type { AgentExecutionInput, AgentExecutor } from "./interfaces.js";
 import { initializeFactorySkills, resolveFactorySkills } from "../skills/index.js";
 
 const execAsync = promisify(exec);
@@ -135,6 +135,7 @@ export async function planVerificationExecution(input: {
     provider?: string;
     model: string;
   };
+  limits?: AgentExecutionInput["limits"];
   runId?: string;
   changedFiles?: string[];
   allowDeterministicFallback?: boolean;
@@ -156,6 +157,7 @@ export async function planVerificationExecution(input: {
     prompt: buildVerificationPlannerPrompt(input.goal, evidence, input.constitutionContext),
     model: input.model,
     tools: ["read", "grep", "find", "ls"],
+    limits: input.limits,
     metadata: {
       role: "planner",
       stage: "verification-planning",
@@ -180,6 +182,7 @@ export async function planVerificationExecution(input: {
       ].join("\n\n"),
       model: input.model,
       tools: [],
+      limits: input.limits,
       metadata: { role: "planner", stage: "verification-planning-repair", runId: input.runId },
     });
     repairOutputText = repair.outputText;
@@ -525,6 +528,8 @@ function buildVerificationPlannerPrompt(
     "You are the verification planner. Deterministic code only collected evidence; you must decide from the allowlisted evidence.",
     "Prefer the weakest valid plan that matches the repository's real structure and the actual changed files. Omit checks for untouched areas unless the change is high-risk or cross-cutting.",
     "Include setup/install when the selected cwd has missing dependency markers and a setup command is available.",
+    "Configured commands are preferred check names and policy hints. Allowed commands may also include repo-discovered scripts that were not configured.",
+    "If you select a configured command, keep its configured key name. Do not rename configured checks.",
     "Fail-safe rule: only choose commands from allowedCommands or configured Factory commands. Do not invent shell commands.",
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     `Changed files: ${JSON.stringify(evidence.changedFiles ?? [], null, 2)}`,
@@ -618,6 +623,12 @@ function validateSelectedCommands(
     }
     if (!evidence.allowedCommands.includes(requested)) {
       throw new VerificationPlanningError(`VERIFICATION_PLANNER_INVALID_COMMAND: Verification planner selected non-authoritative command for ${name}: ${requested}`);
+    }
+    const configuredMatches = Object.entries(evidence.configuredCommands)
+      .filter(([configuredName, configuredCommand]) => configuredName !== "cwd" && configuredName !== "setup" && configuredCommand === requested);
+    if (configuredMatches.length === 1 && configuredMatches[0][0] !== name) {
+      const configuredName = configuredMatches[0][0];
+      throw new VerificationPlanningError(`VERIFICATION_PLANNER_INVALID_COMMAND_NAME: Verification planner selected configured command '${configuredName}' as '${name}'.`);
     }
     result[name] = requested;
   }

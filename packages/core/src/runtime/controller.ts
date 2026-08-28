@@ -529,6 +529,7 @@ async function runFactoryControllerInner(
       prompt: buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills), discoveryEvidence),
       model: discoveryModel.model,
       tools: ["read", "grep", "find", "ls"],
+      limits: loaded.effectiveConfig.runtime.limits,
       metadata: {
         role: "discovery",
         runId: run.runId,
@@ -612,6 +613,7 @@ async function runFactoryControllerInner(
       prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text, renderSkillBundleForPrompt(plannerSkills), discoveryOutputText, interviewContext),
       model: plannerModel.model,
       tools: ["read", "grep", "find", "ls"],
+      limits: loaded.effectiveConfig.runtime.limits,
       metadata: {
         role: "planner",
         runId: run.runId,
@@ -901,6 +903,7 @@ async function runFactoryControllerInner(
       repairModel: loaded.effectiveConfig.models.repair,
       repairGuidanceContext: repairGuidance.text,
       repairSkillBundleText: renderSkillBundleForPrompt(repairSkills),
+      config: loaded.effectiveConfig,
     });
   } catch (error) {
     const integrationFailure = await classifyIntegrationFailure(executionCwd, error);
@@ -1069,6 +1072,7 @@ async function runFactoryControllerInner(
     model: loaded.effectiveConfig.models.planner,
     runId: run.runId,
     planContract,
+    limits: loaded.effectiveConfig.runtime.limits,
     allowDeterministicFallback: !input.verificationPlannerExecutor,
   });
   await writePrototypeVerificationPlanArtifact(run.runDir, {
@@ -1275,6 +1279,7 @@ async function runFactoryControllerInner(
       prompt: buildEnvironmentPrepPrompt(verification.cwd, environmentFailures),
       model: loaded.effectiveConfig.models.repair,
       tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+      limits: loaded.effectiveConfig.runtime.limits,
       metadata: { role: "repair", purpose: "environment-preparation", runId: run.runId },
     });
     await appendFactoryRunEvent(run.eventsPath, {
@@ -1328,6 +1333,7 @@ async function runFactoryControllerInner(
         prompt: buildRepairPrompt(input.goal, verification, repairGuidance.text, renderSkillBundleForPrompt(repairSkills), repairHandoff),
         model: loaded.effectiveConfig.models.repair,
         tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+        limits: loaded.effectiveConfig.runtime.limits,
         metadata: {
           role: "repair",
           runId: run.runId,
@@ -1527,6 +1533,7 @@ async function runFactoryControllerInner(
       prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills), buildPhaseHandoff({ goal: input.goal, changedFiles: implementationChangedFiles, builderNotes: await readBuilderNotes(builderExecutionPaths) })),
       model: loaded.effectiveConfig.models.reviewer,
       tools: ["read", "grep", "find", "ls"],
+      limits: loaded.effectiveConfig.runtime.limits,
       metadata: {
         role: "reviewer",
         runId: run.runId,
@@ -2254,6 +2261,7 @@ async function runImplementationTask(input: {
               }),
               model: input.roleModels.repair ?? input.roleModels.builder,
               tools: ["read", "grep", "find", "ls"],
+              limits: input.config.runtime.limits,
               metadata: { role: "repair", purpose: "abort-decision", runId: input.runId },
             });
             decision = parseAbortDecision(decisionResult.outputText);
@@ -2428,6 +2436,7 @@ async function runIntegrationPhase(input: {
   repairModel?: { provider?: string; model: string };
   repairGuidanceContext?: string;
   repairSkillBundleText?: string;
+  config: EffectiveFactoryConfig;
 }): Promise<string | undefined> {
   const mergedBranches: Array<{
     taskId: string;
@@ -2496,6 +2505,7 @@ async function runIntegrationPhase(input: {
         repairModel: input.repairModel,
         repairGuidanceContext: input.repairGuidanceContext,
         repairSkillBundleText: input.repairSkillBundleText,
+        config: input.config,
       });
 
       if (!repaired) {
@@ -2537,6 +2547,7 @@ async function attemptIntegrationAutoRepair(input: {
   repairModel?: { provider?: string; model: string };
   repairGuidanceContext?: string;
   repairSkillBundleText?: string;
+  config: EffectiveFactoryConfig;
 }): Promise<boolean> {
   if (!input.repairExecutor || input.conflictingFiles.length === 0) {
     return false;
@@ -2558,6 +2569,7 @@ async function attemptIntegrationAutoRepair(input: {
     prompt: buildIntegrationRepairPrompt(input.goal, input.branch, input.conflictingFiles, input.repairGuidanceContext, input.repairSkillBundleText),
     model: input.repairModel,
     tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+    limits: input.config.runtime.limits,
     metadata: {
       role: "repair",
       runId: input.runId,

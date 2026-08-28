@@ -138,6 +138,7 @@ export async function planVerificationExecution(input: {
   runId?: string;
   changedFiles?: string[];
   planContract?: string;
+  limits?: { totalRunTimeoutMs?: number; modelTimeoutMs?: number; toolTimeoutMs?: number; maxTurns?: number };
   allowDeterministicFallback?: boolean;
 }): Promise<VerificationPlan> {
   await initializeFactorySkills(input.cwd);
@@ -157,6 +158,7 @@ export async function planVerificationExecution(input: {
     prompt: buildVerificationPlannerPrompt(input.goal, evidence, input.constitutionContext, input.planContract),
     model: input.model,
     tools: ["read", "grep", "find", "ls"],
+    limits: input.limits,
     metadata: {
       role: "planner",
       stage: "verification-planning",
@@ -182,6 +184,7 @@ export async function planVerificationExecution(input: {
       ].join("\n\n"),
       model: input.model,
       tools: [],
+      limits: input.limits,
       metadata: { role: "planner", stage: "verification-planning-repair", runId: input.runId },
     });
     repairOutputText = repair.outputText;

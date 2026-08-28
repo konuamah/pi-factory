@@ -41,8 +41,19 @@ export class PiAgentExecutor implements AgentExecutor {
       });
     }
 
+    const maxTurns = input.limits?.maxTurns;
+    let turnCount = 0;
+    let abortedByLimit: { type: "max-turns"; limit: number; observedTurns: number } | undefined;
+
     this.activeSessions.set(input.executionId, created.session);
     const unsubscribe = created.session.subscribe((event) => {
+      if (maxTurns && event.type === "turn_start") {
+        turnCount += 1;
+        if (turnCount > maxTurns) {
+          abortedByLimit = { type: "max-turns", limit: maxTurns, observedTurns: turnCount };
+          void created.session.abort().catch(() => {});
+        }
+      }
       this.captureEvent(state, event);
       this.auditToolCall(input.executionId, state, event, input.metadata);
       void this.options.onEvent?.(input.executionId, event);
@@ -54,8 +65,21 @@ export class PiAgentExecutor implements AgentExecutor {
         input.limits?.totalRunTimeoutMs,
         "total-run-timeout",
       );
+      if (abortedByLimit) {
+        await created.session.agent?.waitForIdle?.().catch(() => {});
+        state.events.push({ type: "executor.aborted", data: abortedByLimit });
+        return {
+          executionId: input.executionId,
+          status: "aborted",
+          abortReason: abortedByLimit,
+          outputText: state.outputChunks.join(""),
+          events: state.events,
+          errorMessage: `Aborted by Factory: max turns (${maxTurns}) reached.`,
+        };
+      }
       if (promptResult.kind === "timeout") {
         await created.session.abort().catch(() => {});
+        await created.session.agent?.waitForIdle?.().catch(() => {});
         const abortReason = { type: "total-run-timeout" as const, limitMs: input.limits?.totalRunTimeoutMs ?? 0, elapsedMs: input.limits?.totalRunTimeoutMs ?? 0 };
         state.events.push({ type: "executor.aborted", data: abortReason });
         return {

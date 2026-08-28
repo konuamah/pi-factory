@@ -357,6 +357,24 @@ export async function writePrototypeFinalMergeArtifact(
   return filePath;
 }
 
+export interface PrototypeVerificationPlanArtifact {
+  executionId: string;
+  status: "completed" | "failed" | "cancelled" | "aborted";
+  outputText: string;
+  repairOutputText?: string;
+  usedDeterministicFallback?: boolean;
+  errorMessage?: string;
+}
+
+export async function writePrototypeVerificationPlanArtifact(
+  runDir: string,
+  artifact: PrototypeVerificationPlanArtifact,
+): Promise<string> {
+  const filePath = path.join(runDir, "verification-plan-execution.json");
+  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
 export async function writePrototypeAbortDecisionArtifact(
   runDir: string,
   artifact: {

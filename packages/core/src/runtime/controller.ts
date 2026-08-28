@@ -25,6 +25,7 @@ import {
   writePrototypeSummaryArtifact,
   writePrototypeTaskArtifacts,
   writePrototypeVerificationArtifact,
+  writePrototypeVerificationPlanArtifact,
 } from "./artifacts.js";
 import type { AgentExecutionResult, AgentExecutor } from "./interfaces.js";
 import { buildPlanArtifact, type PlannerTask } from "./planner.js";
@@ -1067,6 +1068,13 @@ async function runFactoryControllerInner(
     model: loaded.effectiveConfig.models.planner,
     runId: run.runId,
     allowDeterministicFallback: !input.verificationPlannerExecutor,
+  });
+  await writePrototypeVerificationPlanArtifact(run.runDir, {
+    executionId: `${run.runId}-verification-plan`,
+    status: "completed",
+    outputText: verificationPlan.plannerOutputText ?? "",
+    repairOutputText: verificationPlan.plannerRepairOutputText,
+    usedDeterministicFallback: verificationPlan.plannerUsedFallback,
   });
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),

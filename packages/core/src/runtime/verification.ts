@@ -72,6 +72,10 @@ export interface VerificationPlan {
   timeouts?: Record<string, number>;
   selectionSource: "configured" | "ai" | "deterministic";
   rationale?: string;
+  /** Raw LLM output for debugging; present when an executor produced the plan. */
+  plannerOutputText?: string;
+  plannerRepairOutputText?: string;
+  plannerUsedFallback?: boolean;
   skill: {
     id: string;
     version: string;
@@ -158,11 +162,37 @@ export async function planVerificationExecution(input: {
       runId: input.runId,
     },
   });
-  const parsed = parseVerificationPlan(result.outputText);
+  let parsed = parseVerificationPlan(result.outputText);
+  let repairOutputText: string | undefined;
   if (!parsed) {
-    throw new VerificationPlanningError("VERIFICATION_PLANNER_INVALID_JSON: Verification planner returned invalid structured JSON.");
+    // LLM repair pass: feed its own output back and demand JSON only.
+    const repair = await input.executor.execute({
+      executionId: `${input.runId ?? "verification"}-verification-plan-repair`,
+      cwd: input.cwd,
+      prompt: [
+        "Your previous response was not valid JSON, so it was rejected.",
+        "Convert your plan into JSON and respond with JSON only — no prose, no markdown, no code fences.",
+        'Required shape: {"cwd":"<candidate path>","commands":{"<stage>":"<command>"},"rationale":"short reason"}',
+        "cwd must be one of the candidate paths; commands must come from the allowed list.",
+        "",
+        "Your previous response:",
+        result.outputText.slice(0, 4000),
+      ].join("\n\n"),
+      model: input.model,
+      tools: [],
+      metadata: { role: "planner", stage: "verification-planning-repair", runId: input.runId },
+    });
+    repairOutputText = repair.outputText;
+    parsed = parseVerificationPlan(repair.outputText);
   }
-  return sanitizeVerificationPlan(parsed, evidence, selectedSkill, input.timeouts);
+  if (!parsed) {
+    if (input.allowDeterministicFallback) {
+      const plan = buildDeterministicVerificationPlan(evidence, selectedSkill, input.timeouts);
+      return { ...plan, plannerOutputText: result.outputText, plannerRepairOutputText: repairOutputText, plannerUsedFallback: true };
+    }
+    throw new VerificationPlanningError(`VERIFICATION_PLANNER_INVALID_JSON: Verification planner returned invalid structured JSON after one repair attempt. Raw output (first 800 chars): ${result.outputText.slice(0, 800)}`);
+  }
+  return { ...sanitizeVerificationPlan(parsed, evidence, selectedSkill, input.timeouts), plannerOutputText: result.outputText, plannerRepairOutputText: repairOutputText };
 }
 
 export async function runVerificationCommands(input: {

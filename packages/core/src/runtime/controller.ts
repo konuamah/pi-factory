@@ -1312,10 +1312,17 @@ async function runFactoryControllerInner(
         status: "RUNNING",
         message: `Repair attempt ${attempt}`,
       });
+      const repairHandoff = buildPhaseHandoff({
+        goal: input.goal,
+        changedFiles: implementationChangedFiles,
+        baselineSummary: baseCheckResults.length > 0
+          ? baseCheckResults.filter((b) => b.result).map((b) => `${b.name}: ${b.result?.status === "failed" ? "fails at base" : "passes at base"}`).join("; ")
+          : undefined,
+      });
       const repairResult = await repairExecutor.execute({
         executionId: `${run.runId}-repair-${attempt}`,
         cwd: verification.cwd,
-        prompt: buildRepairPrompt(input.goal, verification, repairGuidance.text, renderSkillBundleForPrompt(repairSkills)),
+        prompt: buildRepairPrompt(input.goal, verification, repairGuidance.text, renderSkillBundleForPrompt(repairSkills), repairHandoff),
         model: loaded.effectiveConfig.models.repair,
         tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
         metadata: {
@@ -1514,7 +1521,7 @@ async function runFactoryControllerInner(
     const reviewerResult = await input.reviewerExecutor.execute({
       executionId: `${run.runId}-reviewer`,
       cwd: executionCwd,
-      prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills)),
+      prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills), buildPhaseHandoff({ goal: input.goal, changedFiles: implementationChangedFiles })),
       model: loaded.effectiveConfig.models.reviewer,
       tools: ["read", "grep", "find", "ls"],
       metadata: {
@@ -3947,10 +3954,11 @@ function buildPlannerPrompt(
   ].filter(Boolean).join("\n");
 }
 
-function buildCompiledPrompt(goal: string, compiled: CompiledContext, workspacePath?: string): string {
+function buildCompiledPrompt(goal: string, compiled: CompiledContext, workspacePath?: string, handoff?: string): string {
   const sections = [
     `Goal: ${goal}`,
     ...(workspacePath ? [`Working directory: ${workspacePath}`] : []),
+    handoff ? `Phase handoff:\n${handoff}` : undefined,
     ...compiled.instructions,
     ...(compiled.role === "builder" ? [
       "Before modifying files, prepare the repository environment yourself: inspect README and project configuration, determine whether dependencies are already usable, and install or synchronize them only when needed.",
@@ -3960,7 +3968,7 @@ function buildCompiledPrompt(goal: string, compiled: CompiledContext, workspaceP
     ] : []),
     `Role: ${compiled.role}`,
   ];
-  return sections.join("\n");
+  return sections.filter(Boolean).join("\n");
 }
 
 function buildNoChangeRetryPrompt(
@@ -3988,11 +3996,27 @@ function buildNoChangeRetryPrompt(
   ].join("\n");
 }
 
+function buildPhaseHandoff(handoff: {
+  goal: string;
+  planContract?: string;
+  changedFiles?: string[];
+  builderNotes?: string;
+  baselineSummary?: string;
+}): string | undefined {
+  const lines: string[] = [];
+  if (handoff.planContract) lines.push(`Plan verification contract:\n${handoff.planContract}`);
+  if (handoff.changedFiles?.length) lines.push(`Changed files:\n${handoff.changedFiles.join("\n")}`);
+  if (handoff.builderNotes) lines.push(`Builder notes:\n${handoff.builderNotes}`);
+  if (handoff.baselineSummary) lines.push(`Baseline:\n${handoff.baselineSummary}`);
+  return lines.length ? `## Phase handoff\n\n${lines.join("\n\n")}` : undefined;
+}
+
 function buildBuilderPrompt(
   goal: string,
   task: { id: string; title: string; stage: string; dependsOn: string[] },
   constitutionContext?: string,
   skillBundleText?: string,
+  handoff?: string,
 ): string {
   return [
     `Goal: ${goal}`,
@@ -4000,6 +4024,7 @@ function buildBuilderPrompt(
     `Task stage: ${task.stage}`,
     `Task title: ${task.title}`,
     task.dependsOn.length > 0 ? `Depends on: ${task.dependsOn.join(", ")}` : "Depends on: none",
+    handoff ? `Phase handoff:\n${handoff}` : undefined,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Before modifying files, prepare the repository environment yourself: inspect README and project configuration, determine whether dependencies are already usable, and install or synchronize them only when needed.",
@@ -4035,6 +4060,7 @@ function buildRepairPrompt(
   verification: { cwd: string; overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string; stdout?: string; stderr?: string }> },
   constitutionContext?: string,
   skillBundleText?: string,
+  handoff?: string,
 ): string {
   const failures = verification.commands
     .filter((command) => command.status === "failed")
@@ -4046,6 +4072,7 @@ function buildRepairPrompt(
     `Verification status: ${verification.overallStatus}`,
     `Verification cwd: ${verification.cwd}`,
     failures ? `Failures:\n${failures}` : "Failures: none recorded",
+    handoff ? `Phase handoff:\n${handoff}` : undefined,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Repair the code so verification can pass.",
@@ -4079,6 +4106,7 @@ function buildReviewerPrompt(
   verification: { overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string }> },
   constitutionContext?: string,
   skillBundleText?: string,
+  handoff?: string,
 ): string {
   const commandStatuses = verification.commands
     .map((command) => `${command.name}: ${command.status}`)
@@ -4088,6 +4116,7 @@ function buildReviewerPrompt(
     `Goal: ${goal}`,
     `Verification status: ${verification.overallStatus}`,
     commandStatuses ? `Command results:\n${commandStatuses}` : "Command results: none",
+    handoff ? `Phase handoff:\n${handoff}` : undefined,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Review the candidate and report whether it looks ready for approval.",

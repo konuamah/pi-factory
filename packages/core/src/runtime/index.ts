@@ -14,3 +14,5 @@ export * from "./file-resolution.js";
 export * from "./failure-classification.js";
 export * from "./ai-failure-classifier.js";
 export * from "./dependencies.js";
+export * from "./dependency-cache.js";
+export * from "./dependency-remediation.js";

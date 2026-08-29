@@ -3011,3 +3011,74 @@ test('planner intent is extracted into plan.json and reaches builder context', a
     assert.match(builderPrompt, /Non-goals/);
   });
 });
+
+test('final approval receives baseline debt when verification failed baseline-unrelated', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  build: node -e "console.error(1); process.exit(1)"',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+    const failureClassifier = {
+      async execute() {
+        return {
+          executionId: 'classifier',
+          status: 'completed',
+          outputText: JSON.stringify({
+            kind: 'baseline-unrelated',
+            reason: 'Failure outside implemented files: src/legacy.ts',
+            retryable: false,
+            suggestedPhase: 'verification',
+            perCommand: [{
+              commandName: 'build',
+              category: 'baseline-unrelated',
+              reason: 'pre-existing issue',
+              retryable: false,
+              suggestedAction: 'ignore',
+              implicatedFiles: ['src/legacy.ts'],
+            }],
+          }),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    let approvalInput = null;
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a feature',
+      plannerExecutor,
+      builderExecutor,
+      failureClassifierExecutor: failureClassifier,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async (input) => {
+        approvalInput = input;
+        return true;
+      },
+    });
+
+    assert.ok(approvalInput, 'expected requestApproval to be called');
+    assert.ok(Array.isArray(approvalInput.baselineDebt) && approvalInput.baselineDebt.length > 0);
+    assert.equal(approvalInput.baselineDebt[0].category, 'baseline-unrelated');
+    assert.deepEqual(approvalInput.baselineDebt[0].implicatedFiles, ['src/legacy.ts']);
+    assert.equal(approvalInput.contractComplete, true);
+  });
+});

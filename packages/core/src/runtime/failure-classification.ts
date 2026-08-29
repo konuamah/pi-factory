@@ -16,6 +16,7 @@ export interface CommandFailureClassification {
   reason: string;
   retryable: boolean;
   suggestedAction: "repair" | "prepare-environment" | "diagnose" | "ignore" | "blocker";
+  implicatedFiles?: string[];
 }
 
 export interface VerificationFailureClassification {

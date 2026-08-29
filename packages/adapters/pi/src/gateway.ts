@@ -2206,13 +2206,32 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
       );
       return decision;
     },
-    requestApproval: async ({ runId, goal }) => {
+    requestApproval: async ({ runId, goal, baselineDebt, contractComplete, verificationStatus }) => {
+      // Surface baseline repository debt before asking for final approval.
+      const debtLines = (baselineDebt ?? []).map((debt) => [
+        `  failed command: ${debt.commandName}`,
+        `  classification: ${debt.category}`,
+        `  reason: ${debt.reason}`,
+        `  action: ${debt.suggestedAction}`,
+        ...(debt.implicatedFiles?.length ? [`  implicated files: ${debt.implicatedFiles.join(", ")}`] : []),
+      ].join("\n"));
+      if (debtLines.length > 0) {
+        renderLines(ctx, [
+          "Factory approval — baseline repository debt",
+          "Task-specific contract passed, but the following pre-existing failures remain:",
+          "",
+          ...debtLines,
+          "",
+          `verification: ${verificationStatus ?? "unknown"} | contract complete: ${contractComplete ? "yes" : "no"}`,
+          "Approving proceeds with these baseline issues still present.",
+        ]);
+      }
       if (!ctx.ui.confirm) {
         return true;
       }
       return ctx.ui.confirm(
-        "Approve Factory candidate?",
-        `Approve prototype run ${runId} for goal: ${goal}`,
+        debtLines.length > 0 ? "Approve candidate despite baseline debt?" : "Approve Factory candidate?",
+        `Approve prototype run ${runId} for goal: ${goal}${debtLines.length > 0 ? "\n\nBaseline debt shown above is NOT resolved by this run." : ""}`,
       );
     },
     requestDependencyRemediation: async (candidate) => {

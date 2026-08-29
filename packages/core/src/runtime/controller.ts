@@ -91,7 +91,7 @@ export interface RunFactoryControllerInput {
   failureClassifierExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
-  requestApproval?: (input: { runId: string; goal: string; candidateSha?: string }) => Promise<boolean>;
+  requestApproval?: (input: { runId: string; goal: string; candidateSha?: string; baselineDebt?: Array<{ commandName: string; category: string; reason: string; suggestedAction: string; implicatedFiles?: string[] }>; contractComplete: boolean; verificationStatus?: string }) => Promise<boolean>;
   requestDependencyRemediation?: (candidate: import("./dependencies.js").DependencyHydrationRemediationCandidate) => Promise<boolean>;
   requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
   delayMs?: number;
@@ -1733,7 +1733,23 @@ async function runFactoryControllerInner(
     message: "Waiting for human approval",
   });
 
-  const approved = (await input.requestApproval?.({ runId: run.runId, goal: input.goal, candidateSha })) ?? true;
+  const baselineDebt = (verificationFailureClassification?.perCommand ?? [])
+    .filter((c) => c.category === "baseline-unrelated" || c.suggestedAction === "ignore")
+    .map((c) => ({
+      commandName: c.commandName,
+      category: c.category,
+      reason: c.reason,
+      suggestedAction: c.suggestedAction,
+      ...(c.implicatedFiles?.length ? { implicatedFiles: c.implicatedFiles } : {}),
+    }));
+  const approved = (await input.requestApproval?.({
+    runId: run.runId,
+    goal: input.goal,
+    candidateSha,
+    baselineDebt: baselineDebt.length > 0 ? baselineDebt : undefined,
+    contractComplete: contractResult.canComplete,
+    verificationStatus: verification.overallStatus,
+  })) ?? true;
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: approved ? "approval.approved" : "approval.rejected",

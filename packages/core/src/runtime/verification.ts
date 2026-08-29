@@ -97,21 +97,32 @@ export interface VerificationCommandDecision {
 export interface VerificationEvidence {
   rootCwd: string;
   configuredCwd?: string;
-  candidateCwds: Array<{
-    path: string;
-    relativePath: string;
-    reason: string;
-    packageName?: string;
-    scripts: string[];
-    hasNodeModules: boolean;
-    ecosystemMarkers: string[];
-    dependencyMarkers: string[];
-    missingDependencyMarkers: string[];
-    allowedCommands: string[];
-  }>;
+  candidateCwds: VerificationCwdCandidate[];
   configuredCommands: VerificationCommandConfig;
   allowedCommands: string[];
   rootScripts: string[];
+}
+
+export interface VerificationCwdCandidate {
+  path: string;
+  relativePath: string;
+  reason: string;
+  packageName?: string;
+  scripts: string[];
+  scriptCommands: Record<string, string>;
+  packageManager?: "npm" | "pnpm" | "yarn";
+  dependencyVersions: Record<string, string>;
+  staleScripts: Array<{
+    script: string;
+    command: string;
+    reason: string;
+    replacementCommand?: string;
+  }>;
+  hasNodeModules: boolean;
+  ecosystemMarkers: string[];
+  dependencyMarkers: string[];
+  missingDependencyMarkers: string[];
+  allowedCommands: string[];
 }
 
 export class VerificationPlanningError extends Error {
@@ -261,14 +272,16 @@ async function discoverVerificationEvidence(
   for (const candidatePath of candidateRoots) {
     const packageJson = await readPackageJson(candidatePath);
     const relativePath = normalizeRelative(executionCwd, candidatePath);
-    const scripts = packageJson && typeof packageJson.scripts === "object" && packageJson.scripts
-      ? Object.keys(packageJson.scripts).sort()
-      : [];
+    const scriptCommands = readPackageScriptCommands(packageJson);
+    const scripts = Object.keys(scriptCommands).sort();
+    const dependencyVersions = readPackageDependencyVersions(packageJson);
     const ecosystemMarkers = await detectEcosystemMarkers(candidatePath);
+    const packageManager = ecosystemMarkers.includes("package.json") ? await detectPackageManager(candidatePath) : undefined;
+    const staleScripts = packageManager ? detectStalePackageScripts(scriptCommands, dependencyVersions, packageManager) : [];
     const dependencyMarkers = await detectDependencyMarkers(candidatePath);
     const missingDependencyMarkers = expectedDependencyMarkers(ecosystemMarkers)
       .filter((marker) => !dependencyMarkers.includes(marker));
-    const allowedCommands = await discoverAllowedCommands(candidatePath, scripts, ecosystemMarkers);
+    const allowedCommands = await discoverAllowedCommands(candidatePath, scripts, ecosystemMarkers, scriptCommands, dependencyVersions, packageManager, staleScripts);
     candidateCwds.push({
       path: candidatePath,
       relativePath,
@@ -280,6 +293,10 @@ async function discoverVerificationEvidence(
             : "nested-package-root",
       packageName: typeof packageJson?.name === "string" ? packageJson.name : undefined,
       scripts,
+      scriptCommands,
+      packageManager,
+      dependencyVersions,
+      staleScripts,
       hasNodeModules: await exists(path.join(candidatePath, "node_modules")),
       ecosystemMarkers,
       dependencyMarkers,
@@ -307,10 +324,15 @@ async function buildDeterministicVerificationPlan(
   evidence: VerificationEvidence,
   selectedSkill: { id: string; version: string; mode: "verification" | "repair"; selectionReasons: string[] },
 ): Promise<VerificationPlan> {
-  const resolved = await resolveVerificationCwd(evidence.rootCwd, evidence.configuredCwd);
-  const chosenCandidate = evidence.candidateCwds.find((candidate) => path.normalize(candidate.path) === path.normalize(resolved.cwd));
+  const chosenCandidate = chooseDeterministicVerificationCandidate(evidence);
+  const resolved = chosenCandidate
+    ? {
+        cwd: chosenCandidate.path,
+        resolution: determineResolutionFromEvidence(evidence, chosenCandidate.path),
+      }
+    : await resolveVerificationCwd(evidence.rootCwd, evidence.configuredCwd);
   const selectedCommands = withDependencySetupCommand(
-    filterCommandsForCandidate(evidence.configuredCommands, chosenCandidate?.scripts ?? evidence.rootScripts),
+    filterCommandsForCandidate(evidence.configuredCommands, chosenCandidate),
     evidence,
     chosenCandidate,
   );
@@ -329,14 +351,14 @@ async function buildDeterministicVerificationPlan(
     evidence: {
       ...evidence,
       selectedCandidate: chosenCandidate,
-      commandDecisions: explainCommandSelection(evidence.configuredCommands, selectedCommands, chosenCandidate?.scripts ?? evidence.rootScripts),
+      commandDecisions: explainCommandSelection(evidence.configuredCommands, selectedCommands, chosenCandidate ?? evidence.rootScripts),
     },
   };
 }
 
 function filterCommandsForCandidate(
   commands: VerificationCommandConfig,
-  packageScripts: string[],
+  candidate?: VerificationCwdCandidate,
 ): VerificationCommandConfig {
   const selected: VerificationCommandConfig = {};
 
@@ -345,15 +367,60 @@ function filterCommandsForCandidate(
       continue;
     }
     if (name === "setup") {
-      selected.setup = command;
+      selected.setup = normalizeCommandForCandidate(command, name, candidate);
       continue;
     }
-    if (packageScripts.length === 0 || commandLikelyExistsForScript(command, name, packageScripts)) {
-      selected[name as keyof VerificationCommandConfig] = command;
+    const normalized = normalizeCommandForCandidate(command, name, candidate);
+    if (normalized) {
+      selected[name as keyof VerificationCommandConfig] = normalized;
     }
   }
 
   return selected;
+}
+
+function chooseDeterministicVerificationCandidate(evidence: VerificationEvidence): VerificationCwdCandidate | undefined {
+  if (evidence.configuredCwd) {
+    const configuredPath = path.normalize(path.resolve(evidence.rootCwd, evidence.configuredCwd));
+    return evidence.candidateCwds.find((candidate) => path.normalize(candidate.path) === configuredPath);
+  }
+
+  const scored = evidence.candidateCwds.map((candidate) => ({
+    candidate,
+    score: scoreVerificationCandidate(evidence.configuredCommands, candidate, evidence.rootCwd),
+  })).sort((a, b) => b.score - a.score || a.candidate.relativePath.localeCompare(b.candidate.relativePath));
+
+  return scored[0]?.score && scored[0].score > 0 ? scored[0].candidate : undefined;
+}
+
+function scoreVerificationCandidate(
+  commands: VerificationCommandConfig,
+  candidate: VerificationCwdCandidate,
+  rootCwd: string,
+): number {
+  let score = 0;
+  const isRoot = path.normalize(candidate.path) === path.normalize(rootCwd);
+  if (candidate.scripts.length > 0) score += 20;
+  if (candidate.ecosystemMarkers.includes("package.json")) score += 10;
+  if (candidate.ecosystemMarkers.some((marker) => marker === "docker-compose.yml" || marker === "docker-compose.yaml")) score += 1;
+  if (!isRoot && candidate.scripts.length > 0) score += 8;
+
+  for (const [name, command] of Object.entries(commands)) {
+    if (name === "cwd" || !command) continue;
+    const parsedScript = parsePackageScriptCommand(command);
+    if (parsedScript) {
+      if (normalizeCommandForCandidate(command, name, candidate)) {
+        score += name === "setup" ? 4 : candidate.staleScripts.some((stale) => stale.script === parsedScript.script) ? 10 : 12;
+      }
+    } else if (candidate.allowedCommands.includes(command)) {
+      score += 8;
+    } else {
+      score += 2;
+    }
+  }
+
+  if (!isRoot && candidate.scripts.length === 0) score -= 3;
+  return score;
 }
 
 function withDependencySetupCommand(
@@ -395,11 +462,12 @@ function shouldRunDependencySetup(
 
 function firstSetupCommand(
   evidence: VerificationEvidence,
-  chosenCandidate?: VerificationEvidence["candidateCwds"][number],
+  chosenCandidate?: VerificationCwdCandidate,
 ): string | undefined {
   const configuredSetup = evidence.configuredCommands.setup;
-  if (configuredSetup && evidence.allowedCommands.includes(configuredSetup)) {
-    return configuredSetup;
+  if (configuredSetup) {
+    const normalizedSetup = normalizeCommandForCandidate(configuredSetup, "setup", chosenCandidate);
+    if (normalizedSetup) return normalizedSetup;
   }
   const candidates = chosenCandidate ? [chosenCandidate] : evidence.candidateCwds;
   return candidates
@@ -407,20 +475,65 @@ function firstSetupCommand(
     .find((command) => isSetupLikeCommand(command));
 }
 
-function commandLikelyExistsForScript(command: string, scriptName: string, packageScripts: string[]): boolean {
-  const normalized = command.trim().toLowerCase();
-  if (/^(pnpm|npm|yarn)\s+(run\s+)?[a-z0-9:_-]+$/i.test(normalized)) {
-    return packageScripts.includes(scriptName);
+function normalizeCommandForCandidate(
+  command: string,
+  commandName: string,
+  candidate?: VerificationCwdCandidate,
+): string | undefined {
+  if (!candidate) {
+    return command;
   }
-  return true;
+
+  const parsedScript = parsePackageScriptCommand(command);
+  if (parsedScript) {
+    const script = parsedScript.script === "test" && commandName === "test" ? "test" : parsedScript.script;
+    const stale = candidate.staleScripts.find((item) => item.script === script);
+    if (stale) {
+      return stale.replacementCommand;
+    }
+    if (!candidate.scripts.includes(script)) {
+      if (candidate.scripts.length === 0 && candidate.ecosystemMarkers.includes("package.json")) {
+        return command;
+      }
+      return undefined;
+    }
+    return candidate.allowedCommands.find((allowed) => packageCommandRunsScript(allowed, script)) ?? command;
+  }
+
+  if (candidate.allowedCommands.includes(command)) {
+    return command;
+  }
+
+  return command;
+}
+
+function parsePackageScriptCommand(command: string): { manager: "npm" | "pnpm" | "yarn"; script: string } | undefined {
+  const match = command.trim().match(/^(npm|pnpm|yarn)\s+(?:(run)\s+)?([a-z0-9:_-]+)$/i);
+  if (!match) return undefined;
+  const manager = match[1]!.toLowerCase() as "npm" | "pnpm" | "yarn";
+  const script = match[3]!.toLowerCase();
+  if (!match[2] && manager === "npm" && script !== "test") {
+    return undefined;
+  }
+  return { manager, script };
+}
+
+function packageCommandRunsScript(command: string, script: string): boolean {
+  return parsePackageScriptCommand(command)?.script === script;
 }
 
 function explainCommandSelection(
   commands: VerificationCommandConfig,
   selectedCommands: VerificationCommandConfig,
-  packageScripts: string[],
+  candidateOrPackageScripts?: VerificationCwdCandidate | string[],
 ): VerificationCommandDecision[] {
   const decisions: VerificationCommandDecision[] = [];
+  const packageScripts = Array.isArray(candidateOrPackageScripts)
+    ? candidateOrPackageScripts
+    : candidateOrPackageScripts?.scripts ?? [];
+  const staleScripts = Array.isArray(candidateOrPackageScripts)
+    ? []
+    : candidateOrPackageScripts?.staleScripts ?? [];
   for (const name of ["setup", "lint", "typecheck", "test", "build"] as const) {
     const configured = commands[name];
     const selected = selectedCommands[name];
@@ -441,11 +554,16 @@ function explainCommandSelection(
         name,
         configured: true,
         selected: true,
-        command: configured,
+        command: selected,
         reason: name === "setup" || packageScripts.length === 0
-          ? "Configured command selected."
+          ? selected === configured ? "Configured command selected." : `Configured command adapted to '${selected}' for the selected package root.`
           : packageScripts.includes(name)
-            ? `Configured command selected because package script '${name}' exists.`
+            && staleScripts.some((stale) => stale.script === name)
+            ? `Configured command adapted to '${selected}' because package script '${name}' is stale for this package.`
+            : packageScripts.includes(name)
+            ? selected === configured
+              ? `Configured command selected because package script '${name}' exists.`
+              : `Configured command adapted to '${selected}' because package script '${name}' exists in the selected root.`
             : "Configured command selected.",
       });
       continue;
@@ -473,7 +591,11 @@ function buildVerificationPlannerPrompt(
     "Choose the most appropriate verification working directory and commands for this repository.",
     "You are the verification planner. Deterministic code only collected evidence; you must decide from the allowlisted evidence.",
     "Prefer the weakest valid plan that matches the repository's real structure. Include setup/install when the selected cwd has missing dependency markers and a setup command is available.",
-    "Fail-safe rule: only choose commands from allowedCommands or configured Factory commands. Do not invent shell commands.",
+    "Configured commands are user intent, not proof that the repo root or package manager is correct.",
+    "If configured package-script commands conflict with candidate evidence, choose the equivalent allowed command for the selected candidate's package manager.",
+    "Reason over script bodies and dependency versions. If evidence marks a script as stale, do not choose that package script; choose its replacementCommand when present.",
+    "Do not choose a command unless it is valid for the cwd you select.",
+    "Fail-safe rule: only choose commands from allowedCommands. Do not invent shell commands.",
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     `Configured commands: ${JSON.stringify(evidence.configuredCommands, null, 2)}`,
     `Allowed commands: ${JSON.stringify(evidence.allowedCommands, null, 2)}`,
@@ -529,7 +651,7 @@ function sanitizeVerificationPlan(
     evidence: {
       ...evidence,
       selectedCandidate: chosenCandidate,
-      commandDecisions: explainCommandSelection(evidence.configuredCommands, commands, chosenCandidate?.scripts ?? []),
+      commandDecisions: explainCommandSelection(evidence.configuredCommands, commands, chosenCandidate),
     },
   };
 }
@@ -537,7 +659,7 @@ function sanitizeVerificationPlan(
 function validateSelectedCommands(
   selected: VerificationCommandConfig | undefined,
   evidence: VerificationEvidence,
-  chosenCandidate?: VerificationEvidence["candidateCwds"][number],
+  chosenCandidate?: VerificationCwdCandidate,
 ): VerificationCommandConfig {
   if (!selected || Object.keys(selected).filter((name) => name !== "cwd").length === 0) {
     throw new VerificationPlanningError("VERIFICATION_PLANNER_EMPTY_COMMANDS: Verification planner selected no commands.");
@@ -548,7 +670,11 @@ function validateSelectedCommands(
     if (!requested) {
       continue;
     }
-    if (!evidence.allowedCommands.includes(requested)) {
+    const candidateAllows = chosenCandidate?.allowedCommands.includes(requested) ?? false;
+    const normalizedConfiguredCommand = normalizeCommandForCandidate(requested, name, chosenCandidate);
+    const configuredAllows = Object.values(evidence.configuredCommands).includes(requested)
+      && (!parsePackageScriptCommand(requested) || normalizedConfiguredCommand === requested);
+    if (!candidateAllows && !configuredAllows) {
       throw new VerificationPlanningError(`VERIFICATION_PLANNER_INVALID_COMMAND: Verification planner selected non-authoritative command for ${name}: ${requested}`);
     }
     result[name] = requested;
@@ -651,10 +777,37 @@ async function findNestedProjectRoots(root: string, maxDepth: number): Promise<s
 
 async function readPackageScripts(targetCwd: string): Promise<string[]> {
   const pkg = await readPackageJson(targetCwd);
-  if (!pkg || typeof pkg.scripts !== "object" || !pkg.scripts) {
-    return [];
+  return Object.keys(readPackageScriptCommands(pkg)).sort();
+}
+
+function readPackageScriptCommands(packageJson: Record<string, unknown> | undefined): Record<string, string> {
+  const rawScripts = packageJson?.scripts;
+  if (!rawScripts || typeof rawScripts !== "object" || Array.isArray(rawScripts)) {
+    return {};
   }
-  return Object.keys(pkg.scripts).sort();
+  const scripts: Record<string, string> = {};
+  for (const [name, command] of Object.entries(rawScripts)) {
+    if (typeof command === "string" && command.trim()) {
+      scripts[name] = command.trim();
+    }
+  }
+  return scripts;
+}
+
+function readPackageDependencyVersions(packageJson: Record<string, unknown> | undefined): Record<string, string> {
+  const versions: Record<string, string> = {};
+  for (const section of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+    const deps = packageJson?.[section];
+    if (!deps || typeof deps !== "object" || Array.isArray(deps)) {
+      continue;
+    }
+    for (const [name, version] of Object.entries(deps)) {
+      if (typeof version === "string" && version.trim()) {
+        versions[name] = version.trim();
+      }
+    }
+  }
+  return versions;
 }
 
 async function detectEcosystemMarkers(targetCwd: string): Promise<string[]> {
@@ -711,11 +864,23 @@ function expectedDependencyMarkers(ecosystemMarkers: string[]): string[] {
   return expected;
 }
 
-async function discoverAllowedCommands(targetCwd: string, scripts: string[], ecosystemMarkers: string[]): Promise<string[]> {
+async function discoverAllowedCommands(
+  targetCwd: string,
+  scripts: string[],
+  ecosystemMarkers: string[],
+  scriptCommands: Record<string, string>,
+  dependencyVersions: Record<string, string>,
+  detectedPackageManager?: "npm" | "pnpm" | "yarn",
+  staleScripts: VerificationCwdCandidate["staleScripts"] = [],
+): Promise<string[]> {
   const commands: string[] = [];
-  const packageManager = await detectPackageManager(targetCwd);
+  const packageManager = detectedPackageManager ?? await detectPackageManager(targetCwd);
+  const staleScriptNames = new Set(staleScripts.map((script) => script.script));
 
   for (const script of scripts) {
+    if (staleScriptNames.has(script)) {
+      continue;
+    }
     commands.push(`${packageManager} run ${script}`);
   }
   if (scripts.includes("test")) {
@@ -728,6 +893,10 @@ async function discoverAllowedCommands(targetCwd: string, scripts: string[], eco
     }
     if (scripts.includes("setup")) {
       commands.push(`${packageManager} run setup`);
+    }
+    commands.push(...staleScripts.map((script) => script.replacementCommand).filter((command): command is string => Boolean(command)));
+    if (isDependencyPresent(dependencyVersions, "eslint") && !staleScripts.some((script) => script.replacementCommand)) {
+      commands.push(`${packageManager} exec eslint src`);
     }
     if (await hasAnyLockfile(targetCwd)) {
       commands.push(packageManager === "npm" && await exists(path.join(targetCwd, "package-lock.json")) ? "npm ci" : `${packageManager} install`);
@@ -764,6 +933,37 @@ async function discoverAllowedCommands(targetCwd: string, scripts: string[], eco
   }
 
   return uniqueStrings(commands);
+}
+
+function detectStalePackageScripts(
+  scriptCommands: Record<string, string>,
+  dependencyVersions: Record<string, string>,
+  packageManager: "npm" | "pnpm" | "yarn",
+): VerificationCwdCandidate["staleScripts"] {
+  const staleScripts: VerificationCwdCandidate["staleScripts"] = [];
+  const nextMajor = parseMajorVersion(dependencyVersions.next);
+  const lintScript = scriptCommands.lint;
+  if (lintScript && nextMajor !== undefined && nextMajor >= 16 && /^next\s+lint(?:\s|$)/i.test(lintScript)) {
+    staleScripts.push({
+      script: "lint",
+      command: lintScript,
+      reason: "Next.js 16 removed the next lint command; use ESLint directly.",
+      replacementCommand: isDependencyPresent(dependencyVersions, "eslint") ? `${packageManager} exec eslint src` : undefined,
+    });
+  }
+  return staleScripts;
+}
+
+function parseMajorVersion(version: string | undefined): number | undefined {
+  if (!version) return undefined;
+  const match = version.match(/(\d+)/);
+  if (!match) return undefined;
+  const major = Number.parseInt(match[1], 10);
+  return Number.isFinite(major) ? major : undefined;
+}
+
+function isDependencyPresent(dependencyVersions: Record<string, string>, name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(dependencyVersions, name);
 }
 
 async function detectPackageManager(root: string): Promise<"npm" | "pnpm" | "yarn"> {

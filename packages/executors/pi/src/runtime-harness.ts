@@ -43,6 +43,14 @@ export async function runPiRuntimeHarness(): Promise<void> {
       }
     },
   });
+  const verificationPlannerExecutor = new PiAgentExecutor({
+    sessionFactory,
+    onEvent: (executionId, event) => {
+      if (event.text) {
+        process.stdout.write(`[verification-planner ${executionId}] ${event.text}`);
+      }
+    },
+  });
 
   const goal = process.env.FACTORY_PI_RUNTIME_GOAL ?? "Create a prototype implementation plan";
   const forceVerificationFailure = process.env.FACTORY_PI_FORCE_VERIFY_FAIL === "1";
@@ -57,6 +65,7 @@ export async function runPiRuntimeHarness(): Promise<void> {
     builderExecutor,
     repairExecutor,
     reviewerExecutor,
+    verificationPlannerExecutor,
     requestPlanApproval: async ({ runId, goal: approvalGoal, planPath, taskCount, workflowStages }) => {
       process.stdout.write(`\nplan auto-approved for ${runId}: ${approvalGoal} | tasks=${taskCount} | stages=${workflowStages.join('->')} | plan=${planPath}\n`);
       return { decision: 'approve' };

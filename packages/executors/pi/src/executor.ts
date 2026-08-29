@@ -42,19 +42,32 @@ export class PiAgentExecutor implements AgentExecutor {
     }
 
     this.activeSessions.set(input.executionId, created.session);
+    let markProgress = () => {};
     const unsubscribe = created.session.subscribe((event) => {
+      markProgress();
       this.captureEvent(state, event);
       this.auditToolCall(input.executionId, state, event, input.metadata);
       void this.options.onEvent?.(input.executionId, event);
     });
 
     try {
-      const promptResult = await withTimeout(
+      const promptResult = await withAgentTurnTimeouts(
         () => created.session.prompt(input.prompt),
-        input.limits?.totalRunTimeoutMs,
-        "total-run-timeout",
+        input.limits,
+        (mark) => {
+          markProgress = mark;
+        },
       );
       if (promptResult.kind === "timeout") {
+        state.events.push({
+          type: "executor.timeout",
+          data: {
+            reason: promptResult.message,
+            timeoutType: promptResult.timeoutType,
+            limitMs: promptResult.limitMs,
+            elapsedMs: promptResult.elapsedMs,
+          },
+        });
         await created.session.abort().catch(() => {});
         return {
           executionId: input.executionId,
@@ -406,42 +419,87 @@ function toolToCapability(toolName: string): string | undefined {
   }
 }
 
-async function withTimeout<T>(
+async function withAgentTurnTimeouts<T>(
   fn: () => Promise<T>,
-  timeoutMs: number | undefined,
-  timeoutType: string,
-): Promise<{ kind: "ok"; value: T } | { kind: "timeout"; message: string }> {
-  if (!timeoutMs || timeoutMs <= 0) {
-    try {
-      return { kind: "ok", value: await fn() };
-    } catch (error) {
-      throw error;
-    }
+  limits: AgentExecutionInput["limits"],
+  registerProgressMarker: (markProgress: () => void) => void,
+): Promise<{ kind: "ok"; value: T } | { kind: "timeout"; message: string; timeoutType: string; limitMs: number; elapsedMs: number }> {
+  const totalRunTimeoutMs = limits?.totalRunTimeoutMs;
+  const modelTimeoutMs = limits?.modelTimeoutMs;
+  const hasTotalTimeout = Boolean(totalRunTimeoutMs && totalRunTimeoutMs > 0);
+  const hasProgressTimeout = Boolean(modelTimeoutMs && modelTimeoutMs > 0);
+  if (!hasTotalTimeout && !hasProgressTimeout) {
+    registerProgressMarker(() => {});
+    return { kind: "ok", value: await fn() };
   }
-  return new Promise((resolve) => {
+
+  const startedAt = Date.now();
+  return new Promise((resolve, reject) => {
     let settled = false;
-    const timer = setTimeout(() => {
+    let totalTimer: ReturnType<typeof setTimeout> | undefined;
+    let progressTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const clearTimers = () => {
+      if (totalTimer) clearTimeout(totalTimer);
+      if (progressTimer) clearTimeout(progressTimer);
+    };
+
+    const settleOk = (value: T) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      resolve({ kind: "ok", value });
+    };
+
+    const settleError = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      reject(error);
+    };
+
+    const settleTimeout = (timeoutType: string, limitMs: number, message: string) => {
       if (!settled) {
         settled = true;
-        resolve({ kind: "timeout", message: `Agent execution timed out after ${Math.round(timeoutMs / 1000)}s (${timeoutType})` });
+        clearTimers();
+        resolve({
+          kind: "timeout",
+          message,
+          timeoutType,
+          limitMs,
+          elapsedMs: Date.now() - startedAt,
+        });
       }
-    }, timeoutMs);
-    void fn().then(
-      (value) => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          resolve({ kind: "ok", value });
-        }
-      },
-      (error) => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          throw error;
-        }
-      },
-    );
+    };
+
+    const armProgressTimer = () => {
+      if (!hasProgressTimeout || !modelTimeoutMs || settled) {
+        return;
+      }
+      if (progressTimer) clearTimeout(progressTimer);
+      progressTimer = setTimeout(() => {
+        settleTimeout(
+          "model-timeout",
+          modelTimeoutMs,
+          `Agent execution made no progress for ${Math.round(modelTimeoutMs / 1000)}s (model-timeout)`,
+        );
+      }, modelTimeoutMs);
+    };
+
+    registerProgressMarker(armProgressTimer);
+    armProgressTimer();
+
+    if (hasTotalTimeout && totalRunTimeoutMs) {
+      totalTimer = setTimeout(() => {
+        settleTimeout(
+          "total-run-timeout",
+          totalRunTimeoutMs,
+          `Agent execution timed out after ${Math.round(totalRunTimeoutMs / 1000)}s (total-run-timeout)`,
+        );
+      }, totalRunTimeoutMs);
+    }
+
+    void fn().then(settleOk, settleError);
   });
 }
 

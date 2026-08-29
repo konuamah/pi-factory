@@ -2184,6 +2184,7 @@ async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommandContext
     builderExecutor: executorBundle?.builderExecutor,
     repairExecutor: executorBundle?.repairExecutor,
     reviewerExecutor: executorBundle?.reviewerExecutor,
+    verificationPlannerExecutor: executorBundle?.verificationPlannerExecutor,
     onProgress: async (event) => {
       panel.setPhase(event.phase);
       panel.setStatus(event.status.toLowerCase());
@@ -2926,6 +2927,7 @@ async function createOptionalExecutorBundle(
       builderExecutor: AgentExecutor;
       repairExecutor: AgentExecutor;
       reviewerExecutor: AgentExecutor;
+      verificationPlannerExecutor: AgentExecutor;
     }
   | undefined
 > {
@@ -2957,6 +2959,7 @@ async function createOptionalExecutorBundle(
     builderExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
     repairExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
     reviewerExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
+    verificationPlannerExecutor: new piExecutors.PiAgentExecutor({ sessionFactory, onEvent }),
   };
 }
 

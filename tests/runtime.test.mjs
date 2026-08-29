@@ -220,7 +220,7 @@ test('invalid discovery output fails loudly before planning', async () => {
     const calls = [];
     const discoveryExecutor = {
       async execute(input) {
-        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt, limits: input.limits });
         return {
           executionId: input.executionId,
           status: 'completed',
@@ -245,12 +245,126 @@ test('invalid discovery output fails loudly before planning', async () => {
     );
 
     assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.find((call) => call.label === 'discovery').limits.modelTimeoutMs, 60_000);
     assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
     const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
     const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
     const state = await readJson(path.join(runDir, 'state.json'));
     assert.equal(state.status, 'FAILED');
     assert.equal(state.phase, 'discovery-failed');
+  });
+});
+
+test('failed discovery executor reports executor error instead of empty output', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, limits: input.limits });
+        return {
+          executionId: input.executionId,
+          status: 'failed',
+          outputText: '',
+          events: [],
+          errorMessage: 'Agent execution timed out after 60s (model-timeout)',
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Add a demo feature',
+        discoveryExecutor,
+        plannerExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Discovery failed: Agent execution timed out after 60s \(model-timeout\)/,
+    );
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.find((call) => call.label === 'discovery').limits.totalRunTimeoutMs, 900_000);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const eventsRaw = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    const event = eventsRaw
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+      .find((entry) => entry.type === 'discovery.invalid_output');
+    assert.equal(event.data.reason, 'Agent execution timed out after 60s (model-timeout)');
+    assert.equal(event.data.discoveryStatus, 'failed');
+  });
+});
+
+test('malformed discovery json gets one strict json repair retry', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt, tools: input.tools });
+        if (input.metadata?.attempt === 'json-repair') {
+          return {
+            executionId: input.executionId,
+            status: 'completed',
+            outputText: JSON.stringify({
+              status: 'complete',
+              files: ['src/index.ts'],
+              evidence: [
+                {
+                  status: 'confirmed',
+                  file: 'src/index.ts',
+                  finding: 'Existing source file can host the demo feature and contains a TODO marker.',
+                },
+              ],
+              unknowns: [],
+            }),
+            events: [],
+          };
+        }
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: [
+            'Here is the discovery result:',
+            '```json',
+            '{',
+            '  "status": "complete",',
+            '  "files": ["src/index.ts"],',
+            '  "evidence": [{ "status": "confirmed", "file": "src/index.ts", "finding": "Route returns {"error"} on failure." }],',
+            '  "unknowns": []',
+            '}',
+            '```',
+          ].join('\n'),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      discoveryExecutor,
+      plannerExecutor,
+      builderExecutor: makeExecutor('builder', calls),
+      reviewerExecutor: makeExecutor('reviewer', calls),
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 2);
+    assert.equal(calls.find((call) => call.executionId.endsWith('json-repair')).tools.length, 0);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 1);
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const eventsRaw = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /discovery\.json_repair_retrying/);
   });
 });
 
@@ -1239,6 +1353,277 @@ test('verification infers a single nested package root when the worktree root ha
   }, { rootPackage: false });
 });
 
+test('deterministic verification adapts configured package scripts to nested package evidence', async () => {
+  await withTempProject(async (root) => {
+    const appDir = path.join(root, 'frontend', 'landoptima');
+    await fs.mkdir(appDir, { recursive: true });
+    await fs.writeFile(path.join(root, 'docker-compose.yml'), 'services: {}\n', 'utf8');
+    await fs.writeFile(path.join(appDir, 'package-lock.json'), '{}\n', 'utf8');
+    await fs.writeFile(
+      path.join(appDir, 'package.json'),
+      JSON.stringify({
+        name: 'landoptima',
+        type: 'module',
+        scripts: {
+          lint: 'node -e ""',
+          build: 'node -e ""',
+        },
+      }, null, 2),
+      'utf8',
+    );
+
+    const plan = await planVerificationExecution({
+      cwd: root,
+      goal: 'add status bar',
+      commands: {
+        lint: 'pnpm lint',
+        typecheck: 'pnpm typecheck',
+        test: 'pnpm test',
+        build: 'pnpm build',
+      },
+      allowDeterministicFallback: true,
+    });
+
+    assert.equal(await fs.realpath(plan.cwd), await fs.realpath(appDir));
+    assert.equal(plan.cwdResolution, 'inferred-single-package');
+    assert.equal(plan.commands.lint, 'npm run lint');
+    assert.equal(plan.commands.build, 'npm run build');
+    assert.equal(plan.commands.typecheck, undefined);
+    assert.equal(plan.commands.test, undefined);
+    assert.ok(plan.evidence.commandDecisions.some((decision) =>
+      decision.name === 'lint'
+      && decision.selected
+      && /adapted/.test(decision.reason)
+    ));
+  }, { rootPackage: false });
+});
+
+test('ai verification planner rejects configured commands that are invalid for selected cwd', async () => {
+  await withTempProject(async (root) => {
+    const appDir = path.join(root, 'frontend', 'landoptima');
+    await fs.mkdir(appDir, { recursive: true });
+    await fs.writeFile(path.join(root, 'docker-compose.yml'), 'services: {}\n', 'utf8');
+    await fs.writeFile(path.join(appDir, 'package-lock.json'), '{}\n', 'utf8');
+    await fs.writeFile(
+      path.join(appDir, 'package.json'),
+      JSON.stringify({ name: 'landoptima', type: 'module', scripts: { lint: 'node -e ""' } }, null, 2),
+      'utf8',
+    );
+
+    await assert.rejects(
+      () => planVerificationExecution({
+        cwd: root,
+        goal: 'add status bar',
+        commands: { lint: 'pnpm lint' },
+        executor: verificationExecutorFor({
+          cwd: root,
+          commands: { lint: 'pnpm lint' },
+          rationale: 'Use configured command at the repo root.',
+        }),
+      }),
+      /VERIFICATION_PLANNER_INVALID_COMMAND/,
+    );
+
+    const plan = await planVerificationExecution({
+      cwd: root,
+      goal: 'add status bar',
+      commands: { lint: 'pnpm lint' },
+      executor: verificationExecutorFor({
+        cwd: appDir,
+        commands: { setup: 'npm ci', lint: 'npm run lint' },
+        rationale: 'The nested app has the lint script and package-lock selects npm.',
+      }),
+    });
+
+    assert.equal(await fs.realpath(plan.cwd), await fs.realpath(appDir));
+    assert.equal(plan.commands.setup, 'npm ci');
+    assert.equal(plan.commands.lint, 'npm run lint');
+    assert.equal(plan.selectionSource, 'ai');
+  }, { rootPackage: false });
+});
+
+test('verification planner detects stale Next lint scripts and selects eslint directly', async () => {
+  await withTempProject(async (root) => {
+    const appDir = path.join(root, 'frontend', 'landoptima');
+    await fs.mkdir(path.join(appDir, 'node_modules'), { recursive: true });
+    await fs.writeFile(path.join(appDir, 'package-lock.json'), '{}\n', 'utf8');
+    await fs.writeFile(
+      path.join(appDir, 'package.json'),
+      JSON.stringify({
+        name: 'landoptima',
+        type: 'module',
+        scripts: {
+          lint: 'next lint',
+          build: 'next build',
+        },
+        dependencies: {
+          next: '^16.2.3',
+        },
+        devDependencies: {
+          eslint: '^9.0.0',
+        },
+      }, null, 2),
+      'utf8',
+    );
+
+    const plan = await planVerificationExecution({
+      cwd: root,
+      goal: 'add status bar',
+      commands: {
+        lint: 'pnpm lint',
+        build: 'pnpm build',
+      },
+      allowDeterministicFallback: true,
+    });
+
+    assert.equal(await fs.realpath(plan.cwd), await fs.realpath(appDir));
+    assert.equal(plan.commands.lint, 'npm exec eslint src');
+    assert.equal(plan.commands.build, 'npm run build');
+    assert.ok(plan.evidence.selectedCandidate?.staleScripts.some((script) =>
+      script.script === 'lint'
+      && /Next\.js 16/.test(script.reason)
+      && script.replacementCommand === 'npm exec eslint src'
+    ));
+    assert.ok(plan.evidence.commandDecisions.some((decision) =>
+      decision.name === 'lint'
+      && decision.selected
+      && /stale/.test(decision.reason)
+    ));
+  }, { rootPackage: false });
+});
+
+test('ai verification planner cannot select a stale Next lint package script', async () => {
+  await withTempProject(async (root) => {
+    const appDir = path.join(root, 'frontend', 'landoptima');
+    await fs.mkdir(path.join(appDir, 'node_modules'), { recursive: true });
+    await fs.writeFile(path.join(appDir, 'package-lock.json'), '{}\n', 'utf8');
+    await fs.writeFile(
+      path.join(appDir, 'package.json'),
+      JSON.stringify({
+        name: 'landoptima',
+        type: 'module',
+        scripts: {
+          lint: 'next lint',
+        },
+        dependencies: {
+          next: '16.2.3',
+        },
+        devDependencies: {
+          eslint: '^9.0.0',
+        },
+      }, null, 2),
+      'utf8',
+    );
+
+    await assert.rejects(
+      () => planVerificationExecution({
+        cwd: root,
+        goal: 'add status bar',
+        commands: { lint: 'pnpm lint' },
+        executor: verificationExecutorFor({
+          cwd: appDir,
+          commands: { lint: 'npm run lint' },
+          rationale: 'The lint script exists.',
+        }),
+      }),
+      /VERIFICATION_PLANNER_INVALID_COMMAND/,
+    );
+
+    const plan = await planVerificationExecution({
+      cwd: root,
+      goal: 'add status bar',
+      commands: { lint: 'pnpm lint' },
+      executor: verificationExecutorFor({
+        cwd: appDir,
+        commands: { lint: 'npm exec eslint src' },
+        rationale: 'Next 16 removed next lint, so run ESLint directly on source.',
+      }),
+    });
+
+    assert.equal(plan.commands.lint, 'npm exec eslint src');
+    assert.equal(plan.selectionSource, 'ai');
+  }, { rootPackage: false });
+});
+
+test('contract verification uses selected adaptive verification cwd and commands', async () => {
+  await withTempProject(async (root) => {
+    const appDir = path.join(root, 'frontend', 'landoptima');
+    await fs.mkdir(path.join(appDir, 'node_modules'), { recursive: true });
+    await fs.writeFile(path.join(root, 'docker-compose.yml'), 'services: {}\n', 'utf8');
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  lint: pnpm lint',
+        '  build: pnpm build',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(appDir, 'package.json'),
+      JSON.stringify({
+        name: 'landoptima',
+        type: 'module',
+        scripts: {
+          lint: 'node -e "require(\'node:fs\').writeFileSync(\'lint-contract-marker.txt\', process.cwd())"',
+          build: 'node -e "require(\'node:fs\').writeFileSync(\'build-contract-marker.txt\', process.cwd())"',
+        },
+      }, null, 2),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+    const verificationPlannerExecutor = verificationExecutorFor({
+      cwd: appDir,
+      commands: {
+        lint: 'npm run lint',
+        build: 'npm run build',
+      },
+      rationale: 'The nested frontend package owns the changed UI and npm scripts.',
+    });
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'add status bar',
+      plannerExecutor,
+      builderExecutor,
+      verificationPlannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const verification = await readJson(result.verificationPath);
+    assert.equal(await fs.realpath(verification.cwd), await fs.realpath(appDir));
+    assert.equal(verification.selectionSource, 'ai');
+    assert.deepEqual(verification.commands.map((command) => command.command), ['npm run lint', 'npm run build']);
+    assert.equal(verification.contract.overallStatus, 'PASS');
+    assert.equal(
+      await fs.realpath(await fs.readFile(path.join(appDir, 'lint-contract-marker.txt'), 'utf8')),
+      await fs.realpath(appDir),
+    );
+    assert.equal(
+      await fs.realpath(await fs.readFile(path.join(appDir, 'build-contract-marker.txt'), 'utf8')),
+      await fs.realpath(appDir),
+    );
+    const contractCommands = Object.values(verification.contract.evidenceStore)
+      .filter((entry) => entry.kind === 'command-result')
+      .map((entry) => entry.command);
+    assert.deepEqual(contractCommands, ['npm run lint', 'npm run build']);
+  }, { rootPackage: false });
+});
+
 test('verification artifacts persist reasoning, classification, and repo learnings', async () => {
   await withTempProject(async (root) => {
     await fs.writeFile(
@@ -1342,6 +1727,42 @@ test('verification failure classification distinguishes unrelated baseline lint 
     changedFiles: ['src/app/courses/components/EvergreenCourseGrid.tsx'],
   });
   assert.equal(related?.kind, 'real-code-failure');
+});
+
+test('verification failure classification matches nested package-relative failures to project-relative changes', () => {
+  const plan = {
+    cwd: '/repo/frontend/landoptima',
+    cwdResolution: 'inferred-single-package',
+    commands: { lint: 'npm exec eslint src' },
+    selectionSource: 'ai',
+    skill: { id: 'verification-planning', version: '1.0.0', mode: 'verification', selectionReasons: [] },
+    evidence: { rootCwd: '/repo', candidateCwds: [], configuredCommands: {}, rootScripts: [], commandDecisions: [] },
+  };
+  const result = {
+    cwd: '/repo/frontend/landoptima',
+    cwdResolution: 'inferred-single-package',
+    overallStatus: 'failed',
+    commands: [{
+      name: 'lint',
+      command: 'npm exec eslint src',
+      status: 'failed',
+      exitCode: 1,
+      stdout: [
+        '/repo/frontend/landoptima/src/app/components/Map.tsx',
+        '  11:24  error  Unexpected any. Specify a different type',
+      ].join('\n'),
+      stderr: '',
+    }],
+  };
+
+  const classification = classifyVerificationFailure({
+    plan,
+    result,
+    changedFiles: ['frontend/landoptima/src/app/components/Map.tsx'],
+  });
+
+  assert.equal(classification?.kind, 'real-code-failure');
+  assert.equal(classification?.retryable, true);
 });
 
 test('resume re-plans verification after config-classified verification failures', async () => {
@@ -2266,5 +2687,80 @@ test('final approval still happens after plan approval and implementation', asyn
     assert.equal(summary.status, 'CANCELLED');
     assert.equal(summary.phase, 'approval-rejected');
     assert.equal(calls.filter((call) => call.label === 'reviewer').length, 1);
+  });
+});
+
+test('baseline-unrelated verification failure warns and proceeds instead of failing the run', async () => {
+  await withTempProject(async (root) => {
+    // A build command that fails with a pre-existing file error.
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  build: node -e "console.error(1); process.exit(1)"',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: true',
+        '  maxAttempts: 2',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+    const repairExecutor = makeExecutor('repair', calls);
+
+    // The AI failure classifier decides this is baseline-unrelated (not caused by the task).
+    const failureClassifier = {
+      async execute() {
+        return {
+          executionId: 'classifier',
+          status: 'completed',
+          outputText: JSON.stringify({
+            kind: 'baseline-unrelated',
+            reason: 'Failure outside implemented files: src/app/components/Map.tsx',
+            retryable: false,
+            suggestedPhase: 'verification',
+            perCommand: [{
+              commandName: 'build',
+              category: 'baseline-unrelated',
+              reason: 'Failure outside implemented files',
+              retryable: false,
+              suggestedAction: 'ignore',
+              implicatedFiles: ['src/app/components/Map.tsx'],
+            }],
+          }),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a status bar',
+      plannerExecutor,
+      builderExecutor,
+      repairExecutor,
+      failureClassifierExecutor: failureClassifier,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const summary = await readJson(result.summaryPath);
+    // The run should NOT be FAILED — it warns and proceeds.
+    assert.notEqual(summary.status, 'FAILED');
+    assert.notEqual(summary.phase, 'verification-failed');
+
+    const logs = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'), { limit: 120 });
+    assert.ok(logs.events.some((line) => /verification.baseline_warning/.test(line)), 'expected baseline warning event');
   });
 });

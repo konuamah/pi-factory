@@ -170,8 +170,9 @@ function classifySingleCommand(
     // Check if failure is unrelated to changes (baseline)
     if (changedFiles && changedFiles.length > 0) {
       const failureFiles = extractReferencedFiles(command, cwd);
-      const changedSet = new Set(changedFiles);
-      const hasRelatedFailure = failureFiles.some((f) => changedSet.has(f));
+      const hasRelatedFailure = failureFiles.some((failureFile) =>
+        changedFiles.some((changedFile) => filesReferToSamePath(failureFile, changedFile))
+      );
       if (failureFiles.length > 0 && !hasRelatedFailure) {
         return {
           commandName: command.name,
@@ -277,6 +278,20 @@ function extractReferencedFiles(command: VerificationCommandResult, cwd: string)
     }
   }
   return [...files];
+}
+
+function filesReferToSamePath(left: string, right: string): boolean {
+  const a = normalizePathForComparison(left);
+  const b = normalizePathForComparison(right);
+  return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
+}
+
+function normalizePathForComparison(value: string): string {
+  return value
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/+/, "")
+    .toLowerCase();
 }
 
 function escapeRegExp(value: string): string {

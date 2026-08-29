@@ -48,6 +48,7 @@ import type { VerificationContractPlan, VerificationEngineResult } from "../veri
 import type { ReviewProviderOptions } from "../verification/providers/review.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { classifyVerificationFailure } from "./failure-classification.js";
+import { classifyVerificationFailuresWithAI, type ClassificationSource } from "./ai-failure-classifier.js";
 import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands } from "./verification.js";
 import { hydrateWorkspaceDependencies, buildDependencyCacheEnv, DependencyHydrationError } from "./dependencies.js";
 
@@ -78,6 +79,7 @@ export interface RunFactoryControllerInput {
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
   verificationPlannerExecutor?: AgentExecutor;
+  failureClassifierExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string; candidateSha?: string }) => Promise<boolean>;
@@ -520,12 +522,13 @@ async function runFactoryControllerInner(
         truncated: discoveryEvidence.truncated,
       },
     });
-    const discoveryResult = await discoveryExecutor.execute({
+    let discoveryResult = await discoveryExecutor.execute({
       executionId: `${run.runId}-discovery`,
       cwd: executionCwd,
       prompt: buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills), discoveryEvidence),
       model: discoveryModel.model,
       tools: ["read", "grep", "find", "ls"],
+      limits: loaded.effectiveConfig.runtime.limits,
       metadata: {
         role: "discovery",
         runId: run.runId,
@@ -533,21 +536,54 @@ async function runFactoryControllerInner(
       },
     });
     discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, discoveryResult);
-    const discoveryValidation = await validateDiscoveryOutput(discoveryResult.outputText, executionCwd, discoveryEvidence);
+    let discoveryValidation = await validateDiscoveryOutput(discoveryResult.outputText, executionCwd, discoveryEvidence);
+    if (discoveryResult.status === "completed" && !discoveryValidation.ok && shouldRetryDiscoveryJsonRepair(discoveryValidation.reason, discoveryResult.outputText)) {
+      const invalidDiscoveryExecutionPath = path.join(run.runDir, "discovery-execution-invalid.json");
+      await fs.writeFile(invalidDiscoveryExecutionPath, JSON.stringify(discoveryResult, null, 2), "utf8");
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "discovery.json_repair_retrying",
+        data: {
+          discoveryExecutionPath: invalidDiscoveryExecutionPath,
+          reason: discoveryValidation.reason,
+        },
+      });
+      discoveryResult = await discoveryExecutor.execute({
+        executionId: `${run.runId}-discovery-json-repair`,
+        cwd: executionCwd,
+        prompt: buildDiscoveryJsonRepairPrompt(discoveryResult.outputText),
+        model: discoveryModel.model,
+        tools: [],
+        limits: loaded.effectiveConfig.runtime.limits,
+        metadata: {
+          role: "discovery",
+          runId: run.runId,
+          taskType: runTaskType.id,
+          attempt: "json-repair",
+        },
+      });
+      discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, discoveryResult);
+      discoveryValidation = await validateDiscoveryOutput(discoveryResult.outputText, executionCwd, discoveryEvidence);
+    }
     if (!discoveryValidation.ok) {
+      const reason = discoveryResult.status === "completed"
+        ? discoveryValidation.reason
+        : discoveryResult.errorMessage?.trim() || `Discovery executor ${discoveryResult.status}`;
       await appendFactoryRunEvent(run.eventsPath, {
         timestamp: new Date().toISOString(),
         type: "discovery.invalid_output",
         data: {
           discoveryExecutionPath,
-          reason: discoveryValidation.reason,
+          reason,
+          discoveryStatus: discoveryResult.status,
+          errorMessage: discoveryResult.errorMessage,
         },
       });
       await updateFactoryRunState({
         statePath: run.statePath,
         patch: { status: "FAILED", phase: "discovery-failed" },
       });
-      throw new Error(`Discovery failed: ${discoveryValidation.reason}`);
+      throw new Error(`Discovery failed: ${reason}`);
     }
     discoveryOutputText = JSON.stringify(discoveryValidation.discovery, null, 2);
     discoveryFileHints = normalizeDiscoveryFileHints(discoveryValidation.discovery.files ?? []);
@@ -1093,11 +1129,27 @@ async function runFactoryControllerInner(
   });
   verification.cwdResolution = verificationPlan.cwdResolution;
   const implementationChangedFiles = uniqueStrings(taskWorkspacesChangedFiles(implementationRun.taskWorkspaces));
-  let verificationFailureClassification = classifyVerificationFailure({
+  const deterministicClassification = classifyVerificationFailure({
     plan: verificationPlan,
     result: verification,
     changedFiles: implementationChangedFiles,
   });
+  // LLM classification over deterministic evidence, with strict guards; falls back silently.
+  const aiResult = deterministicClassification
+    ? await classifyVerificationFailuresWithAI({
+        plan: verificationPlan,
+        result: verification,
+        changedFiles: implementationChangedFiles,
+        deterministic: deterministicClassification,
+        executor: input.failureClassifierExecutor ?? input.reviewerExecutor,
+        model: loaded.effectiveConfig.models.reviewer,
+      })
+    : undefined;
+  let verificationFailureClassification = aiResult
+    ? { ...aiResult, classificationSource: "ai" as ClassificationSource, deterministicClassification }
+    : deterministicClassification
+      ? { ...deterministicClassification, classificationSource: "deterministic" as ClassificationSource }
+      : undefined;
   let verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
     ...verification,
     selectionSource: verificationPlan.selectionSource,
@@ -1163,7 +1215,7 @@ async function runFactoryControllerInner(
     constitutionAreas: undefined,
     conflictAreas: repoSkillSignals.constitutionAreas,
     workflowId: loaded.effectiveConfig.resolvedWorkflowId,
-    commands: loaded.effectiveConfig.commands,
+    commands: verificationPlan.commands,
     constitutionConflicts: await loadConstitutionConflicts(projectRoot),
   });
   initializeVerificationProviders({
@@ -1172,7 +1224,7 @@ async function runFactoryControllerInner(
     goal: input.goal,
   } satisfies ReviewProviderOptions);
   let contractResult = await runVerificationEngine({
-    cwd: executionCwd,
+    cwd: verificationPlan.cwd,
     plan: contractPlan,
   });
   verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
@@ -1244,7 +1296,10 @@ async function runFactoryControllerInner(
     if (envResult.status === "completed") {
       verification = await runVerificationCommands({ cwd: verificationPlan.cwd, commands: verificationPlan.commands });
       verification.cwdResolution = verificationPlan.cwdResolution;
-      verificationFailureClassification = classifyVerificationFailure({ plan: verificationPlan, result: verification, changedFiles: implementationChangedFiles });
+      const recheck = classifyVerificationFailure({ plan: verificationPlan, result: verification, changedFiles: implementationChangedFiles });
+      verificationFailureClassification = recheck
+        ? { ...recheck, classificationSource: "deterministic" as ClassificationSource }
+        : undefined;
     }
   }
   const repairableFailures = verificationFailureClassification?.perCommand
@@ -1323,7 +1378,7 @@ async function runFactoryControllerInner(
 
       // Incremental contract re-verification: only re-run requirements affected by changed files.
       contractResult = await runVerificationEngine({
-        cwd: executionCwd,
+        cwd: verificationPlan.cwd,
         plan: contractPlan,
         affectedFiles: changedAfterRepair,
       });
@@ -1355,7 +1410,39 @@ async function runFactoryControllerInner(
 
   let reviewerExecutionPath: string | undefined;
 
-  if (verification.overallStatus === "failed") {
+  // Baseline-unrelated failures (pre-existing repo issues, not caused by the task)
+  // warn and proceed instead of failing the run.
+  const allFailuresBaseline = verification.overallStatus === "failed"
+    && Boolean(verificationFailureClassification)
+    && verificationFailureClassification!.perCommand.length > 0
+    && verificationFailureClassification!.perCommand.every(
+      (c) => c.category === "baseline-unrelated" || c.suggestedAction === "ignore",
+    );
+
+  if (verification.overallStatus === "failed" && allFailuresBaseline) {
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "verification.baseline_warning",
+      data: {
+        reason: verificationFailureClassification?.reason,
+        perCommand: verificationFailureClassification?.perCommand,
+      },
+    });
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: "verification",
+      status: "RUNNING",
+      message: `Verification warnings (baseline-unrelated): ${verificationFailureClassification?.reason ?? "pre-existing repo issues"}`,
+    });
+    await appendRepoLearning({
+      projectRoot,
+      category: "verification-baseline-warning",
+      summary: verificationFailureClassification?.reason ?? "Baseline-unrelated verification failure",
+      data: {
+        perCommand: verificationFailureClassification?.perCommand,
+      },
+    });
+  } else if (verification.overallStatus === "failed") {
     const failedState = await updateFactoryRunState({
       statePath: run.statePath,
       patch: { status: "FAILED", phase: "verification-failed" },
@@ -1377,6 +1464,7 @@ async function runFactoryControllerInner(
       builderExecutionPaths,
       integrationPath,
       repairExecutionPaths,
+
       reviewerExecutionPath,
       verificationPath,
       verificationStatus: verification.overallStatus,
@@ -3355,6 +3443,36 @@ function discoveryJsonCandidates(text: string): string[] {
   }
 
   return [...new Set(candidates.filter(Boolean))];
+}
+
+function shouldRetryDiscoveryJsonRepair(reason: string, outputText: string | undefined): boolean {
+  const text = outputText?.trim() ?? "";
+  return reason === "Discovery returned invalid structured JSON"
+    && (/\{[\s\S]*\}/.test(text) || /```(?:json)?[\s\S]*?```/i.test(text));
+}
+
+function buildDiscoveryJsonRepairPrompt(outputText: string): string {
+  return [
+    "Factory could not parse your previous Discovery response as strict JSON.",
+    "",
+    "Return only one valid JSON object that follows this exact shape:",
+    "{",
+    "  \"status\": \"complete\" | \"failed\",",
+    "  \"files\": [\"relative/path.ext\"],",
+    "  \"evidence\": [{ \"status\": \"confirmed\" | \"inferred\" | \"unknown\", \"file\": \"relative/path.ext\", \"finding\": \"short finding\" }],",
+    "  \"unknowns\": [\"short unknown\"],",
+    "  \"reason\": \"only when status is failed\"",
+    "}",
+    "",
+    "Rules:",
+    "- Do not include markdown fences or prose.",
+    "- Escape every quote inside string values.",
+    "- Preserve the same facts and file paths from the previous response.",
+    "- Do not add new files or claims.",
+    "",
+    "Previous response:",
+    outputText.slice(0, 20_000),
+  ].join("\n");
 }
 
 function isConcreteFile(value: string | undefined): boolean {

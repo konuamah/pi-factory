@@ -45,9 +45,10 @@ Use `agent` for model work:
 
 Use `interview` before planning when Factory must ask the user questions first.
 
-- bind an interview skill with `skills.require`, such as `grilling`
+- bind the bundled interview skill with `skills.require`, such as `grilling`
 - Factory pauses in a decision gate when the interview asks questions
 - the user's answer is passed into the planner prompt
+- Factory bundles the interview skill as `skills/grilling`; bind `skills.require: [grilling]` directly
 
 Use `command` for verification:
 

@@ -274,12 +274,22 @@ test("factory docs library is complete and linked from Pi-facing concierge", asy
   const readme = await fs.readFile(readmePath, "utf8");
   const agentPath = path.join(docsDir, "AGENT.md");
   const agent = await fs.readFile(agentPath, "utf8");
+  const workflowAuthoring = await fs.readFile(path.join(docsDir, "workflow-authoring.md"), "utf8");
+  const bundledGrilling = await fs.readFile(path.join(root, "skills/grilling/SKILL.md"), "utf8");
+  const bundledGrillMe = await fs.readFile(path.join(root, "skills/grill-me/SKILL.md"), "utf8");
 
   assert.match(readme, /\[AGENT\.md\]\(AGENT\.md\)/);
   assert.match(readme, /\[worktrees-and-dependencies\.md\]\(worktrees-and-dependencies\.md\)/);
   assert.match(agent, /Reference Order/);
   assert.match(agent, /Never use `dist\/`/);
   assert.match(agent, /Factory behavior, command, setup, workflow, capability, runtime, or agent UX change/);
+  assert.match(workflowAuthoring, /bundled interview skill/i);
+  assert.match(workflowAuthoring, /skills\/grilling/);
+  assert.match(workflowAuthoring, /skills\.require: \[grilling\]/);
+  assert.match(bundledGrilling, /^name: grilling$/m);
+  assert.match(bundledGrilling, /Interview the user relentlessly until you reach a shared understanding\./);
+  assert.match(bundledGrillMe, /^name: grill-me$/m);
+  assert.match(bundledGrillMe, /Call the Skill tool with "grilling"\./);
 
   const linkedDocs = [
     ...new Set(
@@ -308,6 +318,8 @@ test("factory docs library is complete and linked from Pi-facing concierge", asy
   assert.match(piSkill, /worktrees\/dependencies: `docs\/factory\/worktrees-and-dependencies\.md`/);
   assert.match(piSkill, /Dependency hydration is part of setup/);
   assert.match(piSkill, /language-neutral/);
+  assert.match(piSkill, /bundled `skills\/grilling` skill first/i);
+  assert.match(piSkill, /bind `skills\.require: \[grilling\]` directly/i);
   assert.match(piSkill, /Do not look for docs under `?\.pi\/skills\/factory-concierge\/docs\/?`?/);
   assert.match(piSkill, /Do not narrate every internal step/);
   assert.match(piSkill, /do not inspect Factory source, schemas, `dist`, binaries, or CLI bootstrap files/i);
@@ -325,6 +337,8 @@ test("factory docs library is complete and linked from Pi-facing concierge", asy
   assert.match(internalSkill, /set Factory up end to end/);
   assert.match(internalSkill, /dependency hydration and shared cache/i);
   assert.match(internalSkill, /Do not make the guidance Node-only/);
+  assert.match(internalSkill, /bundled `skills\/grilling` skill first/i);
+  assert.match(internalSkill, /bind `skills\.require: \[grilling\]` directly/i);
   assert.match(internalSkill, /Workflows are a first-class responsibility/);
   assert.match(internalSkill, /guide task execution/i);
   assert.match(internalSkill, /must not trigger task execution/i);

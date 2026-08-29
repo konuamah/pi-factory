@@ -38,6 +38,8 @@ Use this loop:
 `/factory doctor` is the readiness gate for model routing plus Pi-visible model availability. `/factory models` remains the deeper inspection view before fixing `.factory/config.yaml`.
 When the user asks to set up Factory or make Factory ready, run setup so Factory writes role models for them when Pi exposes a usable model. Do not make `/factory models` the broad setup action.
 
+When a workflow needs to add an interview stage, inspect the bundled `skills/grilling` skill first. If the repo does not already include it, add the bundled skill from Factory instead of telling the user to install an external package. Bind `skills.require: [grilling]` directly.
+
 Do not expose hidden chain-of-thought, raw JSON contracts, or internal schemas. Speak plainly.
 
 You may guide task execution, choose or prepare the right workflow, explain risk, and give the exact `/factory <goal>` command for the user to run manually. Do not start a Factory implementation task yourself.

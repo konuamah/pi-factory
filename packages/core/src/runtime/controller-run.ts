@@ -49,6 +49,7 @@ import { runFinalPhases } from "./controller-final-phases.js";
 import { runVerificationPhase } from "./verification-phase2.js";
 import { runImplementationPhase } from "./implementation-phase.js";
 import { runControllerIntegration } from "./controller-integration.js";
+import { runPlanApprovalPhase } from "./plan-approval-phase.js";
 
 export async function runFactoryControllerInner(
   input: RunFactoryControllerInput,
@@ -616,98 +617,27 @@ export async function runFactoryControllerInner(
   });
   await wait(delayMs);
 
-  await movePhase(run.statePath, run.eventsPath, run.runId, input, "plan-approval", "Plan ready for human approval");
-  await appendFactoryRunEvent(run.eventsPath, {
-    timestamp: new Date().toISOString(),
-    type: "plan.approval_required",
-    data: {
-      planPath,
-      taskCount: plan.tasks.length,
-      workflowStages: plan.workflowStages.map((stage) => stage.name),
-    },
-  });
-  await emitProgress(input, {
-    runId: run.runId,
-    phase: "plan-approval",
-    status: "RUNNING",
-    message: "Waiting for human plan approval",
-  });
-
-  const planApproval = (await input.requestPlanApproval?.({
-    runId: run.runId,
-    goal: input.goal,
+  const planApprovalResult = await runPlanApprovalPhase({
+    run,
+    input,
+    loaded,
+    executionCwd,
+    worktree,
+    phases,
+    delayMs,
+    plan,
     planPath,
-    taskCount: plan.tasks.length,
-    workflowStages: plan.workflowStages.map((stage) => stage.name),
-    summary: plan.summary,
-    discoveryText: discoveryOutputText,
-    planText: plan.planText,
-    tasks: plan.tasks,
-  })) ?? { decision: "approve" as const };
-  await appendFactoryRunEvent(run.eventsPath, {
-    timestamp: new Date().toISOString(),
-    type:
-      planApproval.decision === "approve"
-        ? "plan.approved"
-        : planApproval.decision === "revise"
-          ? "plan.revision_requested"
-          : "plan.rejected",
-    data: { goal: input.goal, planPath, feedback: planApproval.feedback },
+    taskPaths,
+    discoveryExecutionPath,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    repairExecutionPaths,
+    discoveryOutputText,
+    integrationPath,
   });
-
-  if (planApproval.decision !== "approve") {
-    const rejected = planApproval.decision === "reject";
-    const nextPhase = rejected ? "plan-approval-rejected" : "plan-revision-requested";
-    const nextStatus = rejected ? "CANCELLED" : "PENDING";
-    const nextMessage = rejected ? "Run stopped: plan approval rejected" : "Run paused: plan revisions requested";
-    const stoppedState = await updateFactoryRunState({
-      statePath: run.statePath,
-      patch: { status: nextStatus, phase: nextPhase },
-    });
-    await emitProgress(input, {
-      runId: run.runId,
-      phase: nextPhase,
-      status: rejected ? "CANCELLED" : "PENDING",
-      message: nextMessage,
-    });
-    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
-      runId: run.runId,
-      goal: input.goal,
-      status: nextStatus,
-      phase: stoppedState.phase,
-      approved: false,
-      planPath,
-      taskPaths,
-      discoveryExecutionPath,
-      plannerExecutionPath,
-      builderExecutionPaths,
-      integrationPath,
-      repairExecutionPaths,
-      verificationPath: path.join(run.runDir, "verification.json"),
-      verificationStatus: "incomplete",
-    });
-
-    return {
-      runId: run.runId,
-      runDir: run.runDir,
-      executionCwd,
-      worktree,
-      statePath: run.statePath,
-      eventsPath: run.eventsPath,
-      phases,
-      approved: false,
-      planPath,
-      taskPaths,
-      discoveryExecutionPath,
-      plannerExecutionPath,
-      builderExecutionPaths,
-      integrationPath,
-      repairExecutionPaths,
-      verificationPath: path.join(run.runDir, "verification.json"),
-      summaryPath,
-    };
+  if (planApprovalResult) {
+    return planApprovalResult;
   }
-
   let implementationRun: Awaited<ReturnType<typeof runImplementationTasks>>;
   const implementationPhase = await runImplementationPhase({
     run,

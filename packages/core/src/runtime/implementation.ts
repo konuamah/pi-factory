@@ -19,7 +19,8 @@ import { buildCompiledPrompt, buildNoChangeRetryPrompt, buildIntegrationRepairPr
 import { resolveNodeSkillBundle } from "./skills.js";
 import { uniqueStrings, taskWorkspacesChangedFiles, isBuildStage, roleTools, isExecutableWorkflowNode } from "./task-utils.js";
 import { readGitConflictFiles, hasGitMergeInProgress, resolveTaskWorkspace, commitWorkspaceChanges, readChangedFiles, readGitHeadSha } from "./git-ops.js";
-import { getChangedFilesFromBase, resolveNodeRole, attachDiscoveryFileHintsToBuildTasks } from "./controller.js";
+import { resolveNodeRole, attachDiscoveryFileHintsToBuildTasks } from "./controller.js";
+import { getChangedFilesFromBase } from "./verification-planning.js";
 import { emitProgress, movePhase, wait, requestHumanDecision } from "./phase-plumbing.js";
 import type { RunFactoryControllerInput, FactoryRunProgressEvent } from "./controller.js";
 import type { AgentExecutor, AgentExecutionResult } from "./interfaces.js";

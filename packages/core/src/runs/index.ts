@@ -7,6 +7,7 @@ export * from "./list.js";
 export * from "./cancel.js";
 export * from "./logs.js";
 export * from "./logs-by-id.js";
+export * from "./guidance.js";
 export * from "./resume.js";
 export * from "./cleanup.js";
 export * from "./model-ledger.js";

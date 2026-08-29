@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { summarizeGuidanceEvents, type GuidanceSummary } from "./guidance.js";
 
 export interface FactoryRunLogsByIdResult {
   runDir?: string;
@@ -14,28 +15,7 @@ export interface FactoryRunLogsByIdResult {
   planDecision?: "approve" | "reject" | "revise";
   planFeedback?: string;
   implementationStarted?: boolean;
-  guidance?: {
-    plannerInstructionFiles: string[];
-    builderInstructionFiles: string[];
-    repairInstructionFiles: string[];
-    reviewerInstructionFiles: string[];
-    plannerInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
-    builderInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
-    repairInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
-    reviewerInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
-    plannerHasConstitution: boolean;
-    builderHasConstitution: boolean;
-    repairHasConstitution: boolean;
-    reviewerHasConstitution: boolean;
-    plannerUsedConstitution: boolean;
-    builderUsedConstitution: boolean;
-    repairUsedConstitution: boolean;
-    reviewerUsedConstitution: boolean;
-    plannerGuidanceChars: number;
-    builderGuidanceChars: number;
-    repairGuidanceChars: number;
-    reviewerGuidanceChars: number;
-  };
+  guidance?: GuidanceSummary;
   integrationFailure?: {
     reason?: string;
     conflictingFiles: string[];
@@ -225,37 +205,6 @@ function summarizePlanEvents(events: Array<{ type?: string; data?: Record<string
   }
 
   return { decision, feedback, implementationStarted };
-}
-
-function summarizeGuidanceEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): FactoryRunLogsByIdResult["guidance"] {
-  for (const event of events) {
-    if (event.type !== "guidance.context_selected") {
-      continue;
-    }
-    return {
-      plannerInstructionFiles: stringArray(event.data?.plannerInstructionFiles),
-      builderInstructionFiles: stringArray(event.data?.builderInstructionFiles),
-      repairInstructionFiles: stringArray(event.data?.repairInstructionFiles),
-      reviewerInstructionFiles: stringArray(event.data?.reviewerInstructionFiles),
-      plannerInstructionDetails: detailArray(event.data?.plannerInstructionDetails),
-      builderInstructionDetails: detailArray(event.data?.builderInstructionDetails),
-      repairInstructionDetails: detailArray(event.data?.repairInstructionDetails),
-      reviewerInstructionDetails: detailArray(event.data?.reviewerInstructionDetails),
-      plannerHasConstitution: Boolean(event.data?.plannerHasConstitution),
-      builderHasConstitution: Boolean(event.data?.builderHasConstitution),
-      repairHasConstitution: Boolean(event.data?.repairHasConstitution),
-      reviewerHasConstitution: Boolean(event.data?.reviewerHasConstitution),
-      plannerUsedConstitution: Boolean(event.data?.plannerUsedConstitution),
-      builderUsedConstitution: Boolean(event.data?.builderUsedConstitution),
-      repairUsedConstitution: Boolean(event.data?.repairUsedConstitution),
-      reviewerUsedConstitution: Boolean(event.data?.reviewerUsedConstitution),
-      plannerGuidanceChars: numberValue(event.data?.plannerGuidanceChars),
-      builderGuidanceChars: numberValue(event.data?.builderGuidanceChars),
-      repairGuidanceChars: numberValue(event.data?.repairGuidanceChars),
-      reviewerGuidanceChars: numberValue(event.data?.reviewerGuidanceChars),
-    };
-  }
-  return undefined;
 }
 
 function summarizeIntegrationFailureEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): FactoryRunLogsByIdResult["integrationFailure"] {

@@ -36,7 +36,8 @@ import { buildContractArtifact, failureSignature, resolveRunTaskTypeWithPaths, g
 import { sanitizePlannerOutput, validatePlannerOutput, validatePlannerOutputWithLLM } from "./planner-validate.js";
 import { normalizeDiscoveryFileHints, attachDiscoveryFileHintsToBuildTasks } from "./controller.js";
 import type { RunFactoryControllerInput, RunFactoryControllerResult, InterviewDecisionRecord, FactoryRunProgressEvent, TaskWorkspaceSelection, PlanApprovalResult } from "./controller.js";
-import { runVerificationRepairLoop, attemptEnvironmentPreparation, failBuiltInSkillPolicy, runInterviewStages, buildRunFailureResult, buildDiscoveryPrompt, buildPlannerPrompt } from "./controller-helpers.js";
+import { runVerificationRepairLoop, attemptEnvironmentPreparation, failBuiltInSkillPolicy, buildRunFailureResult } from "./controller-helpers.js";
+import { runInterviewStages, buildDiscoveryPrompt, buildPlannerPrompt } from "./controller-interview.js";
 import type { AgentExecutor, AgentExecutionResult } from "./interfaces.js";
 import type { EffectiveFactoryConfig, ModelRole, ModelSelection, WorkflowStage, CapabilityPolicy } from "@factory/schemas";
 import type { AutonomyLevel } from "../capabilities/index.js";

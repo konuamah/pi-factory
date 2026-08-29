@@ -59,7 +59,8 @@ import { handleDoctor, handleLogs, handleList, handlePlan, handleResume, handleC
 import { handleStatus } from "./gateway-run-status.js";
 import { handleShow } from "./gateway-run-show.js";
 import { handleCapabilities, handleModels } from "./gateway-capabilities.js";
-import { handleSetup, handleAsk, handleConciergeRecommendationAction } from "./gateway-setup.js";
+import { handleSetup } from "./gateway-setup.js";
+import { handleAsk, handleConciergeRecommendationAction } from "./gateway-concierge.js";
 import { handlePrototypeGoal, handleFactoryCommandError, parseGoalRequest, resolveExecutorMode, createOptionalExecutorBundle, readFactoryRunStateForSummary, buildFactoryRunResultTitle, isGitMergeConflictError, loadLatestMergeConflictContext, autoFixLatestMergeConflict, finalizeMergeIfReady, continueLatestRunAfterAutoFix, readMergeConflictStatus, loadDashboardWeb, handleDashboard } from "./gateway-prototype.js";
 import type { ModelRole, ModelSelection, WorkflowNodeType, WorkflowStage } from "@factory/schemas";
 

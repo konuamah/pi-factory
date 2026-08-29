@@ -348,6 +348,67 @@ async function readJson<T>(filePath: string): Promise<T | undefined> {
   }
 }
 
+interface AreaLineRule {
+  pattern: RegExp;
+  /** Apply the match to the current area; return true if handled. */
+  apply: (match: RegExpExecArray, current: ConstitutionArea, line: string) => boolean;
+}
+
+const AREA_LINE_RULES: AreaLineRule[] = [
+  {
+    pattern: /^- Status:\s+([A-Z_]+)(?:\s+\((HIGH|MEDIUM|LOW)\))?$/,
+    apply: (match, current) => {
+      current.status = match[1] as ConstitutionArea["status"];
+      current.confidence = match[2] as ConstitutionArea["confidence"] | undefined;
+      return true;
+    },
+  },
+  {
+    pattern: /^- Finding:\s+(.+)$/,
+    apply: (match, current) => {
+      current.finding = match[1] ?? "";
+      return true;
+    },
+  },
+  {
+    pattern: /^- Evidence:\s+(?:(.+?)\s+—\s+)?(.+)$/,
+    apply: (match, current) => {
+      current.evidence.push({
+        kind: "file",
+        path: match[1] || undefined,
+        detail: match[2] ?? "",
+      });
+      return true;
+    },
+  },
+  {
+    pattern: /^- Claim:\s+\[([a-z]+)(?:\/(HIGH|MEDIUM|LOW))?\]\s+(.+)$/,
+    apply: (match, current) => {
+      current.claims ??= [];
+      current.claims.push({
+        kind: match[1] as NonNullable<ConstitutionArea["claims"]>[number]["kind"],
+        confidence: match[2] as ConstitutionArea["confidence"] | undefined,
+        statement: match[3] ?? "",
+        evidence: [],
+      });
+      return true;
+    },
+  },
+  {
+    pattern: /^\s+- Claim evidence:\s+(?:(.+?)\s+—\s+)?(.+)$/,
+    apply: (match, current) => {
+      if (current.claims && current.claims.length > 0) {
+        current.claims[current.claims.length - 1]!.evidence.push({
+          kind: "file",
+          path: match[1] || undefined,
+          detail: match[2] ?? "",
+        });
+      }
+      return true;
+    },
+  },
+];
+
 async function readExistingConstitutionAreas(filePath: string): Promise<ConstitutionArea[]> {
   try {
     const raw = await fs.readFile(filePath, "utf8");
@@ -373,44 +434,11 @@ async function readExistingConstitutionAreas(filePath: string): Promise<Constitu
       if (!current) {
         continue;
       }
-      const status = /^- Status:\s+([A-Z_]+)(?:\s+\((HIGH|MEDIUM|LOW)\))?$/.exec(line);
-      if (status) {
-        current.status = status[1] as ConstitutionArea["status"];
-        current.confidence = status[2] as ConstitutionArea["confidence"] | undefined;
-        continue;
-      }
-      const finding = /^- Finding:\s+(.+)$/.exec(line);
-      if (finding) {
-        current.finding = finding[1] ?? "";
-        continue;
-      }
-      const evidence = /^- Evidence:\s+(?:(.+?)\s+—\s+)?(.+)$/.exec(line);
-      if (evidence) {
-        current.evidence.push({
-          kind: "file",
-          path: evidence[1] || undefined,
-          detail: evidence[2] ?? "",
-        });
-        continue;
-      }
-      const claim = /^- Claim:\s+\[([a-z]+)(?:\/(HIGH|MEDIUM|LOW))?\]\s+(.+)$/.exec(line);
-      if (claim) {
-        current.claims ??= [];
-        current.claims.push({
-          kind: claim[1] as NonNullable<ConstitutionArea["claims"]>[number]["kind"],
-          confidence: claim[2] as ConstitutionArea["confidence"] | undefined,
-          statement: claim[3] ?? "",
-          evidence: [],
-        });
-        continue;
-      }
-      const claimEvidence = /^\s+- Claim evidence:\s+(?:(.+?)\s+—\s+)?(.+)$/.exec(line);
-      if (claimEvidence && current.claims && current.claims.length > 0) {
-        current.claims[current.claims.length - 1]!.evidence.push({
-          kind: "file",
-          path: claimEvidence[1] || undefined,
-          detail: claimEvidence[2] ?? "",
-        });
+      for (const rule of AREA_LINE_RULES) {
+        const match = rule.pattern.exec(line);
+        if (match && rule.apply(match, current, line)) {
+          break;
+        }
       }
     }
 

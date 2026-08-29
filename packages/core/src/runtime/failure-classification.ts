@@ -25,6 +25,9 @@ export interface VerificationFailureClassification {
   suggestedPhase: string;
   /** New: per-command breakdown */
   perCommand: CommandFailureClassification[];
+  classificationSource?: "ai" | "deterministic";
+  rootCause?: string;
+  suggestedGeneralFix?: string;
 }
 
 /**
@@ -167,13 +170,16 @@ function classifySingleCommand(
 
   // Real code failure (TypeScript errors, test failures, lint errors on code)
   if (looksLikeCodeFailure(command)) {
-    // Check if failure is unrelated to changes (baseline)
+    // Check if failure is unrelated to changes (baseline).
+    // Baseline-unrelated is only valid when EVERY implicated file is real source
+    // (not generated/build output) AND not among the changed files.
     if (changedFiles && changedFiles.length > 0) {
       const failureFiles = extractReferencedFiles(command, cwd);
       const hasRelatedFailure = failureFiles.some((failureFile) =>
         changedFiles.some((changedFile) => filesReferToSamePath(failureFile, changedFile))
       );
-      if (failureFiles.length > 0 && !hasRelatedFailure) {
+      const allImplicatedAreSource = failureFiles.length > 0 && failureFiles.every((file) => !isGeneratedPath(file));
+      if (failureFiles.length > 0 && !hasRelatedFailure && allImplicatedAreSource) {
         return {
           commandName: command.name,
           category: "baseline-unrelated",
@@ -280,7 +286,28 @@ function extractReferencedFiles(command: VerificationCommandResult, cwd: string)
   return [...files];
 }
 
-function filesReferToSamePath(left: string, right: string): boolean {
+const GENERATED_PATH_SEGMENTS = [
+  ".next",
+  "dist",
+  "build",
+  "coverage",
+  "node_modules",
+  ".turbo",
+  "out",
+  "target",
+  "__pycache__",
+  ".cache",
+  ".venv",
+  "venv",
+];
+
+/** Structural fact: is this path generated/build output rather than hand-written source? */
+export function isGeneratedPath(file: string): boolean {
+  const normalized = file.replace(/\\/g, "/").toLowerCase();
+  return GENERATED_PATH_SEGMENTS.some((segment) => normalized.includes(`/${segment}/`) || normalized.startsWith(`${segment}/`) || normalized === segment);
+}
+
+export function filesReferToSamePath(left: string, right: string): boolean {
   const a = normalizePathForComparison(left);
   const b = normalizePathForComparison(right);
   return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);

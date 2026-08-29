@@ -100,6 +100,7 @@ export function mergeConfigLayers(input: {
     repair: {
       enabled: project?.repair?.enabled ?? builtIns.repair.enabled,
       maxAttempts: project?.repair?.maxAttempts ?? builtIns.repair.maxAttempts,
+      maxTotalAttempts: project?.repair?.maxTotalAttempts ?? builtIns.repair.maxTotalAttempts,
     },
     constitution: {
       enabled: project?.constitution?.enabled ?? global?.constitution?.enabled ?? builtIns.constitution.enabled,

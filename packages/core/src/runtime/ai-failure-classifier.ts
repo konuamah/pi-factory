@@ -5,6 +5,7 @@ import type {
   VerificationFailureClassification,
 } from "./failure-classification.js";
 import type { VerificationCommandResult, VerificationPlan, VerificationRunResult } from "./verification.js";
+import { isGeneratedPath, filesReferToSamePath } from "./failure-classification.js";
 
 export type ClassificationSource = "ai" | "deterministic";
 
@@ -28,6 +29,8 @@ export interface AiClassificationResult {
   reason: string;
   retryable: boolean;
   suggestedPhase: string;
+  rootCause?: string;
+  suggestedGeneralFix?: string;
   perCommand: CommandFailureClassification[];
 }
 
@@ -107,7 +110,7 @@ export async function classifyVerificationFailuresWithAI(input: {
   if (!parsed) {
     return undefined;
   }
-  return sanitizeAiClassification(parsed, input.deterministic);
+  return sanitizeAiClassification(parsed, input.deterministic, input.changedFiles);
 }
 
 function buildAiClassifierPrompt(
@@ -122,6 +125,8 @@ function buildAiClassifierPrompt(
     JSON.stringify({
       kind: "real-code-failure | missing-executable | invalid-command | missing-dependency | environment-policy | baseline-unrelated | harness/config | unknown",
       reason: "short human reason",
+      rootCause: "the underlying cause across all failed commands",
+      suggestedGeneralFix: "one general fix for the root cause",
       retryable: true,
       suggestedPhase: "verification | verification-planning",
       perCommand: [
@@ -139,7 +144,9 @@ function buildAiClassifierPrompt(
     "Constraints:",
     "- kind and perCommand[].category must be from the allowed set.",
     "- suggestedAction: repair is ONLY valid for real-code-failure or harness/config; prepare-environment for missing-executable/missing-dependency/environment-policy.",
-    "- If the failure references files NOT among the changed files, use baseline-unrelated with action ignore.",
+    "- baseline-unrelated requires implicated files that are REAL SOURCE files (not .next/, dist/, build/, node_modules/ build output) and NOT among the changed files.",
+    "- If implicated files are build output or overlap changed files, classify real-code-failure with action repair.",
+    "- Give ONE rootCause and ONE suggestedGeneralFix that would fix all failing commands together; aim for the general fix, not per-command patches.",
     "- Keep perCommand aligned with the failed commands in the evidence.",
     "",
     "Evidence:",
@@ -172,6 +179,7 @@ function parseStrictJson(outputText: string): Record<string, unknown> | undefine
 function sanitizeAiClassification(
   parsed: Record<string, unknown>,
   fallback: VerificationFailureClassification,
+  changedFiles?: string[],
 ): AiClassificationResult {
   const kind = pickEnum(parsed.kind, ALLOWED_CATEGORIES) ?? fallback.kind;
   const reason = typeof parsed.reason === "string" && parsed.reason.trim() ? parsed.reason.trim() : fallback.reason;
@@ -182,17 +190,33 @@ function sanitizeAiClassification(
   const rawPerCommand = Array.isArray(parsed.perCommand) ? parsed.perCommand : [];
   const perCommand: CommandFailureClassification[] = rawPerCommand.slice(0, 20).map((item) => {
     const raw = (typeof item === "object" && item !== null ? item : {}) as Record<string, unknown>;
-    const category = pickEnum(raw.category, ALLOWED_CATEGORIES) ?? "unknown";
-    const action = pickEnum(raw.suggestedAction, [...ALLOWED_ACTIONS]) ?? defaultAction(category);
+    let category = pickEnum(raw.category, ALLOWED_CATEGORIES) ?? "unknown";
+    const rawCategory = category;
+    const implicatedFiles = Array.isArray(raw.implicatedFiles)
+      ? raw.implicatedFiles.filter((file): file is string => typeof file === "string").slice(0, 20)
+      : [];
+    // Structural guard: baseline-unrelated requires implicated files that are real source
+    // (not build output) and not among the changed files. Otherwise force repair.
+    if (category === "baseline-unrelated") {
+      const allSource = implicatedFiles.length > 0 && implicatedFiles.every((file) => !isGeneratedPath(file));
+      const touchesChanged = implicatedFiles.some((file) =>
+        (changedFiles ?? []).some((changed) => filesReferToSamePath(file, changed)),
+      );
+      if (implicatedFiles.length === 0 || !allSource || touchesChanged) {
+        category = "real-code-failure";
+      }
+    }
+    // If the guard rewrote the category, the AI's action no longer applies — recompute.
+    const action = category !== rawCategory
+      ? defaultAction(category)
+      : pickEnum(raw.suggestedAction, [...ALLOWED_ACTIONS]) ?? defaultAction(category);
     return {
       commandName: typeof raw.commandName === "string" ? raw.commandName : "command",
       category,
       reason: typeof raw.reason === "string" && raw.reason.trim() ? raw.reason.trim() : reason,
       retryable: typeof raw.retryable === "boolean" ? raw.retryable : retryable,
       suggestedAction: constrainAction(action, category),
-      implicatedFiles: Array.isArray(raw.implicatedFiles)
-        ? raw.implicatedFiles.filter((file): file is string => typeof file === "string").slice(0, 20)
-        : [],
+      implicatedFiles,
     };
   });
 
@@ -201,6 +225,8 @@ function sanitizeAiClassification(
     reason,
     retryable,
     suggestedPhase,
+    rootCause: typeof parsed.rootCause === "string" && parsed.rootCause.trim() ? parsed.rootCause.trim() : undefined,
+    suggestedGeneralFix: typeof parsed.suggestedGeneralFix === "string" && parsed.suggestedGeneralFix.trim() ? parsed.suggestedGeneralFix.trim() : undefined,
     perCommand: perCommand.length > 0 ? perCommand : fallback.perCommand,
   };
 }

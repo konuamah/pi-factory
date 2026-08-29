@@ -1339,7 +1339,14 @@ async function runFactoryControllerInner(
   }
 
   if (shouldAttemptVerificationRepair && repairExecutor) {
-    for (let attempt = 1; attempt <= loaded.effectiveConfig.repair.maxAttempts; attempt++) {
+    // Signature-driven repair: keep going while the failure changes (progress), stop when
+    // the same failure signature repeats maxAttempts times (stalled), capped absolutely.
+    const absoluteCap = Math.max(loaded.effectiveConfig.repair.maxAttempts, loaded.effectiveConfig.repair.maxTotalAttempts ?? 10);
+    let stallCount = 0;
+    let lastSignature: string | null = null;
+    let attempt = 0;
+    while (attempt < absoluteCap) {
+      attempt += 1;
       await emitProgress(input, {
         runId: run.runId,
         phase: "repair",
@@ -1349,7 +1356,13 @@ async function runFactoryControllerInner(
       const repairResult = await repairExecutor.execute({
         executionId: `${run.runId}-repair-${attempt}`,
         cwd: verification.cwd,
-        prompt: buildRepairPrompt(input.goal, verification, repairGuidance.text, renderSkillBundleForPrompt(repairSkills)),
+        prompt: buildRepairPrompt(
+          input.goal,
+          verification,
+          repairGuidance.text,
+          renderSkillBundleForPrompt(repairSkills),
+          verificationFailureClassification?.suggestedGeneralFix ?? verificationFailureClassification?.rootCause,
+        ),
         model: loaded.effectiveConfig.models.repair,
         tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
         metadata: {
@@ -1421,6 +1434,22 @@ async function runFactoryControllerInner(
       });
 
       if (verification.overallStatus !== "failed") {
+        break;
+      }
+      // Stalled detection: same failure signature repeated maxAttempts times.
+      const signature = failureSignature(verification);
+      if (signature === lastSignature) {
+        stallCount += 1;
+      } else {
+        stallCount = 0;
+      }
+      lastSignature = signature;
+      if (stallCount >= loaded.effectiveConfig.repair.maxAttempts) {
+        await appendFactoryRunEvent(run.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "repair.stalled",
+          data: { attempt, stallCount, signature },
+        });
         break;
       }
     }
@@ -2828,6 +2857,17 @@ function buildContractArtifact(plan: VerificationContractPlan, result: Verificat
   };
 }
 
+function failureSignature(verification: { commands: Array<{ name: string; status: string; stderr?: string; stdout?: string }> }): string {
+  const failed = verification.commands
+    .filter((command) => command.status === "failed")
+    .map((command) => {
+      const text = `${command.stderr ?? ""}\n${command.stdout ?? ""}`.trim();
+      const firstError = text.split(/\r?\n/).find((line) => /error|failed|exception|\d+:\d+/.test(line)) ?? text.slice(0, 200);
+      return `${command.name}:${firstError.slice(0, 200)}`;
+    });
+  return JSON.stringify(failed);
+}
+
 function resolveRunTaskType(input: RunFactoryControllerInput, config: EffectiveFactoryConfig): TaskTypeSelection {
   if (input.taskType) {
     return { id: input.taskType, source: "run-override", confidence: 1, reasons: ["Explicit run task-type override."] };
@@ -3926,6 +3966,7 @@ function buildRepairPrompt(
   verification: { cwd: string; overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string; stdout?: string; stderr?: string }> },
   constitutionContext?: string,
   skillBundleText?: string,
+  generalFix?: string,
 ): string {
   const failures = verification.commands
     .filter((command) => command.status === "failed")
@@ -3937,10 +3978,12 @@ function buildRepairPrompt(
     `Verification status: ${verification.overallStatus}`,
     `Verification cwd: ${verification.cwd}`,
     failures ? `Failures:\n${failures}` : "Failures: none recorded",
+    generalFix ? `General fix direction:\n${generalFix}` : undefined,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Repair the code so verification can pass.",
     "Focus only on the observed failures and avoid unrelated edits.",
+    "Aim for the general fix that resolves the root cause across all failing commands, not per-command patches.",
   ].filter(Boolean).join("\n");
 }
 

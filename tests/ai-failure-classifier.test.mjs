@@ -149,3 +149,89 @@ test('buildFailureEvidence includes deterministic guess and truncated output', a
   const failed = evidence.failedCommands[0];
   assert.ok(failed.stdoutHead.length < 2000); // truncated
 });
+
+test('AI baseline-unrelated with build-output files is forced to real-code-failure', async () => {
+  const output = JSON.stringify({
+    kind: 'baseline-unrelated',
+    reason: 'Failure in .next build output',
+    retryable: false,
+    suggestedPhase: 'verification',
+    perCommand: [{
+      commandName: 'build',
+      category: 'baseline-unrelated',
+      reason: 'prerender error in .next output',
+      retryable: false,
+      suggestedAction: 'ignore',
+      implicatedFiles: ['.next/server/chunks/ssr/xyz.js'],
+    }],
+  });
+  const result = await classifyVerificationFailuresWithAI({
+    plan,
+    result: failedResult('build', 'window is not defined'),
+    changedFiles: ['src/app/page.tsx'],
+    deterministic: deterministic('baseline-unrelated'),
+    executor: executorReturning(output),
+  });
+  assert.ok(result);
+  // .next/ is generated output → baseline-unrelated is invalid → real-code-failure + repair.
+  assert.equal(result.perCommand[0].category, 'real-code-failure');
+  assert.equal(result.perCommand[0].suggestedAction, 'repair');
+  assert.equal(result.kind, 'real-code-failure');
+});
+
+test('AI baseline-unrelated with a real source file outside changes is preserved', async () => {
+  const output = JSON.stringify({
+    kind: 'baseline-unrelated',
+    reason: 'Failure in untouched legacy file',
+    retryable: false,
+    suggestedPhase: 'verification',
+    perCommand: [{
+      commandName: 'build',
+      category: 'baseline-unrelated',
+      reason: 'type error in legacy util',
+      retryable: false,
+      suggestedAction: 'ignore',
+      implicatedFiles: ['src/legacy/old-util.ts'],
+    }],
+  });
+  const result = await classifyVerificationFailuresWithAI({
+    plan,
+    result: failedResult('build', 'error in src/legacy/old-util.ts'),
+    changedFiles: ['src/app/page.tsx'],
+    deterministic: deterministic('baseline-unrelated'),
+    executor: executorReturning(output),
+  });
+  assert.ok(result);
+  // Real source file, not changed → baseline-unrelated is valid.
+  assert.equal(result.perCommand[0].category, 'baseline-unrelated');
+  assert.equal(result.perCommand[0].suggestedAction, 'ignore');
+});
+
+test('AI classification carries rootCause and suggestedGeneralFix', async () => {
+  const output = JSON.stringify({
+    kind: 'real-code-failure',
+    reason: 'browser API in server component',
+    rootCause: 'window used during SSR prerender',
+    suggestedGeneralFix: 'Guard window access or move component to client side',
+    retryable: true,
+    suggestedPhase: 'verification',
+    perCommand: [{
+      commandName: 'build',
+      category: 'real-code-failure',
+      reason: 'window is not defined',
+      retryable: true,
+      suggestedAction: 'repair',
+      implicatedFiles: ['src/app/StatusBar.tsx'],
+    }],
+  });
+  const result = await classifyVerificationFailuresWithAI({
+    plan,
+    result: failedResult('build', 'window is not defined'),
+    changedFiles: ['src/app/StatusBar.tsx'],
+    deterministic: deterministic('real-code-failure'),
+    executor: executorReturning(output),
+  });
+  assert.ok(result);
+  assert.equal(result.rootCause, 'window used during SSR prerender');
+  assert.equal(result.suggestedGeneralFix, 'Guard window access or move component to client side');
+});

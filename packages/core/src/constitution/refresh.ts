@@ -53,7 +53,7 @@ async function detectChangedFiles(root: string, previousScanSha?: string): Promi
   return Array.from(new Set([...diff, ...dirty])).sort();
 }
 
-function routeImpactedAreas(files: string[]): number[] {
+export function routeImpactedAreas(files: string[]): number[] {
   const impacted = new Set<number>();
   for (const file of files) {
     if (/^(README|AGENTS|CLAUDE|CONTRIBUTING|DEVELOPMENT|ARCHITECTURE|SECURITY)\.md/i.test(path.basename(file)) || file.startsWith("docs/")) {

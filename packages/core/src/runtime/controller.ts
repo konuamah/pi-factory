@@ -1432,15 +1432,11 @@ async function runFactoryControllerInner(
       verificationStatus: verification.overallStatus,
     });
 
-    return {
-      runId: run.runId,
-      runDir: run.runDir,
+    return buildRunFailureResult({
+      run,
       executionCwd,
       worktree,
-      statePath: run.statePath,
-      eventsPath: run.eventsPath,
       phases,
-      approved: false,
       planPath,
       taskPaths,
       plannerExecutionPath,
@@ -1450,7 +1446,7 @@ async function runFactoryControllerInner(
       reviewerExecutionPath,
       verificationPath,
       summaryPath,
-    };
+    });
   }
 
   // Verified: only after all required checks pass.
@@ -1496,15 +1492,11 @@ async function runFactoryControllerInner(
       verificationStatus: verification.overallStatus,
     });
 
-    return {
-      runId: run.runId,
-      runDir: run.runDir,
+    return buildRunFailureResult({
+      run,
       executionCwd,
       worktree,
-      statePath: run.statePath,
-      eventsPath: run.eventsPath,
       phases,
-      approved: false,
       planPath,
       taskPaths,
       plannerExecutionPath,
@@ -1514,7 +1506,7 @@ async function runFactoryControllerInner(
       reviewerExecutionPath,
       verificationPath,
       summaryPath,
-    };
+    });
   }
 
   await wait(delayMs);
@@ -1576,15 +1568,11 @@ async function runFactoryControllerInner(
         verificationStatus: verification.overallStatus,
       });
 
-      return {
-        runId: run.runId,
-        runDir: run.runDir,
+      return buildRunFailureResult({
+        run,
         executionCwd,
         worktree,
-        statePath: run.statePath,
-        eventsPath: run.eventsPath,
         phases,
-        approved: false,
         planPath,
         taskPaths,
         plannerExecutionPath,
@@ -1594,7 +1582,7 @@ async function runFactoryControllerInner(
         reviewerExecutionPath,
         verificationPath,
         summaryPath,
-      };
+      });
     }
   }
 
@@ -1674,15 +1662,11 @@ async function runFactoryControllerInner(
       verificationStatus: verification.overallStatus,
     });
 
-    return {
-      runId: run.runId,
-      runDir: run.runDir,
+    return buildRunFailureResult({
+      run,
       executionCwd,
       worktree,
-      statePath: run.statePath,
-      eventsPath: run.eventsPath,
       phases,
-      approved: false,
       planPath,
       taskPaths,
       plannerExecutionPath,
@@ -1694,7 +1678,7 @@ async function runFactoryControllerInner(
       reviewerExecutionPath,
       verificationPath,
       summaryPath,
-    };
+    });
   }
 
   await wait(delayMs);
@@ -2014,6 +1998,50 @@ async function attemptEnvironmentPreparation(
     verification,
     verificationFailureClassification,
     shouldAttemptEnvPrep,
+  };
+}
+
+interface RunFailureResultContext {
+  run: Awaited<ReturnType<typeof createFactoryRun>>;
+  executionCwd: string;
+  worktree: RunFactoryControllerResult["worktree"];
+  phases: string[];
+  planPath: string;
+  taskPaths: string[];
+  discoveryExecutionPath?: string;
+  plannerExecutionPath?: string;
+  builderExecutionPaths: string[];
+  integrationPath?: string;
+  repairExecutionPaths: string[];
+  reviewerExecutionPath?: string;
+  verificationPath: string;
+  summaryPath: string;
+  candidateSha?: string;
+  finalMergePath?: string;
+}
+
+function buildRunFailureResult(context: RunFailureResultContext): RunFactoryControllerResult {
+  return {
+    runId: context.run.runId,
+    runDir: context.run.runDir,
+    executionCwd: context.executionCwd,
+    worktree: context.worktree,
+    statePath: context.run.statePath,
+    eventsPath: context.run.eventsPath,
+    phases: context.phases,
+    approved: false,
+    planPath: context.planPath,
+    taskPaths: context.taskPaths,
+    discoveryExecutionPath: context.discoveryExecutionPath,
+    plannerExecutionPath: context.plannerExecutionPath,
+    builderExecutionPaths: context.builderExecutionPaths,
+    integrationPath: context.integrationPath,
+    finalMergePath: context.finalMergePath,
+    candidateSha: context.candidateSha,
+    repairExecutionPaths: context.repairExecutionPaths,
+    reviewerExecutionPath: context.reviewerExecutionPath,
+    verificationPath: context.verificationPath,
+    summaryPath: context.summaryPath,
   };
 }
 

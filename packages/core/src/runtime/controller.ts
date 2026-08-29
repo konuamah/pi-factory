@@ -55,6 +55,7 @@ import { sanitizePlannerOutput, validatePlannerOutput, validatePlannerOutputWith
 import { buildDiscoveryEvidencePacket, validateDiscoveryOutput, shouldRetryDiscoveryJsonRepair, buildDiscoveryJsonRepairPrompt, normalizeDiscoveryFilePath, type DiscoveryContract, type DiscoveryEvidencePacket } from "./discovery-validate.js";
 import { buildCompiledPrompt, buildNoChangeRetryPrompt, buildIntegrationRepairPrompt, buildRepairPrompt, buildEnvironmentPrepPrompt, buildReviewerPrompt, renderSkillBundleForPrompt } from "./prompts.js";
 import { applyWorkflowSkillPolicy, resolveNodeSkillBundle, summarizeSkillBundle, collectRuntimeSkillSignals, slugifyGoal } from "./skills.js";
+import { readGitConflictFiles, hasGitMergeInProgress, resolveTaskWorkspace, commitWorkspaceChanges, readGitHeadSha, type WorkspaceCommitResult } from "./git-ops.js";
 
 export interface InterviewDecisionRecord {
   stage: string;
@@ -2049,7 +2050,7 @@ function buildRunFailureResult(context: RunFailureResultContext): RunFactoryCont
   };
 }
 
-interface TaskWorkspaceSelection {
+export interface TaskWorkspaceSelection {
   taskId: string;
   path: string;
   mode: "existing" | "created" | "in-place";
@@ -2802,109 +2803,6 @@ export async function classifyIntegrationFailure(
     conflictingFiles,
     mergeInProgress,
   };
-}
-
-async function readGitConflictFiles(cwd: string): Promise<string[]> {
-  try {
-    const { stdout } = await execFileAsync("git", ["diff", "--name-only", "--diff-filter=U"], {
-      cwd,
-      windowsHide: true,
-    });
-    return stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-async function hasGitMergeInProgress(cwd: string): Promise<boolean> {
-  try {
-    await execFileAsync("git", ["rev-parse", "-q", "--verify", "MERGE_HEAD"], {
-      cwd,
-      windowsHide: true,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function resolveTaskWorkspace(input: {
-  cwd: string;
-  taskId: string;
-  executionBranch?: string;
-  worktreeLocation?: string;
-  allowTaskWorktrees: boolean;
-}): Promise<TaskWorkspaceSelection> {
-  if (!input.allowTaskWorktrees) {
-    return {
-      taskId: input.taskId,
-      path: input.cwd,
-      mode: "in-place",
-      branch: input.executionBranch,
-      shouldIntegrate: false,
-    };
-  }
-
-  const workspace = await createSiblingGitWorktree({
-    cwd: input.cwd,
-    branchName: `${input.executionBranch ?? "factory"}-${input.taskId}`,
-    baseRef: input.executionBranch,
-    preferredLocation: input.worktreeLocation,
-  });
-
-  return {
-    taskId: input.taskId,
-    path: workspace.path,
-    mode: workspace.mode,
-    branch: workspace.branch,
-    shouldIntegrate: workspace.path !== input.cwd && Boolean(workspace.branch),
-  };
-}
-
-interface WorkspaceCommitResult {
-  committed: boolean;
-  changedFiles: string[];
-}
-
-async function commitWorkspaceChanges(cwd: string, task: PlannerTask): Promise<WorkspaceCommitResult> {
-  try {
-    const changedFiles = await readChangedFiles(cwd);
-    if (changedFiles.length === 0) {
-      return { committed: false, changedFiles };
-    }
-    await execFileAsync("git", ["add", "-A"], { cwd, windowsHide: true });
-    await execFileAsync("git", ["commit", "-m", `Factory task ${task.id}: ${task.title}`], {
-      cwd,
-      windowsHide: true,
-    });
-    return { committed: true, changedFiles };
-  } catch {
-    return { committed: false, changedFiles: [] };
-  }
-}
-
-async function readChangedFiles(cwd: string): Promise<string[]> {
-  try {
-    const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd, windowsHide: true });
-    return stdout
-      .split(/\r?\n/)
-      .filter((line) => line.trim())
-      .map((line) => line.slice(3).trim())
-      .filter(Boolean)
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-async function readGitHeadSha(cwd: string): Promise<string | undefined> {
-  try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, windowsHide: true });
-    const value = stdout.trim();
-    return value || undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 async function runFinalMergePhase(input: {

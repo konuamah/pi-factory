@@ -1,54 +1,43 @@
 import type { FactorySetupContext, FactorySetupRecommendation } from "@factory/schemas";
 
+const KNOWN_ROLES = ["discovery", "planner", "builder", "reviewer", "repair"] as const;
+const KNOWN_PRESETS = new Set(["balanced", "fast", "safe"]);
+const BUILTIN_MODEL_NAMES = ["opus", "sonnet"];
+const KNOWN_HYDRATE_MODES = new Set(["auto", "always", "never"]);
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+function modelKey(selection?: { provider?: string; model: string }): string {
+  return `${selection?.provider ?? ""}:${selection?.model ?? ""}`;
+}
+
 export function validateSetupRecommendation(
   rec: FactorySetupRecommendation,
   ctx: FactorySetupContext,
 ): FactorySetupRecommendation {
-  const allowedModels = new Set(ctx.availableModels.map((m) => `${m.provider ?? ""}:${m.model}`));
+  const allowedModels = new Set(ctx.availableModels.map(modelKey));
   const visibleModels = visibleSetupModels(ctx);
-  const visibleModelKeys = new Set(visibleModels.map((m) => `${m.provider ?? ""}:${m.model}`));
+  const visibleModelKeys = new Set(visibleModels.map(modelKey));
   const defaultModel = visibleModels[0];
   const allowedCaps = new Set(ctx.availableCapabilities);
   const allowedSkills = new Set(ctx.availableSkills.map((s) => s.id));
-  const allowedPresets = new Set(["balanced", "fast", "safe"]);
   const discoveredVals = new Set(Object.values(ctx.discoveredCommands).filter(Boolean) as string[]);
 
-  if (!rec.projectUnderstanding?.summary?.trim()) throw new Error("projectUnderstanding.summary is required");
+  assert(rec.projectUnderstanding?.summary?.trim(), "projectUnderstanding.summary is required");
 
-  if (rec.workflow) {
-    const v = rec.workflow.value as { kind?: string; preset?: string; workflow?: unknown };
-    if (v.kind === "custom") {
-      const wf = (v as { workflow: import("@factory/schemas").WorkflowDefinition }).workflow;
-      if (!wf?.stages || wf.stages.length < 2 || wf.stages.length > 10) throw new Error("custom workflow must have 2-10 stages");
-      if (wf.stages.some((s) => !s.name?.trim())) throw new Error("workflow stage missing name");
-      if (wf.stages.some((s) => s.role && !["discovery","planner","builder","reviewer","repair"].includes(s.role))) throw new Error("workflow stage has unknown role");
-      if (hasCycle(wf.stages)) throw new Error("workflow DAG has a cycle");
-      for (const st of wf.stages) if (st.requiredCapabilities?.some((c) => !allowedCaps.has(c as unknown as import("@factory/schemas").Capability))) throw new Error(`workflow stage requires unknown capability`);
-      // model overrides must be allowlisted
-      for (const st of wf.stages) if (st.model?.model) {
-        const key = `${st.model.provider ?? ""}:${st.model.model}`;
-        if (!allowedModels.has(key) && !["opus","sonnet"].includes(st.model.model)) throw new Error(`workflow stage model not allowlisted: ${key}`);
-      }
-    } else if (v.kind === "preset" || v.preset) {
-      const preset = (v as { preset: string }).preset;
-      if (!allowedPresets.has(preset)) throw new Error(`workflow preset must be one of balanced|fast|safe`);
-    } else {
-      throw new Error("workflow value must be {kind:preset,preset} or {kind:custom,workflow}");
-    }
-  }
+  if (rec.workflow) validateWorkflow(rec.workflow.value, allowedCaps, allowedModels);
 
   // Models — must be in availableModels
   if (rec.models) {
     for (const [role, entry] of Object.entries(rec.models)) {
       if (!entry) continue;
-      const key = `${entry.value.provider ?? ""}:${entry.value.model}`;
-      if (!visibleModelKeys.has(key)) {
-        if (!defaultModel) {
-          throw new Error(`model for ${role} not visible in Pi models: ${key}`);
-        }
-        entry.value = defaultModel;
-        entry.reason = `${entry.reason} Replaced unavailable model ${key} with detected Pi-visible default ${defaultModel.provider ? `${defaultModel.provider}/` : ""}${defaultModel.model}.`;
-      }
+      const key = modelKey(entry.value);
+      if (visibleModelKeys.has(key)) continue;
+      assert(defaultModel, `model for ${role} not visible in Pi models: ${key}`);
+      entry.value = defaultModel;
+      entry.reason = `${entry.reason} Replaced unavailable model ${key} with detected Pi-visible default ${defaultModel.provider ? `${defaultModel.provider}/` : ""}${defaultModel.model}.`;
     }
   }
 
@@ -57,24 +46,18 @@ export function validateSetupRecommendation(
     for (const [field, r] of Object.entries(rec.commands) as Array<[string, import("@factory/schemas").Recommendation<string> | undefined]>) {
       if (!r) continue;
       const v = r.value.trim();
-      if (!v) throw new Error(`command ${field} must not be empty`);
+      assert(v, `command ${field} must not be empty`);
       if (r.source === "DISCOVERED" && !discoveredVals.has(v)) {
         r.source = "AI_SUGGESTED";
         r.confidence = r.confidence === "HIGH" ? "MEDIUM" : r.confidence;
         r.requiresConfirmation = true;
         r.reason = `${r.reason} Reclassified because this command was not found in discovered package/tooling commands.`;
       }
-      if (r.source === "AI_SUGGESTED" && r.requiresConfirmation !== true) {
-        throw new Error(`AI_SUGGESTED command ${field} must have requiresConfirmation: true`);
-      }
-      // DISCOVERED commands come from package.json/scripts and may legitimately contain &&, ;, |, $ etc.
-      // Only block invented commands that smuggle metachars without confirmation.
-      if (r.source === "AI_SUGGESTED" && /[;&|`$]/.test(v) && r.requiresConfirmation !== true) {
-        throw new Error(`command ${field} with shell metacharacters must require confirmation`);
-      }
-      if (r.source === "AI_SUGGESTED" && r.requiresConfirmation !== true && !discoveredVals.has(v)) {
-        // extra guard: non-discovered value without explicit confirmation is still AI_SUGGESTED
-        // (already enforced above via source check)
+      if (r.source === "AI_SUGGESTED") {
+        // DISCOVERED commands come from package.json/scripts and may legitimately contain &&, ;, |, $ etc.
+        // Only block invented commands that smuggle metachars without confirmation.
+        assert(r.requiresConfirmation === true, `AI_SUGGESTED command ${field} must have requiresConfirmation: true`);
+        assert(!/[;&|`$]/.test(v) || r.requiresConfirmation === true, `command ${field} with shell metacharacters must require confirmation`);
       }
     }
   }
@@ -82,12 +65,12 @@ export function validateSetupRecommendation(
   // Capabilities — only allowlisted IDs
   if (rec.capabilities?.allow) {
     for (const c of rec.capabilities.allow) {
-      if (!allowedCaps.has(c)) throw new Error(`capability allow not in availableCapabilities: ${c}`);
+      assert(allowedCaps.has(c), `capability allow not in availableCapabilities: ${c}`);
     }
   }
   if (rec.capabilities?.deny) {
     for (const c of rec.capabilities.deny) {
-      if (!allowedCaps.has(c)) throw new Error(`capability deny not in availableCapabilities: ${c}`);
+      assert(allowedCaps.has(c), `capability deny not in availableCapabilities: ${c}`);
     }
   }
 
@@ -95,71 +78,100 @@ export function validateSetupRecommendation(
   if (rec.taskTypes) {
     for (const tt of rec.taskTypes) {
       // taskType ids are free-form but routing models must be allowlisted
-      if (tt.routing) {
-        for (const [role, routing] of Object.entries(tt.routing)) {
-          if (!routing) continue;
-          const key = `${routing.provider ?? ""}:${routing.model}`;
-          // routing model must be either an availableModel or built-in opus/sonnet which are already in availableModels
-          if (routing.model && !allowedModels.has(key) && !["opus", "sonnet"].includes(routing.model)) {
-            throw new Error(`taskType ${tt.id} routing ${role} model not allowlisted: ${key}`);
-          }
-        }
+      if (!tt.routing) continue;
+      for (const [role, routing] of Object.entries(tt.routing)) {
+        if (!routing) continue;
+        const key = modelKey(routing);
+        // routing model must be either an availableModel or built-in opus/sonnet which are already in availableModels
+        assert(!routing.model || allowedModels.has(key) || BUILTIN_MODEL_NAMES.includes(routing.model), `taskType ${tt.id} routing ${role} model not allowlisted: ${key}`);
       }
     }
   }
 
-  // Runtime/repair/approval ranges
+  validateNumericRanges(rec);
+
+  // Constitution
+  assert(["GENERATE", "REFRESH", "KEEP"].includes(rec.constitution), `constitution must be GENERATE|REFRESH|KEEP`);
+
+  if (rec.skills?.ids) for (const id of rec.skills.ids) assert(allowedSkills.has(id), `skill not allowlisted: ${id}`);
+
+  normalizeQuestions(rec);
+
+  return rec;
+}
+
+function validateWorkflow(
+  rawValue: unknown,
+  allowedCaps: Set<string>,
+  allowedModels: Set<string>,
+): void {
+  const v = rawValue as { kind?: string; preset?: string; workflow?: unknown };
+  if (v.kind === "custom") {
+    const wf = (v as { workflow: import("@factory/schemas").WorkflowDefinition }).workflow;
+    assert(wf?.stages && wf.stages.length >= 2 && wf.stages.length <= 10, "custom workflow must have 2-10 stages");
+    assert(!wf.stages.some((s) => !s.name?.trim()), "workflow stage missing name");
+    assert(!wf.stages.some((s) => s.role && !(KNOWN_ROLES as readonly string[]).includes(s.role)), "workflow stage has unknown role");
+    assert(!hasCycle(wf.stages), "workflow DAG has a cycle");
+    for (const st of wf.stages) {
+      assert(!st.requiredCapabilities?.some((c) => !allowedCaps.has(c as unknown as import("@factory/schemas").Capability)), "workflow stage requires unknown capability");
+      // model overrides must be allowlisted
+      if (st.model?.model) {
+        const key = modelKey(st.model);
+        assert(allowedModels.has(key) || BUILTIN_MODEL_NAMES.includes(st.model.model), `workflow stage model not allowlisted: ${key}`);
+      }
+    }
+    return;
+  }
+  if (v.kind === "preset" || v.preset) {
+    const preset = (v as { preset: string }).preset;
+    assert(KNOWN_PRESETS.has(preset), `workflow preset must be one of balanced|fast|safe`);
+    return;
+  }
+  throw new Error("workflow value must be {kind:preset,preset} or {kind:custom,workflow}");
+}
+
+function validateNumericRanges(rec: FactorySetupRecommendation): void {
   if (rec.runtime?.maxParallelAgents) {
     const n = rec.runtime.maxParallelAgents.value;
-    if (!Number.isInteger(n) || n < 1 || n > 16) throw new Error(`maxParallelAgents must be 1..16`);
+    assert(Number.isInteger(n) && n >= 1 && n <= 16, `maxParallelAgents must be 1..16`);
   }
   if (rec.repair?.maxAttempts) {
     const n = rec.repair.maxAttempts.value;
-    if (!Number.isInteger(n) || n < 0 || n > 10) throw new Error(`repair maxAttempts must be 0..10`);
+    assert(Number.isInteger(n) && n >= 0 && n <= 10, `repair maxAttempts must be 0..10`);
   }
   if (rec.git?.cleanup?.retainRuns) {
     const n = rec.git.cleanup.retainRuns.value;
-    if (!Number.isInteger(n) || n < 0) throw new Error(`retainRuns must be >=0`);
+    assert(Number.isInteger(n) && n >= 0, `retainRuns must be >=0`);
   }
   if (rec.git?.baseBranch) {
-    if (!rec.git.baseBranch.value.trim()) throw new Error(`baseBranch must not be empty`);
-    if (/[^\w./-]/.test(rec.git.baseBranch.value)) throw new Error(`baseBranch contains illegal characters`);
+    assert(rec.git.baseBranch.value.trim(), `baseBranch must not be empty`);
+    assert(!/[^\w./-]/.test(rec.git.baseBranch.value), `baseBranch contains illegal characters`);
   }
-  if (rec.dependencies?.hydrate && !["auto", "always", "never"].includes(rec.dependencies.hydrate.value)) {
-    throw new Error(`dependencies.hydrate must be auto|always|never`);
+  if (rec.dependencies?.hydrate) {
+    assert(KNOWN_HYDRATE_MODES.has(rec.dependencies.hydrate.value), `dependencies.hydrate must be auto|always|never`);
   }
-  if (rec.dependencies?.cacheRoot && !rec.dependencies.cacheRoot.value.trim()) {
-    throw new Error(`dependencies.cacheRoot must not be empty`);
+  if (rec.dependencies?.cacheRoot) {
+    assert(rec.dependencies.cacheRoot.value.trim(), `dependencies.cacheRoot must not be empty`);
   }
+}
 
-  // Constitution
-  if (!["GENERATE", "REFRESH", "KEEP"].includes(rec.constitution)) {
-    throw new Error(`constitution must be GENERATE|REFRESH|KEEP`);
-  }
-
-  if (rec.skills?.ids) for (const id of rec.skills.ids) if (!allowedSkills.has(id)) throw new Error(`skill not allowlisted: ${id}`);
-
+function normalizeQuestions(rec: FactorySetupRecommendation): void {
+  if (!rec.questions?.length) return;
   // Questions are advisory — tolerate LLM that emits {kind, question} without id/options (e.g. Spark's honest questions).
   // Normalize: fill missing id, drop questions that have neither question nor options.
-  if (rec.questions?.length) {
-    const normalized: typeof rec.questions = [];
-    for (let i = 0; i < rec.questions.length; i++) {
-      const q = rec.questions[i] as unknown as Record<string, unknown>;
-      const question = String(q.question ?? "").trim();
-      if (!question) continue;
-      const id = String(q.id ?? `q-${i}`);
-      const options = Array.isArray(q.options) ? (q.options as Array<{ id?: string; label?: string }>) : [];
-      const opts = options.length
-        ? options.map((o, j) => ({ id: String(o.id ?? `opt-${j}`), label: String(o.label ?? o.id ?? `Option ${j + 1}`) }))
-        : defaultQuestionOptions(question);
-      normalized.push({ id, question, options: opts, ...(q.context ? { context: String(q.context) } : {}), ...(q.kind ? { kind: q.kind as import("@factory/schemas").SetupQuestion["kind"] } : {}) });
-    }
-    rec.questions = normalized;
+  const normalized: typeof rec.questions = [];
+  for (let i = 0; i < rec.questions.length; i++) {
+    const q = rec.questions[i] as unknown as Record<string, unknown>;
+    const question = String(q.question ?? "").trim();
+    if (!question) continue;
+    const id = String(q.id ?? `q-${i}`);
+    const options = Array.isArray(q.options) ? (q.options as Array<{ id?: string; label?: string }>) : [];
+    const opts = options.length
+      ? options.map((o, j) => ({ id: String(o.id ?? `opt-${j}`), label: String(o.label ?? o.id ?? `Option ${j + 1}`) }))
+      : defaultQuestionOptions(question);
+    normalized.push({ id, question, options: opts, ...(q.context ? { context: String(q.context) } : {}), ...(q.kind ? { kind: q.kind as import("@factory/schemas").SetupQuestion["kind"] } : {}) });
   }
-
-  // Cross-check: AI_SUGGESTED commands must not be auto-applied later — caller must enforce requiresConfirmation gate
-
-  return rec;
+  rec.questions = normalized;
 }
 
 function visibleSetupModels(ctx: FactorySetupContext) {

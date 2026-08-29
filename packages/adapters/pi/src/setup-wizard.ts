@@ -63,28 +63,40 @@ async function selectModelAssignments(
 
   const assignments: Partial<Record<ModelRole, ModelSelection>> = {};
   for (const role of MODEL_ROLES) {
-    const choiceOptions = [
-      ...(defaultSelection
-        ? [`Use Pi default — ${defaultSelection.provider}/${defaultSelection.model}`]
-        : []),
-      "Enter provider/model manually",
-      "Skip this role",
-    ];
-    const choice = await ui.select?.(`Model for ${role}`, choiceOptions);
-
-    if (choice?.startsWith("Use Pi default") && defaultSelection) {
-      assignments[role] = defaultSelection;
-      continue;
-    }
-
-    if (choice === "Enter provider/model manually") {
-      const provider = (await ui.input?.(`Provider for ${role}`, "e.g. anthropic, openai, ollama"))?.trim();
-      const model = (await ui.input?.(`Model for ${role}`, "e.g. claude-sonnet-4-20250514"))?.trim();
-      if (provider && model) {
-        assignments[role] = { provider, model };
-      }
+    const selected = await selectModelForRole(ui, role, defaultSelection);
+    if (selected) {
+      assignments[role] = selected;
     }
   }
 
   return assignments;
+}
+
+async function selectModelForRole(
+  ui: FactoryPiUi,
+  role: ModelRole,
+  defaultSelection: ModelSelection | undefined,
+): Promise<ModelSelection | undefined> {
+  const choiceOptions = [
+    ...(defaultSelection
+      ? [`Use Pi default — ${defaultSelection.provider}/${defaultSelection.model}`]
+      : []),
+    "Enter provider/model manually",
+    "Skip this role",
+  ];
+  const choice = await ui.select?.(`Model for ${role}`, choiceOptions);
+
+  if (choice?.startsWith("Use Pi default") && defaultSelection) {
+    return defaultSelection;
+  }
+
+  if (choice === "Enter provider/model manually") {
+    const provider = (await ui.input?.(`Provider for ${role}`, "e.g. anthropic, openai, ollama"))?.trim();
+    const model = (await ui.input?.(`Model for ${role}`, "e.g. claude-sonnet-4-20250514"))?.trim();
+    if (provider && model) {
+      return { provider, model };
+    }
+  }
+
+  return undefined;
 }

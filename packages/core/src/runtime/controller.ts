@@ -1313,41 +1313,20 @@ async function runFactoryControllerInner(
   }
 
   const repairExecutor = input.repairExecutor;
-  const environmentFailures = verificationFailureClassification?.perCommand
-    .filter((c) => c.suggestedAction === "prepare-environment") ?? [];
-  const shouldAttemptEnvPrep = verification.overallStatus === "failed"
-    && Boolean(repairExecutor)
-    && loaded.effectiveConfig.repair.enabled
-    && environmentFailures.length > 0;
-  if (shouldAttemptEnvPrep && repairExecutor) {
-    await emitProgress(input, {
-      runId: run.runId,
-      phase: "environment-preparation",
-      status: "RUNNING",
-      message: `Preparing environment for: ${environmentFailures.map((f) => f.commandName).join(", ")}`,
-    });
-    const envResult = await repairExecutor.execute({
-      executionId: `${run.runId}-env-prep`,
-      cwd: verification.cwd,
-      prompt: buildEnvironmentPrepPrompt(verification.cwd, environmentFailures),
-      model: loaded.effectiveConfig.models.repair,
-      tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
-      metadata: { role: "repair", purpose: "environment-preparation", runId: run.runId },
-    });
-    await appendFactoryRunEvent(run.eventsPath, {
-      timestamp: new Date().toISOString(),
-      type: "environment.prep_completed",
-      data: { status: envResult.status },
-    });
-    if (envResult.status === "completed") {
-      verification = await runVerificationCommands({ cwd: verificationPlan.cwd, commands: verificationPlan.commands });
-      verification.cwdResolution = verificationPlan.cwdResolution;
-      const recheck = classifyVerificationFailure({ plan: verificationPlan, result: verification, changedFiles: implementationChangedFiles });
-      verificationFailureClassification = recheck
-        ? { ...recheck, classificationSource: "deterministic" as ClassificationSource }
-        : undefined;
-    }
-  }
+  const environmentPrepState = await attemptEnvironmentPreparation({
+    run,
+    input,
+    repairExecutor,
+    repairModel: loaded.effectiveConfig.models.repair,
+    repairEnabled: loaded.effectiveConfig.repair.enabled,
+    verificationPlan,
+    implementationChangedFiles,
+    verification,
+    verificationFailureClassification,
+  });
+  verification = environmentPrepState.verification;
+  verificationFailureClassification = environmentPrepState.verificationFailureClassification;
+  const shouldAttemptEnvPrep = environmentPrepState.shouldAttemptEnvPrep;
   const repairableFailures = verificationFailureClassification?.perCommand
     .filter((c) => c.category === "real-code-failure" && c.suggestedAction === "repair") ?? [];
   const shouldAttemptVerificationRepair = verification.overallStatus === "failed"
@@ -1963,6 +1942,78 @@ async function runVerificationRepairLoop(
     verificationPath,
     contractResult,
     repairExecutionPaths,
+  };
+}
+
+interface EnvironmentPreparationContext {
+  run: Awaited<ReturnType<typeof createFactoryRun>>;
+  input: RunFactoryControllerInput;
+  repairExecutor: AgentExecutor | undefined;
+  repairModel: ModelSelection | undefined;
+  repairEnabled: boolean;
+  verificationPlan: VerificationPlan;
+  implementationChangedFiles: string[];
+  verification: VerificationRunResult;
+  verificationFailureClassification: VerificationFailureClassification | undefined;
+}
+
+async function attemptEnvironmentPreparation(
+  context: EnvironmentPreparationContext,
+): Promise<Pick<EnvironmentPreparationContext, "verification" | "verificationFailureClassification"> & { shouldAttemptEnvPrep: boolean }> {
+  const {
+    run,
+    input,
+    repairExecutor,
+    repairModel,
+    repairEnabled,
+    verificationPlan,
+    implementationChangedFiles,
+  } = context;
+  let {
+    verification,
+    verificationFailureClassification,
+  } = context;
+
+  const environmentFailures = verificationFailureClassification?.perCommand
+    .filter((c) => c.suggestedAction === "prepare-environment") ?? [];
+  const shouldAttemptEnvPrep = verification.overallStatus === "failed"
+    && Boolean(repairExecutor)
+    && repairEnabled
+    && environmentFailures.length > 0;
+  if (shouldAttemptEnvPrep && repairExecutor) {
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: "environment-preparation",
+      status: "RUNNING",
+      message: `Preparing environment for: ${environmentFailures.map((f) => f.commandName).join(", ")}`,
+    });
+    const envResult = await repairExecutor.execute({
+      executionId: `${run.runId}-env-prep`,
+      cwd: verification.cwd,
+      prompt: buildEnvironmentPrepPrompt(verification.cwd, environmentFailures),
+      model: repairModel,
+      tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+      metadata: { role: "repair", purpose: "environment-preparation", runId: run.runId },
+    });
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "environment.prep_completed",
+      data: { status: envResult.status },
+    });
+    if (envResult.status === "completed") {
+      verification = await runVerificationCommands({ cwd: verificationPlan.cwd, commands: verificationPlan.commands });
+      verification.cwdResolution = verificationPlan.cwdResolution;
+      const recheck = classifyVerificationFailure({ plan: verificationPlan, result: verification, changedFiles: implementationChangedFiles });
+      verificationFailureClassification = recheck
+        ? { ...recheck, classificationSource: "deterministic" as ClassificationSource }
+        : undefined;
+    }
+  }
+
+  return {
+    verification,
+    verificationFailureClassification,
+    shouldAttemptEnvPrep,
   };
 }
 

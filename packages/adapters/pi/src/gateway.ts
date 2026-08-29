@@ -780,128 +780,172 @@ async function runSetupCustomize(
       "Done",
     ]);
     if (!section || section === "Done") break;
-    if (section === "Workflow") {
-      const choice = await uiCtx.ui.select?.("Workflow preset", ["Balanced", "Fast", "Safe"]);
-      if (choice) {
-        const preset = choice.toLowerCase().split(" ")[0] as import("@factory/schemas").WorkflowPreset;
-        const curWf = current.workflow?.value as { workflowId?: string } | undefined;
-        current.workflow = { value: { kind: "preset", preset, workflowId: curWf?.workflowId ?? "default-dev" }, reason: `User chose ${preset}` };
-      }
-    } else if (section === "Models") {
-      for (const role of ["discovery", "planner", "builder", "reviewer", "repair"] as const) {
-        const cur = current.models?.[role]?.value;
-        const curLabel = cur ? `${cur.provider ? `${cur.provider}/` : ""}${cur.model}` : "unset";
-        const choice = await uiCtx.ui.select?.(`Model for ${role} (now: ${curLabel})`, [
-          ...ctx.availableModels.map((m) => `${m.provider ? `${m.provider}/` : ""}${m.model}`),
-          "Keep current",
-          "Skip / unset",
-        ]);
-        if (!choice || choice === "Keep current") continue;
-        if (choice === "Skip / unset") { if (current.models) delete current.models[role]; continue; }
-        const [provider, ...rest] = choice.split("/");
-        const model = rest.length ? rest.join("/") : provider;
-        const prov = rest.length ? provider : undefined;
-        current.models = current.models ?? {};
-        const matched = ctx.availableModels.find((m) => `${m.provider ?? ""}:${m.model}` === `${prov ?? ""}:${model}`);
-        if (!matched && !choice.includes("/")) {
-          // Single model id like "opus" — pick first match
-          const byModel = ctx.availableModels.find((m) => m.model === choice);
-          if (byModel) { current.models[role] = { value: byModel, reason: `User chose ${choice}` }; continue; }
-        }
-        const sel = matched ?? { provider: prov, model: model! };
-        current.models[role] = { value: sel, reason: `User chose ${choice}` };
-      }
-    } else if (section === "Commands") {
-      for (const field of ["setup", "lint", "typecheck", "test", "build"] as const) {
-        const cur = current.commands?.[field];
-        const curLabel = cur ? `${cur.value} [${cur.source}]` : "unset";
-        const discovered = (ctx.discoveredCommands as Record<string, string | undefined>)[field];
-        const options = [
-          ...(discovered ? [`Use discovered — ${discovered}`] : []),
-          "Enter custom command",
-          "Keep current",
-          "Clear",
-        ];
-        const choice = await uiCtx.ui.select?.(`Command: ${field} (now: ${curLabel})`, options);
-        if (!choice || choice === "Keep current") continue;
-        if (choice === "Clear") { if (current.commands) delete current.commands[field]; continue; }
-        if (choice.startsWith("Use discovered")) {
-          if (discovered) { current.commands = current.commands ?? {}; current.commands[field] = { value: discovered, reason: `User kept discovered ${field}`, source: "DISCOVERED", confidence: "HIGH" }; }
-          continue;
-        }
-        const custom = await uiCtx.ui.input?.(`Custom ${field} command`, "e.g. pnpm test:integration");
-        if (!custom?.trim()) continue;
-        const val = custom.trim();
-        const isDiscovered = Object.values(ctx.discoveredCommands).includes(val);
-        current.commands = current.commands ?? {};
-        current.commands[field] = {
-          value: val,
-          reason: isDiscovered ? `User kept discovered: ${val}` : `User custom: ${val}`,
-          source: isDiscovered ? "DISCOVERED" : "AI_SUGGESTED",
-          confidence: isDiscovered ? "HIGH" : "MEDIUM",
-          ...(isDiscovered ? {} : { requiresConfirmation: true as const }),
-        };
-        if (!isDiscovered) localAnswers[`confirm:${field}`] = "yes"; // user just confirmed by entering it in Customize
-      }
-    } else if (section === "Runtime") {
-      const cur = String(current.runtime?.maxParallelAgents?.value ?? 2);
-      const val = await uiCtx.ui.input?.("Max parallel agents (1-16)", cur);
-      if (val?.trim()) {
-        const n = Number.parseInt(val.trim(), 10);
-        if (Number.isFinite(n) && n >= 1 && n <= 16) { current.runtime = current.runtime ?? {}; current.runtime.maxParallelAgents = { value: n, reason: "User chose parallel workers", source: "DEFAULT", confidence: "HIGH" }; localAnswers["runtime:maxParallelAgents"] = String(n); }
-      }
-    } else if (section === "Git / worktrees") {
-      const bb = await uiCtx.ui.input?.("Base branch", current.git?.baseBranch?.value ?? ctx.effective?.git.baseBranch ?? "main");
-      if (bb?.trim()) { current.git = current.git ?? {}; current.git.baseBranch = { value: bb.trim(), reason: "User chose base branch", source: "DEFAULT", confidence: "HIGH" }; localAnswers["git:baseBranch"] = bb.trim(); }
-      const aw = await uiCtx.ui.select?.("Allow worktrees?", ["Yes", "No", "Keep current"]);
-      if (aw && aw !== "Keep current") { current.git = current.git ?? {}; current.git.allowWorktrees = { value: aw === "Yes", reason: "User chose worktree policy", source: "DEFAULT", confidence: "HIGH" }; }
-    } else if (section === "Dependencies") {
-      const enabled = await uiCtx.ui.select?.("Hydrate dependencies before work?", ["Enabled", "Disabled", "Keep current"]);
-      if (enabled && enabled !== "Keep current") {
-        current.dependencies = current.dependencies ?? {};
-        current.dependencies.enabled = { value: enabled === "Enabled", reason: "User chose dependency hydration policy", source: "DEFAULT", confidence: "HIGH" };
-      }
-      const hydrate = await uiCtx.ui.select?.("Hydration mode", ["auto", "always", "never", "Keep current"]);
-      if (hydrate && hydrate !== "Keep current") {
-        current.dependencies = current.dependencies ?? {};
-        current.dependencies.hydrate = { value: hydrate as import("@factory/schemas").DependencyHydrationMode, reason: "User chose dependency hydration mode", source: "DEFAULT", confidence: "HIGH" };
-      }
-      const cacheRoot = await uiCtx.ui.input?.("Shared dependency cache root", current.dependencies?.cacheRoot?.value ?? ctx.effective?.dependencies.cacheRoot ?? "");
-      if (cacheRoot?.trim()) {
-        current.dependencies = current.dependencies ?? {};
-        current.dependencies.cacheRoot = { value: cacheRoot.trim(), reason: "User chose shared dependency cache root", source: "DEFAULT", confidence: "HIGH" };
-      }
-    } else if (section === "Repair") {
-      const en = await uiCtx.ui.select?.("Enable repair?", ["Enabled", "Disabled", "Keep current"]);
-      if (en && en !== "Keep current") { current.repair = current.repair ?? {}; current.repair.enabled = { value: en === "Enabled", reason: "User chose repair policy", source: "DEFAULT", confidence: "HIGH" }; localAnswers["repair:enabled"] = String(en === "Enabled"); }
-      const ma = await uiCtx.ui.input?.("Max repair attempts (0-10)", String(current.repair?.maxAttempts?.value ?? 3));
-      if (ma?.trim()) { const n = Number.parseInt(ma.trim(), 10); if (Number.isFinite(n) && n >= 0 && n <= 10) { current.repair = current.repair ?? {}; current.repair.maxAttempts = { value: n, reason: "User chose maxAttempts", source: "DEFAULT", confidence: "HIGH" }; localAnswers["repair:maxAttempts"] = String(n); } }
-    } else if (section === "Approval") {
-      const choice = await uiCtx.ui.select?.("Final merge", ["Ask for approval (required)", "Auto-merge (not-required)", "Keep current"]);
-      if (choice && choice !== "Keep current") {
-        const v = choice.startsWith("Ask") ? "required" as const : "not-required" as const;
-        current.approval = current.approval ?? {}; current.approval.finalMerge = { value: v, reason: "User chose merge policy", source: "DEFAULT", confidence: "HIGH" }; localAnswers["approval:finalMerge"] = v;
-      }
-    } else if (section === "Capabilities") {
-      const curAllow = current.capabilities?.allow?.join(", ") || "none";
-      const curDeny = current.capabilities?.deny?.join(", ") || "none";
-      const want = await uiCtx.ui.select?.(`Capabilities (allow: ${curAllow} / deny: ${curDeny})`, ["Edit allow", "Edit deny", "Keep current"]);
-      if (want === "Edit allow") {
-        const val = await uiCtx.ui.input?.("Allow capabilities (comma-separated)", curAllow);
-        if (val !== undefined) { const ids = val.split(",").map((s) => s.trim()).filter(Boolean) as import("@factory/schemas").Capability[]; current.capabilities = current.capabilities ?? {}; (current.capabilities as Record<string, unknown>).allow = ids; }
-      } else if (want === "Edit deny") {
-        const val = await uiCtx.ui.input?.("Deny capabilities (comma-separated)", curDeny);
-        if (val !== undefined) { const ids = val.split(",").map((s) => s.trim()).filter(Boolean) as import("@factory/schemas").Capability[]; current.capabilities = current.capabilities ?? {}; (current.capabilities as Record<string, unknown>).deny = ids; }
-      }
-    } else if (section === "Task routing") {
-      const val = await uiCtx.ui.input?.("Task type IDs (comma-separated, e.g. database-migration)", current.taskTypes?.map((t) => t.id).join(", ") ?? "");
-      if (val !== undefined) { const ids = val.split(",").map((s) => s.trim()).filter(Boolean); current.taskTypes = ids.map((id) => ({ id, reason: "User chose task types", source: "DEFAULT" as const, confidence: "MEDIUM" as const })); }
-    } else if (section === "Constitution") {
-      const choice = await uiCtx.ui.select?.("Constitution", ["GENERATE", "REFRESH", "KEEP"]);
-      if (choice) current.constitution = choice as import("@factory/schemas").ConstitutionRecommendation;
-    }
+    await SETUP_CUSTOMIZE_HANDLERS[section]?.({ ctx, uiCtx, current, localAnswers });
   }
   return { answers: localAnswers, recommendation: current };
+}
+
+interface SetupCustomizeArgs {
+  ctx: import("@factory/schemas").FactorySetupContext;
+  uiCtx: FactoryPiCommandContext;
+  current: import("@factory/schemas").FactorySetupRecommendation;
+  localAnswers: Record<string, string>;
+}
+
+type SetupCustomizeHandler = (args: SetupCustomizeArgs) => Promise<void>;
+
+const SETUP_CUSTOMIZE_HANDLERS: Record<string, SetupCustomizeHandler> = {
+  Workflow: customizeWorkflow,
+  Models: customizeModels,
+  Commands: customizeCommands,
+  Runtime: customizeRuntime,
+  "Git / worktrees": customizeGitWorktrees,
+  Dependencies: customizeDependencies,
+  Repair: customizeRepair,
+  Approval: customizeApproval,
+  Capabilities: customizeCapabilities,
+  "Task routing": customizeTaskRouting,
+  Constitution: customizeConstitution,
+};
+
+async function customizeWorkflow({ uiCtx, current }: SetupCustomizeArgs): Promise<void> {
+  const choice = await uiCtx.ui.select?.("Workflow preset", ["Balanced", "Fast", "Safe"]);
+  if (!choice) return;
+  const preset = choice.toLowerCase().split(" ")[0] as import("@factory/schemas").WorkflowPreset;
+  const curWf = current.workflow?.value as { workflowId?: string } | undefined;
+  current.workflow = { value: { kind: "preset", preset, workflowId: curWf?.workflowId ?? "default-dev" }, reason: `User chose ${preset}` };
+}
+
+async function customizeModels({ ctx, uiCtx, current }: SetupCustomizeArgs): Promise<void> {
+  for (const role of ["discovery", "planner", "builder", "reviewer", "repair"] as const) {
+    const cur = current.models?.[role]?.value;
+    const curLabel = cur ? `${cur.provider ? `${cur.provider}/` : ""}${cur.model}` : "unset";
+    const choice = await uiCtx.ui.select?.(`Model for ${role} (now: ${curLabel})`, [
+      ...ctx.availableModels.map((m) => `${m.provider ? `${m.provider}/` : ""}${m.model}`),
+      "Keep current",
+      "Skip / unset",
+    ]);
+    if (!choice || choice === "Keep current") continue;
+    if (choice === "Skip / unset") { if (current.models) delete current.models[role]; continue; }
+    const [provider, ...rest] = choice.split("/");
+    const model = rest.length ? rest.join("/") : provider;
+    const prov = rest.length ? provider : undefined;
+    current.models = current.models ?? {};
+    const matched = ctx.availableModels.find((m) => `${m.provider ?? ""}:${m.model}` === `${prov ?? ""}:${model}`);
+    if (!matched && !choice.includes("/")) {
+      // Single model id like "opus" — pick first match
+      const byModel = ctx.availableModels.find((m) => m.model === choice);
+      if (byModel) { current.models[role] = { value: byModel, reason: `User chose ${choice}` }; continue; }
+    }
+    const sel = matched ?? { provider: prov, model: model! };
+    current.models[role] = { value: sel, reason: `User chose ${choice}` };
+  }
+}
+
+async function customizeCommands({ ctx, uiCtx, current, localAnswers }: SetupCustomizeArgs): Promise<void> {
+  for (const field of ["setup", "lint", "typecheck", "test", "build"] as const) {
+    const cur = current.commands?.[field];
+    const curLabel = cur ? `${cur.value} [${cur.source}]` : "unset";
+    const discovered = (ctx.discoveredCommands as Record<string, string | undefined>)[field];
+    const options = [
+      ...(discovered ? [`Use discovered — ${discovered}`] : []),
+      "Enter custom command",
+      "Keep current",
+      "Clear",
+    ];
+    const choice = await uiCtx.ui.select?.(`Command: ${field} (now: ${curLabel})`, options);
+    if (!choice || choice === "Keep current") continue;
+    if (choice === "Clear") { if (current.commands) delete current.commands[field]; continue; }
+    if (choice.startsWith("Use discovered")) {
+      if (discovered) { current.commands = current.commands ?? {}; current.commands[field] = { value: discovered, reason: `User kept discovered ${field}`, source: "DISCOVERED", confidence: "HIGH" }; }
+      continue;
+    }
+    const custom = await uiCtx.ui.input?.(`Custom ${field} command`, "e.g. pnpm test:integration");
+    if (!custom?.trim()) continue;
+    const val = custom.trim();
+    const isDiscovered = Object.values(ctx.discoveredCommands).includes(val);
+    current.commands = current.commands ?? {};
+    current.commands[field] = {
+      value: val,
+      reason: isDiscovered ? `User kept discovered: ${val}` : `User custom: ${val}`,
+      source: isDiscovered ? "DISCOVERED" : "AI_SUGGESTED",
+      confidence: isDiscovered ? "HIGH" : "MEDIUM",
+      ...(isDiscovered ? {} : { requiresConfirmation: true as const }),
+    };
+    if (!isDiscovered) localAnswers[`confirm:${field}`] = "yes"; // user just confirmed by entering it in Customize
+  }
+}
+
+async function customizeRuntime({ uiCtx, current, localAnswers }: SetupCustomizeArgs): Promise<void> {
+  const cur = String(current.runtime?.maxParallelAgents?.value ?? 2);
+  const val = await uiCtx.ui.input?.("Max parallel agents (1-16)", cur);
+  if (!val?.trim()) return;
+  const n = Number.parseInt(val.trim(), 10);
+  if (Number.isFinite(n) && n >= 1 && n <= 16) { current.runtime = current.runtime ?? {}; current.runtime.maxParallelAgents = { value: n, reason: "User chose parallel workers", source: "DEFAULT", confidence: "HIGH" }; localAnswers["runtime:maxParallelAgents"] = String(n); }
+}
+
+async function customizeGitWorktrees({ ctx, uiCtx, current, localAnswers }: SetupCustomizeArgs): Promise<void> {
+  const bb = await uiCtx.ui.input?.("Base branch", current.git?.baseBranch?.value ?? ctx.effective?.git.baseBranch ?? "main");
+  if (bb?.trim()) { current.git = current.git ?? {}; current.git.baseBranch = { value: bb.trim(), reason: "User chose base branch", source: "DEFAULT", confidence: "HIGH" }; localAnswers["git:baseBranch"] = bb.trim(); }
+  const aw = await uiCtx.ui.select?.("Allow worktrees?", ["Yes", "No", "Keep current"]);
+  if (aw && aw !== "Keep current") { current.git = current.git ?? {}; current.git.allowWorktrees = { value: aw === "Yes", reason: "User chose worktree policy", source: "DEFAULT", confidence: "HIGH" }; }
+}
+
+async function customizeDependencies({ ctx, uiCtx, current }: SetupCustomizeArgs): Promise<void> {
+  const enabled = await uiCtx.ui.select?.("Hydrate dependencies before work?", ["Enabled", "Disabled", "Keep current"]);
+  if (enabled && enabled !== "Keep current") {
+    current.dependencies = current.dependencies ?? {};
+    current.dependencies.enabled = { value: enabled === "Enabled", reason: "User chose dependency hydration policy", source: "DEFAULT", confidence: "HIGH" };
+  }
+  const hydrate = await uiCtx.ui.select?.("Hydration mode", ["auto", "always", "never", "Keep current"]);
+  if (hydrate && hydrate !== "Keep current") {
+    current.dependencies = current.dependencies ?? {};
+    current.dependencies.hydrate = { value: hydrate as import("@factory/schemas").DependencyHydrationMode, reason: "User chose dependency hydration mode", source: "DEFAULT", confidence: "HIGH" };
+  }
+  const cacheRoot = await uiCtx.ui.input?.("Shared dependency cache root", current.dependencies?.cacheRoot?.value ?? ctx.effective?.dependencies.cacheRoot ?? "");
+  if (cacheRoot?.trim()) {
+    current.dependencies = current.dependencies ?? {};
+    current.dependencies.cacheRoot = { value: cacheRoot.trim(), reason: "User chose shared dependency cache root", source: "DEFAULT", confidence: "HIGH" };
+  }
+}
+
+async function customizeRepair({ uiCtx, current, localAnswers }: SetupCustomizeArgs): Promise<void> {
+  const en = await uiCtx.ui.select?.("Enable repair?", ["Enabled", "Disabled", "Keep current"]);
+  if (en && en !== "Keep current") { current.repair = current.repair ?? {}; current.repair.enabled = { value: en === "Enabled", reason: "User chose repair policy", source: "DEFAULT", confidence: "HIGH" }; localAnswers["repair:enabled"] = String(en === "Enabled"); }
+  const ma = await uiCtx.ui.input?.("Max repair attempts (0-10)", String(current.repair?.maxAttempts?.value ?? 3));
+  if (ma?.trim()) { const n = Number.parseInt(ma.trim(), 10); if (Number.isFinite(n) && n >= 0 && n <= 10) { current.repair = current.repair ?? {}; current.repair.maxAttempts = { value: n, reason: "User chose maxAttempts", source: "DEFAULT", confidence: "HIGH" }; localAnswers["repair:maxAttempts"] = String(n); } }
+}
+
+async function customizeApproval({ uiCtx, current, localAnswers }: SetupCustomizeArgs): Promise<void> {
+  const choice = await uiCtx.ui.select?.("Final merge", ["Ask for approval (required)", "Auto-merge (not-required)", "Keep current"]);
+  if (!choice || choice === "Keep current") return;
+  const v = choice.startsWith("Ask") ? "required" as const : "not-required" as const;
+  current.approval = current.approval ?? {}; current.approval.finalMerge = { value: v, reason: "User chose merge policy", source: "DEFAULT", confidence: "HIGH" }; localAnswers["approval:finalMerge"] = v;
+}
+
+async function customizeCapabilities({ uiCtx, current }: SetupCustomizeArgs): Promise<void> {
+  const curAllow = current.capabilities?.allow?.join(", ") || "none";
+  const curDeny = current.capabilities?.deny?.join(", ") || "none";
+  const want = await uiCtx.ui.select?.(`Capabilities (allow: ${curAllow} / deny: ${curDeny})`, ["Edit allow", "Edit deny", "Keep current"]);
+  if (want === "Edit allow") {
+    const val = await uiCtx.ui.input?.("Allow capabilities (comma-separated)", curAllow);
+    if (val !== undefined) { const ids = val.split(",").map((s) => s.trim()).filter(Boolean) as import("@factory/schemas").Capability[]; current.capabilities = current.capabilities ?? {}; (current.capabilities as Record<string, unknown>).allow = ids; }
+  } else if (want === "Edit deny") {
+    const val = await uiCtx.ui.input?.("Deny capabilities (comma-separated)", curDeny);
+    if (val !== undefined) { const ids = val.split(",").map((s) => s.trim()).filter(Boolean) as import("@factory/schemas").Capability[]; current.capabilities = current.capabilities ?? {}; (current.capabilities as Record<string, unknown>).deny = ids; }
+  }
+}
+
+async function customizeTaskRouting({ uiCtx, current }: SetupCustomizeArgs): Promise<void> {
+  const val = await uiCtx.ui.input?.("Task type IDs (comma-separated, e.g. database-migration)", current.taskTypes?.map((t) => t.id).join(", ") ?? "");
+  if (val === undefined) return;
+  const ids = val.split(",").map((s) => s.trim()).filter(Boolean);
+  current.taskTypes = ids.map((id) => ({ id, reason: "User chose task types", source: "DEFAULT" as const, confidence: "MEDIUM" as const }));
+}
+
+async function customizeConstitution({ uiCtx, current }: SetupCustomizeArgs): Promise<void> {
+  const choice = await uiCtx.ui.select?.("Constitution", ["GENERATE", "REFRESH", "KEEP"]);
+  if (choice) current.constitution = choice as import("@factory/schemas").ConstitutionRecommendation;
 }
 
 function hasClearDeterministicSetup(context: import("@factory/schemas").FactorySetupContext): boolean {

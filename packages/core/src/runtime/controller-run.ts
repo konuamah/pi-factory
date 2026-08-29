@@ -47,6 +47,7 @@ import type { VerificationContractPlan, VerificationEngineResult } from "../veri
 import type { ReviewProviderOptions } from "../verification/providers/review.js";
 import { runFinalPhases } from "./controller-final-phases.js";
 import { runVerificationPhase } from "./verification-phase2.js";
+import { runImplementationPhase } from "./implementation-phase.js";
 
 export async function runFactoryControllerInner(
   input: RunFactoryControllerInput,
@@ -108,7 +109,7 @@ export async function runFactoryControllerInner(
 
   const phases = ["discovery", "planning", "plan-approval", "implementation", "integration", "verification", "repair", "verified", "review", "approval-ready", "merge", "complete"];
   const delayMs = input.delayMs ?? 150;
-  const builderExecutionPaths: string[] = [];
+  let builderExecutionPaths: string[] = [];
   let integrationPath: string | undefined;
   let finalMergePath: string | undefined;
   let candidateSha: string | undefined;
@@ -706,108 +707,37 @@ export async function runFactoryControllerInner(
     };
   }
 
-  await movePhase(run.statePath, run.eventsPath, run.runId, input, "implementation", "Executing task artifacts");
-
-  const implementationTasks = plan.tasks.filter((task) => isExecutableWorkflowNode(task));
-  const implementationRun = await runImplementationTasks({
-    runId: run.runId,
-    runDir: run.runDir,
-    statePath: run.statePath,
-    eventsPath: run.eventsPath,
-    goal: input.goal,
+  let implementationRun: Awaited<ReturnType<typeof runImplementationTasks>>;
+  const implementationPhase = await runImplementationPhase({
+    run,
+    input,
+    loaded,
     executionCwd,
-    executionBranch: worktree.branch,
-    worktreeLocation: worktree.location ?? loaded.effectiveConfig.git.worktreeDir,
-    allowTaskWorktrees: false,
-    tasks: implementationTasks,
-    maxParallelAgents: 1,
     projectRoot,
-    dependencyTasks: plan.tasks,
-    planIntent: plan.implementationContract,
-    roleExecutors: {
-      planner: input.plannerExecutor,
-      builder: input.builderExecutor,
-      reviewer: input.reviewerExecutor,
-      repair: input.repairExecutor,
-    },
-    roleModels: loaded.effectiveConfig.models,
-    roleSkills: {
-      planner: plannerSkills,
-      builder: builderSkills,
-      reviewer: reviewerSkills,
-      repair: repairSkills,
-    },
-    autonomy: loaded.effectiveConfig.defaults.autonomy as AutonomyLevel,
-    projectCapabilityPolicy: loaded.effectiveConfig.capabilities,
-    workflowCapabilityPolicy: loaded.effectiveConfig.resolvedWorkflow?.capabilityPolicy,
-    runTaskType: runTaskType.id,
-    runModelOverrides: input.modelOverrides,
-    runDecisions: [
-      ...(await loadRunDecisions(run.runDir)),
-      ...interviewDecisions.map((decision) => ({
-        requestId: decision.decisionRequestId,
-        question: decision.question,
-        optionId: decision.optionId,
-        ...(decision.answer ? { feedback: decision.answer } : {}),
-      })),
-    ],
-    config: loaded.effectiveConfig,
-    requestDependencyRemediation: input.requestDependencyRemediation,
-    onProgress: async (event) => emitProgress(input, event),
+    worktree,
+    phases,
     delayMs,
+    plan,
+    planPath,
+    taskPaths,
+    plannerExecutionPath,
     builderExecutionPaths,
+    integrationPath,
+    repairExecutionPaths,
+    plannerSkills,
+    builderSkills,
+    reviewerSkills,
+    repairSkills,
+    runTaskType,
+    discoveryExecutionPath,
+    interviewDecisions,
   });
-
-  if (!implementationRun.ok) {
-    await appendFactoryRunEvent(run.eventsPath, {
-      timestamp: new Date().toISOString(),
-      type: "run.failed",
-      data: { reason: `implementation task failed: ${implementationRun.failedTask.id}` },
-    });
-    const failedState = await updateFactoryRunState({
-      statePath: run.statePath,
-      patch: { status: "FAILED", phase: implementationRun.failedPhase },
-    });
-    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
-      runId: run.runId,
-      goal: input.goal,
-      status: "FAILED",
-      phase: failedState.phase,
-      approved: false,
-      planPath,
-      taskPaths,
-      discoveryExecutionPath,
-      plannerExecutionPath,
-      builderExecutionPaths,
-      integrationPath,
-      repairExecutionPaths,
-      verificationPath: path.join(run.runDir, "verification.json"),
-      verificationStatus: "incomplete",
-    });
-
-    return {
-      runId: run.runId,
-      runDir: run.runDir,
-      executionCwd,
-      worktree,
-      statePath: run.statePath,
-      eventsPath: run.eventsPath,
-      phases,
-      approved: false,
-      planPath,
-      taskPaths,
-      discoveryExecutionPath,
-      plannerExecutionPath,
-      builderExecutionPaths,
-      integrationPath,
-      repairExecutionPaths,
-      verificationPath: path.join(run.runDir, "verification.json"),
-      summaryPath,
-    };
+  if ("runId" in implementationPhase) {
+    return implementationPhase;
   }
-
-  await wait(delayMs);
-
+  implementationRun = implementationPhase.implementationRun;
+  builderExecutionPaths = implementationPhase.builderExecutionPaths;
+  integrationPath = implementationPhase.integrationPath;
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "integration", "Integrating isolated task workspaces");
   try {
     integrationPath = await runIntegrationPhase({

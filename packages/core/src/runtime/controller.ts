@@ -58,7 +58,9 @@ import { applyWorkflowSkillPolicy, resolveNodeSkillBundle, summarizeSkillBundle,
 import { readGitConflictFiles, hasGitMergeInProgress, resolveTaskWorkspace, commitWorkspaceChanges, readGitHeadSha, type WorkspaceCommitResult } from "./git-ops.js";
 import { uniqueStrings, taskWorkspacesChangedFiles, isBuildStage, roleTools, isExecutableWorkflowNode, findBuiltInWorkflowStage } from "./task-utils.js";
 import { movePhase, emitProgress, wait, requestHumanDecision, loadConstitutionConflicts, loadRunDecisions } from "./phase-plumbing.js";
-import { runImplementationTasks, runIntegrationPhase, runFinalMergePhase, classifyIntegrationFailure } from "./implementation.js";
+import { runImplementationTasks } from "./implementation.js";
+import { runIntegrationPhase, classifyIntegrationFailure } from "./integration-phase.js";
+import { runFinalMergePhase } from "./final-merge.js";
 import { buildContractArtifact, failureSignature, resolveRunTaskTypeWithPaths, gitChangedFiles, filterVerificationByImpact, getChangedFilesFromBase } from "./verification-planning.js";
 
 export interface InterviewDecisionRecord {

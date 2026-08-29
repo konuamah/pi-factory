@@ -2,6 +2,8 @@ export * from "./interfaces.js";
 export * from "./artifacts.js";
 export * from "./controller.js";
 export * from "./implementation.js";
+export * from "./integration-phase.js";
+export * from "./final-merge.js";
 export * from "./verification-planning.js";
 export * from "./harness.js";
 export * from "./planner.js";

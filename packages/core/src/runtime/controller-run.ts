@@ -28,7 +28,9 @@ import { buildCompiledPrompt, buildNoChangeRetryPrompt, buildIntegrationRepairPr
 import { readGitConflictFiles, hasGitMergeInProgress, resolveTaskWorkspace, commitWorkspaceChanges, readChangedFiles, readGitHeadSha } from "./git-ops.js";
 import { uniqueStrings, taskWorkspacesChangedFiles, isBuildStage, roleTools, isExecutableWorkflowNode, findBuiltInWorkflowStage } from "./task-utils.js";
 import { movePhase, emitProgress, wait, requestHumanDecision, loadConstitutionConflicts, loadRunDecisions } from "./phase-plumbing.js";
-import { runImplementationTasks, runIntegrationPhase, runFinalMergePhase, classifyIntegrationFailure } from "./implementation.js";
+import { runImplementationTasks } from "./implementation.js";
+import { runIntegrationPhase, classifyIntegrationFailure } from "./integration-phase.js";
+import { runFinalMergePhase } from "./final-merge.js";
 import { buildContractArtifact, failureSignature, resolveRunTaskTypeWithPaths, gitChangedFiles, filterVerificationByImpact, getChangedFilesFromBase } from "./verification-planning.js";
 import { sanitizePlannerOutput, validatePlannerOutput, validatePlannerOutputWithLLM } from "./planner-validate.js";
 import { normalizeDiscoveryFileHints, attachDiscoveryFileHintsToBuildTasks } from "./controller.js";

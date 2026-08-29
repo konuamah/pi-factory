@@ -1,3 +1,4 @@
+import { charWidth } from "./types.js";
 import type { FactoryPiUi } from "./types.js";
 
 const STREAM_RENDER_GUTTER = 6;
@@ -230,30 +231,3 @@ function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
-function charWidth(char: string): number {
-  const codePoint = char.codePointAt(0) ?? 0;
-  if (codePoint === 0) {
-    return 0;
-  }
-  if (codePoint < 32 || (codePoint >= 0x7f && codePoint < 0xa0)) {
-    return 0;
-  }
-  if (
-    codePoint >= 0x1100 && (
-      codePoint <= 0x115f ||
-      codePoint === 0x2329 ||
-      codePoint === 0x232a ||
-      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
-      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
-      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
-      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
-      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
-      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
-      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
-      (codePoint >= 0x1f300 && codePoint <= 0x1faff)
-    )
-  ) {
-    return 2;
-  }
-  return 1;
-}

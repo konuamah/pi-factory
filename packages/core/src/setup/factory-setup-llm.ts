@@ -256,11 +256,6 @@ function normalizeRecommendation(
         value: { kind: "preset", preset: String(v.preset) as import("@factory/schemas").WorkflowPreset, workflowId: String(v.workflowId ?? "default-dev") },
         reason: String(w.reason ?? "Workflow preset"),
       };
-    } else if (v?.preset && ["balanced", "fast", "safe"].includes(String(v.preset))) {
-      rec.workflow = {
-        value: { kind: "preset", preset: String(v.preset) as import("@factory/schemas").WorkflowPreset, workflowId: String(v.workflowId ?? "default-dev") },
-        reason: String(w.reason ?? "Workflow preset"),
-      };
     }
   }
   if (r.models && typeof r.models === "object") rec.models = r.models as FactorySetupRecommendation["models"];

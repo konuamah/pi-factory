@@ -61,7 +61,9 @@ import { handleShow } from "./gateway-run-show.js";
 import { handleCapabilities, handleModels } from "./gateway-capabilities.js";
 import { handleSetup } from "./gateway-setup.js";
 import { handleAsk, handleConciergeRecommendationAction } from "./gateway-concierge.js";
-import { handlePrototypeGoal, handleFactoryCommandError, parseGoalRequest, resolveExecutorMode, createOptionalExecutorBundle, readFactoryRunStateForSummary, buildFactoryRunResultTitle, isGitMergeConflictError, loadLatestMergeConflictContext, autoFixLatestMergeConflict, finalizeMergeIfReady, continueLatestRunAfterAutoFix, readMergeConflictStatus, loadDashboardWeb, handleDashboard } from "./gateway-prototype.js";
+import { handlePrototypeGoal, handleFactoryCommandError, readFactoryRunStateForSummary, buildFactoryRunResultTitle } from "./gateway-prototype.js";
+import { parseGoalRequest, resolveExecutorMode, createOptionalExecutorBundle, loadDashboardWeb, handleDashboard } from "./gateway-dashboard.js";
+import { isGitMergeConflictError, loadLatestMergeConflictContext, autoFixLatestMergeConflict, finalizeMergeIfReady, continueLatestRunAfterAutoFix, readMergeConflictStatus } from "./gateway-merge.js";
 import type { ModelRole, ModelSelection, WorkflowNodeType, WorkflowStage } from "@factory/schemas";
 
 
@@ -203,4 +205,5 @@ export async function handleFactoryCommand(
 }
 
 
-export { handlePrototypeGoal, handleFactoryCommandError, handleDashboard, createRequiredConstitutionExecutor, parseGoalRequest } from "./gateway-prototype.js";
+export { handlePrototypeGoal, handleFactoryCommandError } from "./gateway-prototype.js";
+export { handleDashboard, createRequiredConstitutionExecutor, parseGoalRequest } from "./gateway-dashboard.js";

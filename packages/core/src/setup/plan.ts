@@ -145,40 +145,16 @@ async function buildProposedSetup(
   const pi = await detectPiModelConfiguration(root).catch(() => undefined);
   const pm = profile.packageManagers[0] ?? "pnpm";
   const existing = profile.factory.files.projectConfig ? await readExistingConfig(path.join(root, ".factory", "config.yaml")) : undefined;
-  const recCmd = (field: "setup" | "lint" | "typecheck" | "test" | "build"): string | undefined => {
-    const r = rec?.commands?.[field];
-    if (!r) return undefined;
-    if (r.source === "AI_SUGGESTED" && answers?.[`confirm:${field}`] !== "yes") return undefined;
-    return r.value;
-  };
-  const testCommand = pick(existing?.commands?.test, answers?.["cmd:test"], recCmd("test"), findValue("verification:test"), `${pm} test`);
-  const lintCommand = pick(existing?.commands?.lint, answers?.["cmd:lint"], recCmd("lint"), findValue("verification:lint"), `${pm} lint`);
-  const typecheckCommand = pick(existing?.commands?.typecheck, answers?.["cmd:typecheck"], recCmd("typecheck"), findValue("verification:typecheck"), `${pm} typecheck`);
-  const buildCommand = pick(existing?.commands?.build, answers?.["cmd:build"], recCmd("build"), findValue("verification:build"), `${pm} build`);
-  const setupCommand = pickSetupCommand(existing?.commands?.setup, answers?.["cmd:setup"], recCmd("setup"), `${pm} install`);
-  const maxParallelAgents = Number(answers?.["runtime:maxParallelAgents"] ?? rec?.runtime?.maxParallelAgents?.value ?? existing?.runtime?.maxParallelAgents ?? 4);
-  const repairEnabled = answers?.["repair:enabled"] ? answers["repair:enabled"] === "true" : (rec?.repair?.enabled?.value ?? existing?.repair?.enabled ?? true);
-  const maxAttempts = Number(answers?.["repair:maxAttempts"] ?? rec?.repair?.maxAttempts?.value ?? existing?.repair?.maxAttempts ?? 3);
-  const finalMerge = (answers?.["approval:finalMerge"] as string) ?? rec?.approval?.finalMerge?.value ?? existing?.approval?.finalMerge ?? "required";
-  const baseBranch = (answers?.["git:baseBranch"] as string) ?? rec?.git?.baseBranch?.value ?? existing?.project?.baseBranch ?? "main";
-  const configContent = buildProjectConfig({
-    testCommand,
-    lintCommand,
-    typecheckCommand,
-    buildCommand,
-    setupCommand,
-    baseBranch,
-    maxParallelAgents,
-    repairEnabled,
-    maxAttempts,
-    finalMerge,
+  const configPath = path.join(root, ".factory", "config.yaml");
+  const configContent = await resolveConfigContent({
+    profile,
+    answers,
+    rec,
+    findValue,
     pm,
     existing,
     pi,
-    rec,
-    recommendedTaskTypes: rec?.taskTypes?.map((t) => t.id) ?? (String(findValue("task-type:suggestions") ?? "").length ? findValue("task-type:suggestions") as string[] : undefined),
   });
-  const configPath = path.join(root, ".factory", "config.yaml");
   files.push({
     path: configPath,
     content: configContent,
@@ -198,6 +174,57 @@ async function buildProposedSetup(
   }
 
   return { files };
+}
+
+async function resolveConfigContent(input: {
+  profile: Awaited<ReturnType<typeof inspectRepositoryForSetup>>;
+  answers?: Record<string, string>;
+  rec?: FactorySetupRecommendation;
+  findValue: (id: string) => unknown;
+  pm: string;
+  existing?: ExistingConfigShape;
+  pi?: Awaited<ReturnType<typeof detectPiModelConfiguration>>;
+}): Promise<string> {
+  const { rec, answers, findValue, pm, existing, pi } = input;
+  const recCmd = (field: "setup" | "lint" | "typecheck" | "test" | "build"): string | undefined => {
+    const r = rec?.commands?.[field];
+    if (!r) return undefined;
+    if (r.source === "AI_SUGGESTED" && answers?.[`confirm:${field}`] !== "yes") return undefined;
+    return r.value;
+  };
+  const commandFields = ["test", "lint", "typecheck", "build"] as const;
+  const commandNames: Record<string, string> = { test: "test", lint: "lint", typecheck: "typecheck", build: "build" };
+  const commands = {} as Record<string, string>;
+  for (const field of commandFields) {
+    commands[field] = pick(existing?.commands?.[field], answers?.[`cmd:${field}`], recCmd(field), findValue(`verification:${field}`), `${pm} ${commandNames[field]}`);
+  }
+  const testCommand = commands.test;
+  const lintCommand = commands.lint;
+  const typecheckCommand = commands.typecheck;
+  const buildCommand = commands.build;
+  const setupCommand = pickSetupCommand(existing?.commands?.setup, answers?.["cmd:setup"], recCmd("setup"), `${pm} install`);
+  const maxParallelAgents = Number(answers?.["runtime:maxParallelAgents"] ?? rec?.runtime?.maxParallelAgents?.value ?? existing?.runtime?.maxParallelAgents ?? 4);
+  const repairEnabled = answers?.["repair:enabled"] ? answers["repair:enabled"] === "true" : (rec?.repair?.enabled?.value ?? existing?.repair?.enabled ?? true);
+  const maxAttempts = Number(answers?.["repair:maxAttempts"] ?? rec?.repair?.maxAttempts?.value ?? existing?.repair?.maxAttempts ?? 3);
+  const finalMerge = (answers?.["approval:finalMerge"] as string) ?? rec?.approval?.finalMerge?.value ?? existing?.approval?.finalMerge ?? "required";
+  const baseBranch = (answers?.["git:baseBranch"] as string) ?? rec?.git?.baseBranch?.value ?? existing?.project?.baseBranch ?? "main";
+  return buildProjectConfig({
+    testCommand,
+    lintCommand,
+    typecheckCommand,
+    buildCommand,
+    setupCommand,
+    baseBranch,
+    maxParallelAgents,
+    repairEnabled,
+    maxAttempts,
+    finalMerge,
+    pm,
+    existing,
+    pi,
+    rec,
+    recommendedTaskTypes: rec?.taskTypes?.map((t) => t.id) ?? (String(findValue("task-type:suggestions") ?? "").length ? findValue("task-type:suggestions") as string[] : undefined),
+  });
 }
 
 interface ExistingConfigShape {

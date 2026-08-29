@@ -21,7 +21,9 @@ import { evaluateReliabilityAreas } from "./evaluators/reliability.js";
 import { evaluateObservabilityAreas } from "./evaluators/observability.js";
 import { evaluateMaintainabilityAreas } from "./evaluators/maintainability.js";
 import { buildRefreshNote, claimKindForStatus, distinctRoots, makeArea } from "./evaluators/shared.js";
-import { readJson, readExistingConstitutionAreas, buildDeterministicAreas, determineRefreshStrategy, buildSummary, mergeAreasWithRefresh, shouldReusePreviousArea, critiqueAreas, detectAreaContradictions, buildReasonerPrompt, mergeAiAreas, parseAiAreaProposals, extractAiAreaJson, stripAiAreaJson } from "./constitution-scan-helpers.js";
+import { readJson, readExistingConstitutionAreas, buildDeterministicAreas, determineRefreshStrategy, buildSummary, mergeAreasWithRefresh, shouldReusePreviousArea } from "./constitution-scan-helpers.js";
+import { buildReasonerPrompt, mergeAiAreas, parseAiAreaProposals, extractAiAreaJson, stripAiAreaJson } from "./constitution-ai-areas.js";
+import { critiqueAreas, detectAreaContradictions } from "./constitution-critique.js";
 
 export async function runConstitutionScan(input: {
   cwd: string;

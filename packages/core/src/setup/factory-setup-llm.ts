@@ -1,8 +1,10 @@
 import type { AgentExecutor } from "../runtime/interfaces.js";
 import type { FactorySetupContext, FactorySetupRecommendation, ModelRole, ModelSelection } from "@factory/schemas";
 import { validateSetupRecommendation } from "./recommend-validate.js";
+import { loadFactorySetupSkillSource, buildFactorySetupPrompt, extractJson } from "./setup-llm-prompt.js";
+import { normalizeRecommendation, normalizeRecommendationStrict, completeRoleModels } from "./setup-llm-normalize.js";
 
-const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
+export const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
 
 export interface FactorySetupLlmInput {
   cwd: string;
@@ -72,271 +74,6 @@ export async function recommendViaFactorySetupSkill(
     );
   }
   return validateSetupRecommendation(completeRoleModels(rec, input.context), input.context);
-}
-
-async function loadFactorySetupSkillSource(cwd: string): Promise<string> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
-  const candidates = [
-    path.join(cwd, "skills", "factory-setup", "SKILL.md"),
-    path.join(cwd, ".pi", "skills", "factory-setup", "SKILL.md"),
-    path.resolve(cwd, "..", "skills", "factory-setup", "SKILL.md"),
-  ];
-  for (const p of candidates) {
-    try {
-      const content = await fs.readFile(p, "utf8");
-      if (content.trim()) return content;
-    } catch {}
-  }
-  try {
-    const fsSync = await import("node:fs");
-    const candidates2 = [
-      path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../skills/factory-setup/SKILL.md"),
-      path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../skills/factory-setup/SKILL.md"),
-      path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../../skills/factory-setup/SKILL.md"),
-      path.resolve(cwd, "skills/factory-setup/SKILL.md"),
-    ];
-    for (const p of candidates2) {
-      try {
-        const content = fsSync.readFileSync(p, "utf8");
-        if (content.trim()) return content;
-      } catch {}
-    }
-  } catch {}
-  throw new Error(
-    `factory-setup skill not found — expected skills/factory-setup/SKILL.md at: ${candidates.join(", ")}`
-  );
-}
-
-function buildFactorySetupPrompt(context: FactorySetupContext, skillSource: string): string {
-  const compact = buildCompactContext(context);
-  const ctxJson = JSON.stringify(compact, null, 2);
-  const skillBudget = 6000;
-  const ctxBudget = 12000;
-  const skillSlice = skillSource ? skillSource.slice(0, skillBudget) : "";
-  const ctxSlice = smartTruncateJson(ctxJson, ctxBudget, compact);
-  const workflowPrimitives = `
-## Workflow primitives (Factory already supports these — you may emit a custom DAG)
-Stages: { name, dependsOn?: string[], type?: "agent"|"command"|"approval", role?: ModelRole, commands?: string[], requiresApproval?: boolean, requiredCapabilities?: Capability[] }
-Roles: discovery|planner|builder|reviewer|repair  · Keep DAG acyclic, 2-7 stages.
-Example simple docs repo: plan -> build -> verify
-Example mature app: discover{discovery} -> plan{planner} -> implementation{builder} -> verification{command} -> review{reviewer} -> approval
-Example DB repo (recommended here): plan -> build -> migration-check{command} -> integration-verify{command} -> review -> approval — Why: DB changes affect app+deploy, verify before review.
-You may return workflow as { kind:"preset", preset:"balanced"|"fast"|"safe" } or { kind:"custom", workflow: WorkflowDefinition }.
-`;
-  const englishRule = `Simple-English rule: translate internals — finalMerge=required -> "Ask before merging", maxParallelAgents -> "Parallel workers", retainRuns -> "Old workspaces kept".
-`;
-  return [
-    skillSlice ? `# Factory Setup Skill\n\n${skillSlice}` : "",
-    workflowPrimitives,
-    englishRule,
-    "\n## FactorySetupContext (JSON)\n",
-    "```json",
-    ctxSlice,
-    "```",
-    "\n## Task\nProduce FactorySetupRecommendation: projectUnderstanding{summary,highlights} + workflow + models/commands/runtime/git/dependencies/repair/approval/capabilities/taskTypes/skills/dashboard/constitution + whyNot[] + questions{kind=fact|recommendation|preference} . Use only allowlisted choices. Return JSON only.",
-  ].filter(Boolean).join("\n");
-}
-
-function buildCompactContext(context: FactorySetupContext): Record<string, unknown> {
-  // Omit raw text dumps; keep parsed provenance
-  const { existing, ...rest } = context;
-  const { rawGlobalText, rawProjectText, rawWorkflowText, ...provenance } = existing;
-  // Also cap raw dumps to first 500 chars as evidence, not full file
-  const evidence: Record<string, string | undefined> = {};
-  if (rawGlobalText) evidence.globalSample = rawGlobalText.slice(0, 500);
-  if (rawProjectText) evidence.projectSample = rawProjectText.slice(0, 500);
-  if (rawWorkflowText) evidence.workflowSample = rawWorkflowText.slice(0, 800);
-  return {
-    ...rest,
-    existing: {
-      ...provenance,
-      ...(Object.keys(evidence).length ? { _rawSamples: evidence } : {}),
-    },
-  };
-}
-
-function smartTruncateJson(json: string, budget: number, compact: Record<string, unknown>): string {
-  if (json.length <= budget) return json;
-  // Priority: keep repository, effective, availableModels/Capabilities, discoveredCommands;
-  // truncate existing.workflows and availableSkills last
-  const truncated: Record<string, unknown> = { ...compact };
-  // Drop availableSkills descriptions first
-  if (truncated.availableSkills && json.length > budget) {
-    const skills = truncated.availableSkills as Array<{ id: string; description?: string }>;
-    truncated.availableSkills = skills.map((s) => ({ id: s.id }));
-    const rejson = JSON.stringify(truncated, null, 2);
-    if (rejson.length <= budget) return rejson;
-  }
-  // Drop workflows body
-  const ex = truncated.existing as Record<string, unknown> | undefined;
-  if (ex?.workflows && JSON.stringify(truncated, null, 2).length > budget) {
-    ex.workflows = (ex.workflows as unknown[]).slice(0, 2);
-    const rejson = JSON.stringify(truncated, null, 2);
-    if (rejson.length <= budget) return rejson;
-  }
-  // Hard slice as fallback, preserving JSON validity
-  const sliced = json.slice(0, budget);
-  const lastBrace = sliced.lastIndexOf("}");
-  return sliced.slice(0, lastBrace + 1) || sliced;
-}
-
-function extractJson(text: string): unknown | undefined {
-  if (!text) return undefined;
-  const trimmed = text.trim();
-  // Try raw JSON
-  try {
-    return JSON.parse(trimmed);
-  } catch {}
-  // Try code fence
-  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence?.[1]) {
-    try { return JSON.parse(fence[1].trim()); } catch {}
-  }
-  // Try first {...}
-  const brace = trimmed.match(/\{[\s\S]*\}/);
-  if (brace?.[0]) {
-    try { return JSON.parse(brace[0]); } catch {}
-  }
-  return undefined;
-}
-
-function normalizeRecommendationStrict(
-  raw: unknown,
-  ctx: FactorySetupContext,
-  template: FactorySetupRecommendation,
-): FactorySetupRecommendation {
-  if (!raw || typeof raw !== "object") throw new Error("FACTORY_SETUP_LLM_INVALID: LLM returned null/non-object JSON.");
-  return normalizeRecommendation(raw, ctx, template);
-}
-
-function normalizeRecommendation(
-  raw: unknown,
-  ctx: FactorySetupContext,
-  fallback: FactorySetupRecommendation,
-): FactorySetupRecommendation {
-  if (!raw || typeof raw !== "object") return fallback;
-  const r = raw as Record<string, unknown>;
-
-  const cRaw = String(r.constitution ?? fallback.constitution).toUpperCase();
-  const constitution = (
-    cRaw === "GENERATE" || cRaw === "REFRESH" || cRaw === "KEEP" ? cRaw : fallback.constitution
-  ) as FactorySetupRecommendation["constitution"];
-
-  const puRaw = r.projectUnderstanding as Record<string, unknown> | undefined;
-  const projectUnderstanding: FactorySetupRecommendation["projectUnderstanding"] =
-    puRaw && typeof puRaw.summary === "string" && puRaw.summary.trim()
-      ? {
-          summary: String(puRaw.summary).trim(),
-          highlights: Array.isArray(puRaw.highlights) ? (puRaw.highlights as string[]).filter((s) => typeof s === "string").slice(0, 8) : fallback.projectUnderstanding.highlights,
-        }
-      : fallback.projectUnderstanding;
-
-  const rec: FactorySetupRecommendation = {
-    projectUnderstanding,
-    summary: typeof r.summary === "string" && r.summary.trim() ? r.summary.trim() : fallback.summary,
-    constitution,
-    explanation: Array.isArray(r.explanation) ? (r.explanation as string[]).filter((s) => typeof s === "string") : fallback.explanation,
-    questions: Array.isArray(r.questions) ? (r.questions as FactorySetupRecommendation["questions"]) : fallback.questions,
-  };
-
-  if (r.workflow && typeof r.workflow === "object") {
-    const w = r.workflow as Record<string, unknown>;
-    const v = w.value as Record<string, unknown> | undefined;
-    if (v?.kind === "custom" && v?.workflow && typeof v.workflow === "object") {
-      const wf = v.workflow as Record<string, unknown>;
-      if (Array.isArray(wf.stages) && wf.stages.length >= 2 && wf.stages.length <= 10) {
-        rec.workflow = {
-          value: { kind: "custom", workflow: wf as unknown as import("@factory/schemas").WorkflowDefinition, reason: String(v.reason ?? w.reason ?? "Custom workflow") },
-          reason: String(w.reason ?? "Custom workflow"),
-        };
-      }
-    } else if (v?.preset && ["balanced", "fast", "safe"].includes(String(v.preset))) {
-      rec.workflow = {
-        value: { kind: "preset", preset: String(v.preset) as import("@factory/schemas").WorkflowPreset, workflowId: String(v.workflowId ?? "default-dev") },
-        reason: String(w.reason ?? "Workflow preset"),
-      };
-    }
-  }
-  // Object-valued sections are copied through when the LLM emitted them;
-  // commands are normalized against the discovery context.
-  const objectSections = [
-    "models",
-    "runtime",
-    "repair",
-    "approval",
-    "git",
-    "dependencies",
-    "capabilities",
-    "skills",
-    "dashboard",
-  ] as const;
-  for (const section of objectSections) {
-    if (r[section] && typeof r[section] === "object") {
-      rec[section] = r[section] as never;
-    }
-  }
-  if (r.commands && typeof r.commands === "object") rec.commands = normalizeCommands(r.commands as Record<string, unknown>, ctx, fallback);
-  if (Array.isArray(r.taskTypes)) rec.taskTypes = r.taskTypes as FactorySetupRecommendation["taskTypes"];
-  if (Array.isArray(r.whyNot)) rec.whyNot = r.whyNot as FactorySetupRecommendation["whyNot"];
-  return rec;
-}
-
-function completeRoleModels(
-  rec: FactorySetupRecommendation,
-  ctx: FactorySetupContext,
-): FactorySetupRecommendation {
-  const defaultModel = resolveDefaultModel(ctx);
-  if (!defaultModel) {
-    return rec;
-  }
-
-  const completed: FactorySetupRecommendation["models"] = { ...(rec.models ?? {}) };
-  const visibleKeys = new Set(visibleSetupModels(ctx).map(modelKey));
-  for (const role of MODEL_ROLES) {
-    const current = completed[role];
-    if (current?.value?.model && visibleKeys.has(modelKey(current.value))) {
-      continue;
-    }
-    completed[role] = {
-      value: defaultModel,
-      reason: current?.value?.model
-        ? `${current.reason} Replaced with detected Pi-visible setup default ${formatModel(defaultModel)}.`
-        : `Detected from your Pi model configuration; used for ${role} role setup.`,
-    };
-  }
-
-  return { ...rec, models: completed };
-}
-
-function normalizeCommands(
-  raw: Record<string, unknown>,
-  ctx: FactorySetupContext,
-  fallback: FactorySetupRecommendation,
-): FactorySetupRecommendation["commands"] {
-  const out: FactorySetupRecommendation["commands"] = {};
-  const discovered = new Set(Object.values(ctx.discoveredCommands).filter(Boolean) as string[]);
-  for (const field of ["setup", "lint", "typecheck", "test", "build"] as const) {
-    const entry = raw[field] as Record<string, unknown> | undefined;
-    if (!entry || typeof entry.value !== "string") continue;
-    const value = String(entry.value).trim();
-    const isDiscovered = discovered.has(value);
-    const inferredSource = isDiscovered ? "DISCOVERED" : "AI_SUGGESTED";
-    const source = (entry.source as import("@factory/schemas").RecommendationSource) ?? inferredSource;
-    const requiresConfirmation = source === "AI_SUGGESTED" ? true : undefined;
-    out[field] = {
-      value,
-      reason: String(entry.reason ?? (isDiscovered ? `Discovered: ${value}` : `Suggested: ${value}`)),
-      source,
-      confidence: (entry.confidence as import("@factory/schemas").RecommendationConfidence) ?? (isDiscovered ? "HIGH" : "MEDIUM"),
-      ...(requiresConfirmation ? { requiresConfirmation } : {}),
-    };
-  }
-  // Fill missing with fallback DISCOVERED where applicable
-  for (const field of ["setup", "lint", "typecheck", "test", "build"] as const) {
-    if (!out[field] && fallback.commands?.[field]) out[field] = fallback.commands[field]!;
-  }
-  return out;
 }
 
 export function buildDeterministicRecommendation(ctx: FactorySetupContext): FactorySetupRecommendation {
@@ -453,19 +190,19 @@ export function buildDeterministicRecommendation(ctx: FactorySetupContext): Fact
   };
 }
 
-function resolveDefaultModel(context: FactorySetupContext): { provider?: string; model: string } | undefined {
+export function resolveDefaultModel(context: FactorySetupContext): { provider?: string; model: string } | undefined {
   return visibleSetupModels(context)[0];
 }
 
-function visibleSetupModels(context: FactorySetupContext): ModelSelection[] {
+export function visibleSetupModels(context: FactorySetupContext): ModelSelection[] {
   const builtInKeys = new Set(Object.values(context.existing.builtIn.models).filter(Boolean).map((selection) => modelKey(selection!)));
   return context.availableModels.filter((selection) => selection.model && !builtInKeys.has(modelKey(selection)));
 }
 
-function modelKey(selection: ModelSelection): string {
+export function modelKey(selection: ModelSelection): string {
   return `${selection.provider ?? ""}:${selection.model}`;
 }
 
-function formatModel(selection: ModelSelection): string {
+export function formatModel(selection: ModelSelection): string {
   return selection.provider ? `${selection.provider}/${selection.model}` : selection.model;
 }

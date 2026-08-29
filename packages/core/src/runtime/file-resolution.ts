@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentExecutor } from "./interfaces.js";
+import { pathExists } from "./fs-utils.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -175,7 +176,7 @@ async function collectSingleFileEvidence(
   const absolutePath = path.resolve(cwd, filename);
   const tracked = await isTracked(cwd, filename);
   const staged = await isStaged(cwd, filename);
-  const untrackedExists = await fileExists(absolutePath);
+  const untrackedExists = await pathExists(absolutePath);
   const ignored = await isIgnored(cwd, filename);
   const similarFiles = tracked ? [] : await findSimilarFiles(cwd, filename);
 
@@ -229,14 +230,6 @@ async function isStaged(cwd: string, filename: string): Promise<boolean> {
   }
 }
 
-async function fileExists(absolutePath: string): Promise<boolean> {
-  try {
-    await fs.access(absolutePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 async function isIgnored(cwd: string, filename: string): Promise<boolean> {
   try {

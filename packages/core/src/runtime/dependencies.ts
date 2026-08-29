@@ -4,6 +4,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { EffectiveFactoryConfig, SetupCommandConfig } from "@factory/schemas";
+import { pathExists } from "./fs-utils.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -241,7 +242,7 @@ export async function hydrateWorkspaceDependencies(input: {
   });
   const markerPath = path.join(input.workspacePath, ".factory", "dependencies", `${dependencyKey}.json`);
 
-  if (input.config.dependencies.hydrate === "auto" && await exists(markerPath)) {
+  if (input.config.dependencies.hydrate === "auto" && await pathExists(markerPath)) {
     const result = {
       status: "skipped" as const,
       reason: "dependency marker is current",
@@ -689,11 +690,3 @@ async function commandExists(command: string): Promise<boolean> {
   }
 }
 
-async function exists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}

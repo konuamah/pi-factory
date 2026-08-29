@@ -5,6 +5,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentExecutor } from "./interfaces.js";
 import { initializeFactorySkills, resolveFactorySkills } from "../skills/index.js";
+import { pathExists } from "./fs-utils.js";
 
 const execAsync = promisify(exec);
 
@@ -297,7 +298,7 @@ async function discoverVerificationEvidence(
       packageManager,
       dependencyVersions,
       staleScripts,
-      hasNodeModules: await exists(path.join(candidatePath, "node_modules")),
+      hasNodeModules: await pathExists(path.join(candidatePath, "node_modules")),
       ecosystemMarkers,
       dependencyMarkers,
       missingDependencyMarkers,
@@ -831,7 +832,7 @@ async function detectEcosystemMarkers(targetCwd: string): Promise<string[]> {
   ];
   const found: string[] = [];
   for (const marker of markers) {
-    if (await exists(path.join(targetCwd, marker))) {
+    if (await pathExists(path.join(targetCwd, marker))) {
       found.push(marker);
     }
   }
@@ -842,7 +843,7 @@ async function detectDependencyMarkers(targetCwd: string): Promise<string[]> {
   const markers = ["node_modules", ".venv", "venv", "vendor", "target", ".gradle", "build"];
   const found: string[] = [];
   for (const marker of markers) {
-    if (await exists(path.join(targetCwd, marker))) {
+    if (await pathExists(path.join(targetCwd, marker))) {
       found.push(marker);
     }
   }
@@ -911,7 +912,7 @@ async function discoverAllowedCommands(
       commands.push(`${packageManager} exec eslint src`);
     }
     if (await hasAnyLockfile(targetCwd)) {
-      commands.push(packageManager === "npm" && await exists(path.join(targetCwd, "package-lock.json")) ? "npm ci" : `${packageManager} install`);
+      commands.push(packageManager === "npm" && await pathExists(path.join(targetCwd, "package-lock.json")) ? "npm ci" : `${packageManager} install`);
       commands.push(`${packageManager} install`);
     }
   }
@@ -958,19 +959,19 @@ function isDependencyPresent(dependencyVersions: Record<string, string>, name: s
 }
 
 async function detectPackageManager(root: string): Promise<"npm" | "pnpm" | "yarn"> {
-  if (await exists(path.join(root, "pnpm-lock.yaml"))) {
+  if (await pathExists(path.join(root, "pnpm-lock.yaml"))) {
     return "pnpm";
   }
-  if (await exists(path.join(root, "yarn.lock"))) {
+  if (await pathExists(path.join(root, "yarn.lock"))) {
     return "yarn";
   }
   return "npm";
 }
 
 async function hasAnyLockfile(root: string): Promise<boolean> {
-  return (await exists(path.join(root, "package-lock.json")))
-    || (await exists(path.join(root, "pnpm-lock.yaml")))
-    || (await exists(path.join(root, "yarn.lock")));
+  return (await pathExists(path.join(root, "package-lock.json")))
+    || (await pathExists(path.join(root, "pnpm-lock.yaml")))
+    || (await pathExists(path.join(root, "yarn.lock")));
 }
 
 function isSetupLikeCommand(command: string): boolean {
@@ -1029,11 +1030,3 @@ function shouldSkipDirectory(name: string): boolean {
   return name === ".git" || name === ".factory" || name === ".worktrees" || name === "node_modules";
 }
 
-async function exists(target: string): Promise<boolean> {
-  try {
-    await fs.access(target);
-    return true;
-  } catch {
-    return false;
-  }
-}

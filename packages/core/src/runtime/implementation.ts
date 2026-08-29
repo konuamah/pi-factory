@@ -1,5 +1,5 @@
-// Task orchestration — re-exported from implementation-task.ts so the public
-// path (runtime/implementation.js) stays stable.
+// Task orchestration — re-exported so the public path stays stable.
 
-export { runImplementationTasks, runImplementationTask } from "./implementation-task.js";
+export { runImplementationTasks } from "./implementation-tasks.js";
+export { runImplementationTask } from "./implementation-task.js";
 export { resolveTaskDependencies, resolveDependencyTaskIds } from "./final-merge.js";

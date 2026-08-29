@@ -57,7 +57,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
-    "test": "npm run build && node --test tests/**/*.test.mjs",
+    "test": "npm run build && node scripts/complexity-guard.mjs && node --test tests/**/*.test.mjs",
     "harbor:version": "harbor --version",
     "harbor:task:init": "powershell -NoProfile -Command \"$env:PYTHONIOENCODING='utf-8'; harbor init\"",
     "harbor:task:smoke:config": "harbor run --print-config --agent nop --path harbor/tasks/factory-smoke",
@@ -67,7 +67,8 @@
     "harness:pi-executor": "node packages/executors/pi/dist/harness.js",
     "harness:pi-runtime": "node packages/executors/pi/dist/runtime-harness.js",
     "dashboard:build": "npm --workspace @factory/dashboard run build",
-    "dashboard:serve": "npm run dashboard:build && node -e \"import('./packages/adapters/web/dist/index.js').then(async m => { const s = await m.createDashboardServer({ cwd: process.cwd(), staticDir: './dashboard/dist', port: 4199 }); console.log('Factory dashboard: http://127.0.0.1:' + s.port); })\""
+    "dashboard:serve": "npm run dashboard:build && node -e \"import('./packages/adapters/web/dist/index.js').then(async m => { const s = await m.createDashboardServer({ cwd: process.cwd(), staticDir: './dashboard/dist', port: 4199 }); console.log('Factory dashboard: http://127.0.0.1:' + s.port); })\"",
+    "complexity": "node scripts/complexity-guard.mjs"
   },
   "dependencies": {
     "@factory/adapter-pi": "0.1.0",

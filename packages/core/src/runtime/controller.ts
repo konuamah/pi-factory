@@ -47,9 +47,9 @@ import { gatherVerificationRequirements, initializeVerificationProviders, runVer
 import type { VerificationContractPlan, VerificationEngineResult } from "../verification/index.js";
 import type { ReviewProviderOptions } from "../verification/providers/review.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
-import { classifyVerificationFailure } from "./failure-classification.js";
+import { classifyVerificationFailure, type VerificationFailureClassification } from "./failure-classification.js";
 import { classifyVerificationFailuresWithAI, type ClassificationSource } from "./ai-failure-classifier.js";
-import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands } from "./verification.js";
+import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands, type VerificationPlan, type VerificationRunResult } from "./verification.js";
 import { hydrateWorkspaceDependencies, buildDependencyCacheEnv, DependencyHydrationError } from "./dependencies.js";
 
 export interface InterviewDecisionRecord {
@@ -242,7 +242,7 @@ async function runFactoryControllerInner(
   let integrationPath: string | undefined;
   let finalMergePath: string | undefined;
   let candidateSha: string | undefined;
-  const repairExecutionPaths: string[] = [];
+  let repairExecutionPaths: string[] = [];
 
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
@@ -1177,7 +1177,7 @@ async function runFactoryControllerInner(
     ? { ...aiResult, classificationSource: "ai" as ClassificationSource, deterministicClassification }
     : deterministicClassification
       ? { ...deterministicClassification, classificationSource: "deterministic" as ClassificationSource }
-      : undefined;
+      : undefined as VerificationFailureClassification | undefined;
   let verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
     ...verification,
     selectionSource: verificationPlan.selectionSource,
@@ -1367,120 +1367,28 @@ async function runFactoryControllerInner(
   }
 
   if (shouldAttemptVerificationRepair && repairExecutor) {
-    // Signature-driven repair: keep going while the failure changes (progress), stop when
-    // the same failure signature repeats maxAttempts times (stalled), capped absolutely.
-    const absoluteCap = Math.max(loaded.effectiveConfig.repair.maxAttempts, loaded.effectiveConfig.repair.maxTotalAttempts ?? 10);
-    let stallCount = 0;
-    let lastSignature: string | null = null;
-    let attempt = 0;
-    while (attempt < absoluteCap) {
-      attempt += 1;
-      await emitProgress(input, {
-        runId: run.runId,
-        phase: "repair",
-        status: "RUNNING",
-        message: `Repair attempt ${attempt}`,
-      });
-      const repairResult = await repairExecutor.execute({
-        executionId: `${run.runId}-repair-${attempt}`,
-        cwd: verification.cwd,
-        prompt: buildRepairPrompt(
-          input.goal,
-          verification,
-          repairGuidance.text,
-          renderSkillBundleForPrompt(repairSkills),
-          verificationFailureClassification?.suggestedGeneralFix ?? verificationFailureClassification?.rootCause,
-        ),
-        model: loaded.effectiveConfig.models.repair,
-        tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
-        metadata: {
-          role: "repair",
-          runId: run.runId,
-          attempt,
-        },
-      });
-      const repairExecutionPath = await writePrototypeRepairExecutionArtifact(run.runDir, {
-        attempt,
-        ...repairResult,
-      });
-      repairExecutionPaths.push(repairExecutionPath);
-      await appendFactoryRunEvent(run.eventsPath, {
-        timestamp: new Date().toISOString(),
-        type: "repair.attempt_completed",
-        data: {
-          attempt,
-          repairExecutionPath,
-          repairStatus: repairResult.status,
-        },
-      });
-
-      verification = await runVerificationCommands({
-        cwd: verificationPlan.cwd,
-        commands: verificationPlan.commands,
-      });
-      verification.cwdResolution = verificationPlan.cwdResolution;
-      const changedAfterRepair = await gitChangedFiles(executionCwd);
-      const recheckFailureClassification = classifyVerificationFailure({
-        plan: verificationPlan,
-        result: verification,
-        changedFiles: uniqueStrings([...implementationChangedFiles, ...changedAfterRepair]),
-      });
-      await appendFactoryRunEvent(run.eventsPath, {
-        timestamp: new Date().toISOString(),
-        type: "verification.recheck_completed",
-        data: {
-          attempt,
-          overallStatus: verification.overallStatus,
-          verificationPath,
-        },
-      });
-
-      // Incremental contract re-verification: only re-run requirements affected by changed files.
-      contractResult = await runVerificationEngine({
-        cwd: verificationPlan.cwd,
-        plan: contractPlan,
-        affectedFiles: changedAfterRepair,
-      });
-      verificationPath = await writePrototypeVerificationArtifact(run.runDir, {
-        ...verification,
-        selectionSource: verificationPlan.selectionSource,
-        rationale: verificationPlan.rationale,
-        skill: verificationPlan.skill,
-        evidence: verificationPlan.evidence,
-        failureClassification: recheckFailureClassification,
-        contract: buildContractArtifact(contractPlan, contractResult),
-      });
-      await appendFactoryRunEvent(run.eventsPath, {
-        timestamp: new Date().toISOString(),
-        type: "verification.contract_recheck",
-        data: {
-          attempt,
-          overallStatus: contractResult.overallStatus,
-          canComplete: contractResult.canComplete,
-          affectedFiles: changedAfterRepair,
-        },
-      });
-
-      if (verification.overallStatus !== "failed") {
-        break;
-      }
-      // Stalled detection: same failure signature repeated maxAttempts times.
-      const signature = failureSignature(verification);
-      if (signature === lastSignature) {
-        stallCount += 1;
-      } else {
-        stallCount = 0;
-      }
-      lastSignature = signature;
-      if (stallCount >= loaded.effectiveConfig.repair.maxAttempts) {
-        await appendFactoryRunEvent(run.eventsPath, {
-          timestamp: new Date().toISOString(),
-          type: "repair.stalled",
-          data: { attempt, stallCount, signature },
-        });
-        break;
-      }
-    }
+    const repairState = await runVerificationRepairLoop({
+      run,
+      input,
+      repairConfig: loaded.effectiveConfig.repair,
+      repairModel: loaded.effectiveConfig.models.repair,
+      repairGuidanceText: repairGuidance.text ?? "",
+      repairSkillsBundleText: renderSkillBundleForPrompt(repairSkills),
+      verificationPlan,
+      contractPlan,
+      implementationChangedFiles,
+      executionCwd,
+      verification,
+      verificationFailureClassification,
+      verificationPath,
+      contractResult,
+      repairExecutionPaths,
+    });
+    verification = repairState.verification;
+    verificationFailureClassification = repairState.verificationFailureClassification;
+    verificationPath = repairState.verificationPath;
+    contractResult = repairState.contractResult;
+    repairExecutionPaths = repairState.repairExecutionPaths;
   }
 
   let reviewerExecutionPath: string | undefined;
@@ -1882,6 +1790,179 @@ async function runFactoryControllerInner(
     reviewerExecutionPath,
     verificationPath,
     summaryPath,
+  };
+}
+
+interface VerificationRepairLoopContext {
+  run: Awaited<ReturnType<typeof createFactoryRun>>;
+  input: RunFactoryControllerInput;
+  repairConfig: EffectiveFactoryConfig["repair"];
+  repairModel: ModelSelection | undefined;
+  repairGuidanceText: string;
+  repairSkillsBundleText: string | undefined;
+  verificationPlan: VerificationPlan;
+  contractPlan: VerificationContractPlan;
+  implementationChangedFiles: string[];
+  executionCwd: string;
+  verification: VerificationRunResult;
+  verificationFailureClassification: VerificationFailureClassification | undefined;
+  verificationPath: string;
+  contractResult: VerificationEngineResult;
+  repairExecutionPaths: string[];
+}
+
+async function runVerificationRepairLoop(
+  context: VerificationRepairLoopContext,
+): Promise<Pick<VerificationRepairLoopContext, "verification" | "verificationFailureClassification" | "verificationPath" | "contractResult" | "repairExecutionPaths">> {
+  const {
+    run,
+    input,
+    repairConfig,
+    repairModel,
+    repairGuidanceText,
+    repairSkillsBundleText,
+    verificationPlan,
+    contractPlan,
+    implementationChangedFiles,
+    executionCwd,
+  } = context;
+  let {
+    verification,
+    verificationFailureClassification,
+    verificationPath,
+    contractResult,
+    repairExecutionPaths,
+  } = context;
+  const repairExecutor = input.repairExecutor;
+
+  // Signature-driven repair: keep going while the failure changes (progress), stop when
+  // the same failure signature repeats maxAttempts times (stalled), capped absolutely.
+  const absoluteCap = Math.max(repairConfig.maxAttempts, repairConfig.maxTotalAttempts ?? 10);
+  let stallCount = 0;
+  let lastSignature: string | null = null;
+  let attempt = 0;
+  while (attempt < absoluteCap) {
+    attempt += 1;
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: "repair",
+      status: "RUNNING",
+      message: `Repair attempt ${attempt}`,
+    });
+    if (!repairExecutor) break;
+    const repairResult = await repairExecutor.execute({
+      executionId: `${run.runId}-repair-${attempt}`,
+      cwd: verification.cwd,
+      prompt: buildRepairPrompt(
+        input.goal,
+        verification,
+        repairGuidanceText,
+        repairSkillsBundleText,
+        verificationFailureClassification?.suggestedGeneralFix ?? verificationFailureClassification?.rootCause,
+      ),
+      model: repairModel,
+      tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+      metadata: {
+        role: "repair",
+        runId: run.runId,
+        attempt,
+      },
+    });
+    const repairExecutionPath = await writePrototypeRepairExecutionArtifact(run.runDir, {
+      attempt,
+      ...repairResult,
+    });
+    repairExecutionPaths.push(repairExecutionPath);
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "repair.attempt_completed",
+      data: {
+        attempt,
+        repairExecutionPath,
+        repairStatus: repairResult.status,
+      },
+    });
+
+    const recheckVerification = await runVerificationCommands({
+      cwd: verificationPlan.cwd,
+      commands: verificationPlan.commands,
+    });
+    recheckVerification.cwdResolution = verificationPlan.cwdResolution;
+    const changedAfterRepair = await gitChangedFiles(executionCwd);
+    const recheckFailureClassification = classifyVerificationFailure({
+      plan: verificationPlan,
+      result: recheckVerification,
+      changedFiles: uniqueStrings([...implementationChangedFiles, ...changedAfterRepair]),
+    });
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "verification.recheck_completed",
+      data: {
+        attempt,
+        overallStatus: recheckVerification.overallStatus,
+        verificationPath,
+      },
+    });
+
+    // Incremental contract re-verification: only re-run requirements affected by changed files.
+    const recheckContractResult = await runVerificationEngine({
+      cwd: verificationPlan.cwd,
+      plan: contractPlan,
+      affectedFiles: changedAfterRepair,
+    });
+    const recheckVerificationPath = await writePrototypeVerificationArtifact(run.runDir, {
+      ...recheckVerification,
+      selectionSource: verificationPlan.selectionSource,
+      rationale: verificationPlan.rationale,
+      skill: verificationPlan.skill,
+      evidence: verificationPlan.evidence,
+      failureClassification: recheckFailureClassification,
+      contract: buildContractArtifact(contractPlan, recheckContractResult),
+    });
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "verification.contract_recheck",
+      data: {
+        attempt,
+        overallStatus: recheckContractResult.overallStatus,
+        canComplete: recheckContractResult.canComplete,
+        affectedFiles: changedAfterRepair,
+      },
+    });
+
+    // Commit this attempt's state so the next iteration (and caller) sees it.
+    verification = recheckVerification;
+    verificationFailureClassification = recheckFailureClassification;
+    verificationPath = recheckVerificationPath;
+    contractResult = recheckContractResult;
+
+    if (verification.overallStatus !== "failed") {
+      break;
+    }
+    // Stalled detection: same failure signature repeated maxAttempts times.
+    const signature = failureSignature(verification);
+    if (signature === lastSignature) {
+      stallCount += 1;
+    } else {
+      stallCount = 0;
+    }
+    lastSignature = signature;
+    if (stallCount >= repairConfig.maxAttempts) {
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "repair.stalled",
+        data: { attempt, stallCount, signature },
+      });
+      break;
+    }
+  }
+
+  return {
+    verification,
+    verificationFailureClassification,
+    verificationPath,
+    contractResult,
+    repairExecutionPaths,
   };
 }
 

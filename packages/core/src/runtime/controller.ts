@@ -52,6 +52,15 @@ import { classifyVerificationFailuresWithAI, type ClassificationSource } from ".
 import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands } from "./verification.js";
 import { hydrateWorkspaceDependencies, buildDependencyCacheEnv, DependencyHydrationError } from "./dependencies.js";
 
+export interface InterviewDecisionRecord {
+  stage: string;
+  role: string;
+  question: string;
+  optionId: string;
+  answer?: string;
+  decisionRequestId: string;
+}
+
 export interface FactoryRunProgressEvent {
   runId: string;
   phase: string;
@@ -611,6 +620,7 @@ async function runFactoryControllerInner(
   });
   const interviewContext = interviewResult.text;
   const interviewExecutionPath = interviewResult.executionPath;
+  const interviewDecisions = interviewResult.decisions ?? [];
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "planning", "Building plan");
   if (input.plannerExecutor) {
@@ -861,7 +871,15 @@ async function runFactoryControllerInner(
     workflowCapabilityPolicy: loaded.effectiveConfig.resolvedWorkflow?.capabilityPolicy,
     runTaskType: runTaskType.id,
     runModelOverrides: input.modelOverrides,
-    runDecisions: await loadRunDecisions(run.runDir),
+    runDecisions: [
+      ...(await loadRunDecisions(run.runDir)),
+      ...interviewDecisions.map((decision) => ({
+        requestId: decision.decisionRequestId,
+        question: decision.question,
+        optionId: decision.optionId,
+        ...(decision.answer ? { feedback: decision.answer } : {}),
+      })),
+    ],
     config: loaded.effectiveConfig,
     requestDependencyRemediation: input.requestDependencyRemediation,
     onProgress: async (event) => emitProgress(input, event),
@@ -1618,7 +1636,7 @@ async function runFactoryControllerInner(
     const reviewerResult = await input.reviewerExecutor.execute({
       executionId: `${run.runId}-reviewer`,
       cwd: executionCwd,
-      prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills)),
+      prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills), interviewDecisions),
       model: loaded.effectiveConfig.models.reviewer,
       tools: ["read", "grep", "find", "ls"],
       metadata: {
@@ -3620,9 +3638,10 @@ async function runInterviewStages(input: {
   plannerSkills: SkillBundleSelection;
   runTaskType: TaskTypeSelection;
   discoveryOutputText?: string;
-}): Promise<{ text?: string; executionPath?: string }> {
+}): Promise<{ text?: string; executionPath?: string; decisions?: InterviewDecisionRecord[] }> {
   const answers: string[] = [];
   let lastExecutionPath: string | undefined;
+  const structuredDecisions: InterviewDecisionRecord[] = [];
   for (const stage of input.stages) {
     const role = stage.role ?? "planner";
     const executor = executorForRole(input.input, role);
@@ -3724,8 +3743,26 @@ async function runInterviewStages(input: {
       `Selected option: ${decision.optionId}`,
       decision.feedback ? `User answer:\n${decision.feedback}` : undefined,
     ].filter(Boolean).join("\n"));
+    structuredDecisions.push({
+      stage: stage.name,
+      role,
+      question: output,
+      optionId: decision.optionId,
+      answer: decision.feedback,
+      decisionRequestId: decision.requestId,
+    });
   }
-  return { text: answers.length > 0 ? answers.join("\n\n") : undefined, executionPath: lastExecutionPath };
+  // Persist structured interview decisions for downstream stages.
+  if (structuredDecisions.length > 0) {
+    const artifactPath = path.join(input.run.runDir, "interview-decisions.json");
+    await fs.writeFile(artifactPath, JSON.stringify(structuredDecisions, null, 2), "utf8");
+    await appendFactoryRunEvent(input.run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "interview.decisions_written",
+      data: { artifactPath, decisionCount: structuredDecisions.length },
+    });
+  }
+  return { text: answers.length > 0 ? answers.join("\n\n") : undefined, executionPath: lastExecutionPath, decisions: structuredDecisions };
 }
 
 function executorForRole(input: RunFactoryControllerInput, role: ModelRole): AgentExecutor | undefined {
@@ -4046,6 +4083,7 @@ function buildReviewerPrompt(
   verification: { overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string }> },
   constitutionContext?: string,
   skillBundleText?: string,
+  interviewDecisions?: InterviewDecisionRecord[],
 ): string {
   const commandStatuses = verification.commands
     .map((command) => `${command.name}: ${command.status}`)
@@ -4055,6 +4093,9 @@ function buildReviewerPrompt(
     `Goal: ${goal}`,
     `Verification status: ${verification.overallStatus}`,
     commandStatuses ? `Command results:\n${commandStatuses}` : "Command results: none",
+    interviewDecisions?.length
+      ? `Human interview decisions (authoritative):\n${interviewDecisions.map((d) => `- ${d.question} → ${d.answer ?? d.optionId}`).join("\n")}`
+      : undefined,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Review the candidate and report whether it looks ready for approval.",

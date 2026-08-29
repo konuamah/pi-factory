@@ -2873,3 +2873,84 @@ test('controller-native stage tasks are marked done and controllerHandled with a
     assert.equal(buildTask.controllerHandled, undefined);
   });
 });
+
+test('structured interview decisions are persisted and reach builder context', async () => {
+  await withTempProject(async (root) => {
+    await writeProjectSkill(root, 'grilling', 'Ask the user questions and wait for answers.');
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: interview',
+        'workflows:',
+        '  - id: interview',
+        '    name: Interview',
+        '    stages:',
+        '      - name: discover',
+        '        type: agent',
+        '        role: discovery',
+        '      - name: grill',
+        '        type: interview',
+        '        role: planner',
+        '        dependsOn: [discover]',
+        '        skills:',
+        '          require: [grilling]',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '        dependsOn: [grill]',
+        '      - name: build',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = {
+      async execute(input) {
+        const actualLabel = input.executionId.includes('discovery') ? 'discovery' : input.executionId.includes('grill') ? 'interview' : 'planner';
+        calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt });
+        if (actualLabel === 'interview') {
+          return { executionId: input.executionId, status: 'completed', outputText: 'Q1: Which search behavior should govern?', events: [] };
+        }
+        return makeExecutor('planner', calls).execute(input);
+      },
+      async cancel() {},
+    };
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+      requestDecision: async (request) => ({
+        requestId: request.id,
+        optionId: 'answered',
+        feedback: 'Preserve the current search behavior.',
+        decidedAt: new Date().toISOString(),
+      }),
+    });
+
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+
+    // Structured artifact exists with the interview answer.
+    const interviewArtifact = await readJson(path.join(runDir, 'interview-decisions.json'));
+    assert.ok(Array.isArray(interviewArtifact));
+    assert.equal(interviewArtifact.length, 1);
+    assert.equal(interviewArtifact[0].stage, 'grill');
+    assert.equal(interviewArtifact[0].answer, 'Preserve the current search behavior.');
+
+    // Builder prompt contains the human interview decision.
+    const builderPrompt = calls.find((call) => call.label === 'builder')?.prompt ?? '';
+    assert.match(builderPrompt, /Preserve the current search behavior\./);
+
+    // Show/logs surface interview decisions.
+    const shown = await showFactoryRun(path.join(root, '.factory', 'runs'), String(runs.at(-1)));
+    assert.ok(shown.interviewDecisions?.length >= 1);
+  });
+});

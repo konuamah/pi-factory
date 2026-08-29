@@ -1223,6 +1223,24 @@ async function runFactoryControllerInner(
     model: loaded.effectiveConfig.models.reviewer,
     goal: input.goal,
   } satisfies ReviewProviderOptions);
+
+  // Skip contract requirements for commands already classified baseline-unrelated (ignore).
+  // The failure classifier is the authority: a pre-existing repo failure marked ignore
+  // should not re-block the contract completion gate.
+  const ignoredCommandNames = new Set(
+    (verificationFailureClassification?.perCommand ?? [])
+      .filter((c) => c.category === "baseline-unrelated" || c.suggestedAction === "ignore")
+      .map((c) => c.commandName),
+  );
+  if (ignoredCommandNames.size > 0) {
+    contractPlan.requirements = contractPlan.requirements.filter((requirement) => {
+      if (requirement.type !== "COMMAND") {
+        return true;
+      }
+      return !ignoredCommandNames.has(requirement.description.replace(/^Run /, "").toLowerCase());
+    });
+  }
+
   let contractResult = await runVerificationEngine({
     cwd: verificationPlan.cwd,
     plan: contractPlan,

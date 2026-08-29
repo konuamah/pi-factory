@@ -2759,6 +2759,8 @@ test('baseline-unrelated verification failure warns and proceeds instead of fail
     // The run should NOT be FAILED — it warns and proceeds.
     assert.notEqual(summary.status, 'FAILED');
     assert.notEqual(summary.phase, 'verification-failed');
+    // The run must complete — not be BLOCKED by the contract gate either.
+    assert.equal(summary.status, 'COMPLETED', 'run should complete despite baseline-unrelated failure, got ' + summary.status + '/' + summary.phase);
 
     const logs = await readLatestFactoryRunLogs(path.join(root, '.factory', 'runs'), { limit: 120 });
     assert.ok(logs.events.some((line) => /verification.baseline_warning/.test(line)), 'expected baseline warning event');

@@ -1,0 +1,30 @@
+schema_version = "1.4"
+artifacts = ["artifacts/factory-quality-summary.json"]
+
+[task]
+name = "local/factory-smoke"
+version = "1.0.0"
+description = "Smoke-test Harbor wiring for the pi-factory repository."
+authors = ["Kelvi"]
+keywords = ["factory", "harbor", "smoke", "quality-testing"]
+
+[metadata]
+
+[verifier]
+timeout_sec = 600.0
+collect = ["artifacts/factory-quality-summary.json"]
+
+[verifier.env]
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 600.0
+os = "linux"
+mcp_servers = []
+
+[environment.env]
+
+[solution.env]

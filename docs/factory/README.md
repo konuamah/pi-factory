@@ -55,6 +55,9 @@ Docs are the primary operational reference layer. Use command output, setup cont
 | "Can you do this safely?" | [permissions-and-safety.md](permissions-and-safety.md) | Apply approval and verification rules |
 | "Something broke" | [troubleshooting.md](troubleshooting.md) | Diagnose by symptom |
 | "Show examples" | [examples.md](examples.md) | Follow a worked pattern |
+| "Set up quality testing" | [quality-testing.md](quality-testing.md) | Use Harbor tasks and verifiers |
+| "How did Factory perform?" | [case-study-landoptima-status-bar.md](case-study-landoptima-status-bar.md) | Inspect a real completed run |
+| "Fix stage handoffs" | [stage-handoff-remediation-plan.md](stage-handoff-remediation-plan.md) | Follow the remediation rollout |
 
 ## Core References
 

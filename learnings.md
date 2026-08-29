@@ -9,3 +9,4 @@
 - Fast worktrees should share immutable package-manager/compiler caches while keeping source, git index, dependency manifests, `node_modules`, virtualenvs, and other writable workspace state isolated. Make this language-neutral and drive setup through the repo's configured setup command rather than a framework-specific installer.
 - Doctor readiness should validate both model routing resolution and Pi-visible provider/model availability, not just the presence of config keys.
 - Broad Factory Concierge setup should produce model-ready config by assigning Pi-visible models to all Factory roles, not only direct users to model inspection.
+- Stage handoffs should preserve both human-readable summaries and structured artifacts. If a controller-native phase, planner decision, interview answer, or baseline-unrelated verification result affects later behavior, downstream stages and approval UI need the structured fact, not only a text blob.

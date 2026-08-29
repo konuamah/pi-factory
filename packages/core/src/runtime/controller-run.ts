@@ -48,6 +48,7 @@ import type { ReviewProviderOptions } from "../verification/providers/review.js"
 import { runFinalPhases } from "./controller-final-phases.js";
 import { runVerificationPhase } from "./verification-phase2.js";
 import { runImplementationPhase } from "./implementation-phase.js";
+import { runControllerIntegration } from "./controller-integration.js";
 
 export async function runFactoryControllerInner(
   input: RunFactoryControllerInput,
@@ -738,84 +739,29 @@ export async function runFactoryControllerInner(
   implementationRun = implementationPhase.implementationRun;
   builderExecutionPaths = implementationPhase.builderExecutionPaths;
   integrationPath = implementationPhase.integrationPath;
-  await movePhase(run.statePath, run.eventsPath, run.runId, input, "integration", "Integrating isolated task workspaces");
-  try {
-    integrationPath = await runIntegrationPhase({
-      runDir: run.runDir,
-      eventsPath: run.eventsPath,
-      executionCwd,
-      taskWorkspaces: implementationRun.taskWorkspaces,
-      goal: input.goal,
-      runId: run.runId,
-      repairExecutor: input.repairExecutor,
-      repairModel: loaded.effectiveConfig.models.repair,
-      repairGuidanceContext: repairGuidance.text,
-      repairSkillBundleText: renderSkillBundleForPrompt(repairSkills),
-    });
-  } catch (error) {
-    const integrationFailure = await classifyIntegrationFailure(executionCwd, error);
-    await appendFactoryRunEvent(run.eventsPath, {
-      timestamp: new Date().toISOString(),
-      type: "integration.failed",
-      data: integrationFailure,
-    });
-    await appendFactoryRunEvent(run.eventsPath, {
-      timestamp: new Date().toISOString(),
-      type: "run.failed",
-      data: { reason: `integration failed: ${integrationFailure.reason}` },
-    });
-    const failedState = await updateFactoryRunState({
-      statePath: run.statePath,
-      patch: { status: "FAILED", phase: "integration-failed" },
-    });
-    await emitProgress(input, {
-      runId: run.runId,
-      phase: "integration-failed",
-      status: "FAILED",
-      message: integrationFailure.conflictingFiles.length > 0
-        ? `Integration failed with conflicts: ${integrationFailure.conflictingFiles.join(", ")}`
-        : `Integration failed: ${integrationFailure.reason}`,
-    });
-    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
-      runId: run.runId,
-      goal: input.goal,
-      status: "FAILED",
-      phase: failedState.phase,
-      approved: false,
-      planPath,
-      taskPaths,
-      discoveryExecutionPath,
-      plannerExecutionPath,
-      builderExecutionPaths,
-      integrationPath,
-      repairExecutionPaths,
-      verificationPath: path.join(run.runDir, "verification.json"),
-      verificationStatus: "incomplete",
-    });
-
-    return {
-      runId: run.runId,
-      runDir: run.runDir,
-      executionCwd,
-      worktree,
-      statePath: run.statePath,
-      eventsPath: run.eventsPath,
-      phases,
-      approved: false,
-      planPath,
-      taskPaths,
-      discoveryExecutionPath,
-      plannerExecutionPath,
-      builderExecutionPaths,
-      integrationPath,
-      repairExecutionPaths,
-      verificationPath: path.join(run.runDir, "verification.json"),
-      summaryPath,
-    };
+  const controllerIntegration = await runControllerIntegration({
+    run,
+    input,
+    loaded,
+    executionCwd,
+    worktree,
+    phases,
+    delayMs,
+    planPath,
+    taskPaths,
+    discoveryExecutionPath,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    repairExecutionPaths,
+    integrationPath,
+    repairGuidanceText: repairGuidance.text ?? "",
+    repairSkills,
+    implementationRun,
+  });
+  if ("runId" in controllerIntegration) {
+    return controllerIntegration;
   }
-
-  await wait(delayMs);
-
+  integrationPath = controllerIntegration.integrationPath;
   let verificationPath: string;
   let verification: VerificationRunResult;
   let verificationFailureClassification: VerificationFailureClassification | undefined;

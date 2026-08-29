@@ -140,12 +140,14 @@ For workflows, you may either:
 - use `/factory workflow create` for interactive user-guided creation, or
 - edit `factory.yaml` directly when the user describes the workflow clearly enough.
 
+When editing `factory.yaml`, always use the workflow registry shape from `docs/factory/workflow-authoring.md`: top-level `defaultWorkflowId` plus `workflows`, where each workflow has `id`, `name`, and `stages`. Do not create a top-level `stages:` list; Factory resolves runs from the workflow registry, so a top-level `stages:` block can be ignored and cause interview stages to be skipped.
+
 When editing directly, include:
 
 - workflow id and name
 - step names
 - step descriptions/purposes
-- step types: `agent`, `command`, `approval`, or `task-graph`
+- step types: `agent`, `interview`, `command`, `approval`, or `task-graph`
 - roles for agent steps when known
 - commands for command steps
 - dependencies
@@ -196,8 +198,7 @@ User: "Let's make a workflow for safe feature work"
 Action:
 
 1. Ask for missing details only if needed.
-2. If enough detail exists, edit `factory.yaml` with a workflow like:
-   `plan -> build -> verify -> review -> approval`.
+2. If enough detail exists, edit `factory.yaml` with `defaultWorkflowId` and a named workflow whose stages are like `plan -> build -> verify -> review -> approval`.
 3. Use `command` steps for checks like lint, typecheck, test, and build.
 4. Set the workflow default if the user asked.
 5. Verify with `/factory doctor`.

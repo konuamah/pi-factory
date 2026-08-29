@@ -286,6 +286,9 @@ test("factory docs library is complete and linked from Pi-facing concierge", asy
   assert.match(workflowAuthoring, /bundled interview skill/i);
   assert.match(workflowAuthoring, /skills\/grilling/);
   assert.match(workflowAuthoring, /skills\.require: \[grilling\]/);
+  assert.match(workflowAuthoring, /top-level `defaultWorkflowId`/);
+  assert.match(workflowAuthoring, /top-level `workflows`/);
+  assert.match(workflowAuthoring, /Do not create a top-level `stages:` list/);
   assert.match(bundledGrilling, /^name: grilling$/m);
   assert.match(bundledGrilling, /Interview the user relentlessly until you reach a shared understanding\./);
   assert.match(bundledGrillMe, /^name: grill-me$/m);
@@ -320,6 +323,9 @@ test("factory docs library is complete and linked from Pi-facing concierge", asy
   assert.match(piSkill, /language-neutral/);
   assert.match(piSkill, /bundled `skills\/grilling` skill first/i);
   assert.match(piSkill, /bind `skills\.require: \[grilling\]` directly/i);
+  assert.match(piSkill, /top-level `defaultWorkflowId` plus `workflows`/);
+  assert.match(piSkill, /Do not create a top-level `stages:` list/);
+  assert.match(piSkill, /`agent`, `interview`, `command`, `approval`, or `task-graph`/);
   assert.match(piSkill, /Do not look for docs under `?\.pi\/skills\/factory-concierge\/docs\/?`?/);
   assert.match(piSkill, /Do not narrate every internal step/);
   assert.match(piSkill, /do not inspect Factory source, schemas, `dist`, binaries, or CLI bootstrap files/i);
@@ -339,6 +345,8 @@ test("factory docs library is complete and linked from Pi-facing concierge", asy
   assert.match(internalSkill, /Do not make the guidance Node-only/);
   assert.match(internalSkill, /bundled `skills\/grilling` skill first/i);
   assert.match(internalSkill, /bind `skills\.require: \[grilling\]` directly/i);
+  assert.match(internalSkill, /top-level `defaultWorkflowId` plus `workflows`/);
+  assert.match(internalSkill, /Do not create a top-level `stages:` list/);
   assert.match(internalSkill, /Workflows are a first-class responsibility/);
   assert.match(internalSkill, /guide task execution/i);
   assert.match(internalSkill, /must not trigger task execution/i);
@@ -350,6 +358,9 @@ test("factory docs library is complete and linked from Pi-facing concierge", asy
   );
   assert.match(setupSkill, /dependency hydration/);
   assert.match(setupSkill, /language-neutral/);
+  assert.match(setupSkill, /Workflow Shape Guardrail/);
+  assert.match(setupSkill, /Never recommend or describe a top-level `stages:` list/);
+  assert.match(setupSkill, /skills\.require: \["grilling"\]/);
 });
 
 test("public Factory docs and Pi-facing concierge avoid project-specific local paths", async () => {

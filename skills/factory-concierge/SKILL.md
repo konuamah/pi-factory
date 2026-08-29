@@ -124,6 +124,8 @@ When the user asks to set up Factory or make Factory ready, prefer `run-setup` s
 
 Workflows are a first-class responsibility. Help the user design, list, inspect, create, and set workflows. For broad workflow creation, use `create-workflow`. For a specific existing workflow, use `show-workflow` or `set-default-workflow` with the workflow id. Ask for approval before changing the default workflow.
 
+When editing `factory.yaml`, always use the workflow registry shape from `docs/factory/workflow-authoring.md`: top-level `defaultWorkflowId` plus `workflows`, where each workflow has `id`, `name`, and `stages`. Do not create a top-level `stages:` list; Factory resolves runs from the workflow registry, so a top-level `stages:` block can be ignored and cause interview stages to be skipped.
+
 When the user wants to add an interview stage, inspect the bundled `skills/grilling` skill first. If the repo does not already include it, add the bundled skill from Factory instead of telling the user to install an external package. Bind `skills.require: [grilling]` directly.
 
 Dependency hydration is a first-class setup responsibility. Explain that Factory runs the configured `commands.setup` with shared cache env vars while keeping each worktree's installed dependency state isolated. Do not make the guidance Node-only: support Node, Python, Rust, Go, Java-style, and other projects through the repository's own setup command. Never recommend sharing one writable `node_modules`, `.venv`, or framework-specific dependency folder across worktrees.

@@ -16,6 +16,14 @@ Edit `factory.yaml` directly when the user clearly describes:
 
 ## Workflow Shape
 
+`factory.yaml` must use the workflow registry shape:
+
+- top-level `defaultWorkflowId`
+- top-level `workflows`
+- each workflow defines its own `stages`
+
+Do not create a top-level `stages:` list. Factory resolves runs from the workflow registry, so a top-level `stages:` block can be ignored and cause intended steps, including interviews, to be skipped.
+
 Each workflow needs:
 
 - `id`

@@ -56,14 +56,7 @@ export function buildStewardSlides(
       simpleTitle: "How Factory will work on this project",
       kind: "recommendation",
       recommended: rec.workflow,
-      lines: [
-        `I recommend: ${workflowSummary.label}`,
-        ...(workflowSummary.idLine ? [workflowSummary.idLine] : []),
-        ...(workflowSummary.stageLine ? [workflowSummary.stageLine] : []),
-        ...(rec.workflow?.reason ? [`Why: ${rec.workflow.reason}`] : []),
-        ...(wf?.kind === "custom" ? [(wf as { reason: string }).reason ? `Reason: ${(wf as { reason: string }).reason}` : undefined].filter(Boolean) as string[] : []),
-        ...(rec.whyNot?.filter((w) => w.area.toLowerCase().includes("workflow")).map((w) => `Not recommended: ${w.area} — ${w.reason}`) ?? []),
-      ].filter(Boolean) as string[],
+      lines: describeWorkflowLines(rec, workflowSummary),
       details: wf?.kind === "custom" ? [`Stages: ${(wf as { workflow: { stages: Array<{ name: string }> } }).workflow.stages.map((s) => s.name).join(", ")}`] : undefined,
     },
     {
@@ -72,16 +65,7 @@ export function buildStewardSlides(
       simpleTitle: "Which AI models Factory will use",
       kind: "recommendation",
       recommended: rec.models,
-      lines: [
-        ...describeConfiguredModels(ctx),
-        ...(rec.models
-          ? Object.entries(rec.models).map(([role, v]) => `${role}: ${v!.value.provider ? `${v!.value.provider}/` : ""}${v!.value.model} — ${v!.reason}`)
-          : ["No model overrides — using Factory defaults (opus/sonnet)."]),
-        "",
-        rec.models
-          ? "Why: Factory is using models discovered from your Pi configuration first; built-in fallbacks are only used if no configured model is available."
-          : "Why: No configured Pi model was available to Factory, so it will fall back to built-in role defaults.",
-      ],
+      lines: describeModelLines(ctx, rec),
     },
     {
       id: "commands",
@@ -89,14 +73,7 @@ export function buildStewardSlides(
       simpleTitle: "How Factory checks the work",
       kind: "recommendation",
       recommended: rec.commands,
-      lines: [
-        ...Object.entries(rec.commands ?? {}).map(([k, v]) => {
-          if (!v) return `${k}: none`;
-          const flag = v.source === "DISCOVERED" ? "✓" : v.source === "AI_SUGGESTED" ? "?" : "·";
-          return `${flag} ${k}: ${v.value} [${v.source}] — ${v.reason}${v.requiresConfirmation ? " (needs confirmation)" : ""}`;
-        }),
-        ...(rec.whyNot?.filter((w) => w.area.toLowerCase().includes("verification")).map((w) => `Skipped: ${w.area} — ${w.reason}`) ?? []),
-      ],
+      lines: describeCommandLines(rec),
     },
     {
       id: "runtime",
@@ -115,11 +92,7 @@ export function buildStewardSlides(
       simpleTitle: "How Factory isolates work",
       kind: "recommendation",
       recommended: rec.git,
-      lines: [
-        `Base branch: ${rec.git?.baseBranch?.value ?? ctx.effective?.git.baseBranch ?? "main"}`,
-        `Worktrees: ${rec.git?.allowWorktrees?.value ?? ctx.effective?.git.allowWorktrees ? "Enabled" : "Disabled"} — keeps parallel work isolated`,
-        `Keep completed workspaces: ${rec.git?.cleanup?.retainRuns?.value ?? ctx.effective?.git.cleanup.retainRuns ?? 10} runs`,
-      ],
+      lines: describeGitLines(ctx, rec),
     },
     {
       id: "dependencies",
@@ -127,12 +100,7 @@ export function buildStewardSlides(
       simpleTitle: "How Factory prepares each worktree",
       kind: "recommendation",
       recommended: rec.dependencies,
-      lines: [
-        `Hydration: ${rec.dependencies?.enabled?.value ?? ctx.effective?.dependencies.enabled ? "Enabled" : "Disabled"}`,
-        `Mode: ${rec.dependencies?.hydrate?.value ?? ctx.effective?.dependencies.hydrate ?? "auto"}`,
-        `Cache root: ${rec.dependencies?.cacheRoot?.value ?? ctx.effective?.dependencies.cacheRoot ?? "~/.factory/cache"}`,
-        ...(rec.dependencies?.hydrate?.reason ? [`Why: ${rec.dependencies.hydrate.reason}`] : ["Why: shared package caches keep isolated worktrees fast without sharing writable dependency folders."]),
-      ],
+      lines: describeDependencyLines(ctx, rec),
     },
     {
       id: "repair",
@@ -163,11 +131,7 @@ export function buildStewardSlides(
       simpleTitle: "What Factory is allowed to do",
       kind: "preference",
       recommended: rec.capabilities,
-      lines: [
-        ...(rec.capabilities?.allow?.length ? [`Allowed: ${rec.capabilities.allow.join(", ")}`] : ["Allowed: default (repo read/write, shell)"]),
-        ...(rec.capabilities?.deny?.length ? [`Denied: ${rec.capabilities.deny.join(", ")}`] : []),
-        ...(rec.whyNot?.filter((w) => w.area.toLowerCase().includes("production")).map((w) => `${w.area}: ${w.reason}${w.howToEnable ? ` — ${w.howToEnable}` : ""}`) ?? []),
-      ],
+      lines: describeCapabilityLines(rec),
     },
     {
       id: "taskRouting",
@@ -191,10 +155,7 @@ export function buildStewardSlides(
       simpleTitle: "Live progress dashboard",
       kind: "recommendation",
       recommended: rec.dashboard,
-      lines: [
-        `Dashboard: ${rec.dashboard?.enabled?.value ?? ctx.effective?.dashboard.enabled ? "Enabled" : "Disabled"}${rec.dashboard?.port?.value ? ` on :${rec.dashboard.port.value}` : ""}`,
-        ...(rec.dashboard?.enabled?.reason ? [`Why: ${rec.dashboard.enabled.reason}`] : []),
-      ],
+      lines: describeDashboardLines(ctx, rec),
     },
     {
       id: "constitution",
@@ -214,6 +175,74 @@ export function buildStewardSlides(
         ...(rec.whyNot?.length ? rec.whyNot.map((w) => `Not enabled: ${w.area} — ${w.reason}`) : []),
       ],
     },
+  ];
+}
+
+function describeWorkflowLines(rec: FactorySetupRecommendation, workflowSummary: ReturnType<typeof describeWorkflow>): string[] {
+  const wf = rec.workflow?.value;
+  return [
+    `I recommend: ${workflowSummary.label}`,
+    ...(workflowSummary.idLine ? [workflowSummary.idLine] : []),
+    ...(workflowSummary.stageLine ? [workflowSummary.stageLine] : []),
+    ...(rec.workflow?.reason ? [`Why: ${rec.workflow.reason}`] : []),
+    ...(wf?.kind === "custom" ? [(wf as { reason: string }).reason ? `Reason: ${(wf as { reason: string }).reason}` : undefined].filter(Boolean) as string[] : []),
+    ...(rec.whyNot?.filter((w) => w.area.toLowerCase().includes("workflow")).map((w) => `Not recommended: ${w.area} — ${w.reason}`) ?? []),
+  ].filter(Boolean) as string[];
+}
+
+function describeModelLines(ctx: FactorySetupContext, rec: FactorySetupRecommendation): string[] {
+  return [
+    ...describeConfiguredModels(ctx),
+    ...(rec.models
+      ? Object.entries(rec.models).map(([role, v]) => `${role}: ${v!.value.provider ? `${v!.value.provider}/` : ""}${v!.value.model} — ${v!.reason}`)
+      : ["No model overrides — using Factory defaults (opus/sonnet)."]),
+    "",
+    rec.models
+      ? "Why: Factory is using models discovered from your Pi configuration first; built-in fallbacks are only used if no configured model is available."
+      : "Why: No configured Pi model was available to Factory, so it will fall back to built-in role defaults.",
+  ];
+}
+
+function describeCommandLines(rec: FactorySetupRecommendation): string[] {
+  return [
+    ...Object.entries(rec.commands ?? {}).map(([k, v]) => {
+      if (!v) return `${k}: none`;
+      const flag = v.source === "DISCOVERED" ? "✓" : v.source === "AI_SUGGESTED" ? "?" : "·";
+      return `${flag} ${k}: ${v.value} [${v.source}] — ${v.reason}${v.requiresConfirmation ? " (needs confirmation)" : ""}`;
+    }),
+    ...(rec.whyNot?.filter((w) => w.area.toLowerCase().includes("verification")).map((w) => `Skipped: ${w.area} — ${w.reason}`) ?? []),
+  ];
+}
+
+function describeGitLines(ctx: FactorySetupContext, rec: FactorySetupRecommendation): string[] {
+  return [
+    `Base branch: ${rec.git?.baseBranch?.value ?? ctx.effective?.git.baseBranch ?? "main"}`,
+    `Worktrees: ${rec.git?.allowWorktrees?.value ?? ctx.effective?.git.allowWorktrees ? "Enabled" : "Disabled"} — keeps parallel work isolated`,
+    `Keep completed workspaces: ${rec.git?.cleanup?.retainRuns?.value ?? ctx.effective?.git.cleanup.retainRuns ?? 10} runs`,
+  ];
+}
+
+function describeDependencyLines(ctx: FactorySetupContext, rec: FactorySetupRecommendation): string[] {
+  return [
+    `Hydration: ${rec.dependencies?.enabled?.value ?? ctx.effective?.dependencies.enabled ? "Enabled" : "Disabled"}`,
+    `Mode: ${rec.dependencies?.hydrate?.value ?? ctx.effective?.dependencies.hydrate ?? "auto"}`,
+    `Cache root: ${rec.dependencies?.cacheRoot?.value ?? ctx.effective?.dependencies.cacheRoot ?? "~/.factory/cache"}`,
+    ...(rec.dependencies?.hydrate?.reason ? [`Why: ${rec.dependencies.hydrate.reason}`] : ["Why: shared package caches keep isolated worktrees fast without sharing writable dependency folders."]),
+  ];
+}
+
+function describeCapabilityLines(rec: FactorySetupRecommendation): string[] {
+  return [
+    ...(rec.capabilities?.allow?.length ? [`Allowed: ${rec.capabilities.allow.join(", ")}`] : ["Allowed: default (repo read/write, shell)"]),
+    ...(rec.capabilities?.deny?.length ? [`Denied: ${rec.capabilities.deny.join(", ")}`] : []),
+    ...(rec.whyNot?.filter((w) => w.area.toLowerCase().includes("production")).map((w) => `${w.area}: ${w.reason}${w.howToEnable ? ` — ${w.howToEnable}` : ""}`) ?? []),
+  ];
+}
+
+function describeDashboardLines(ctx: FactorySetupContext, rec: FactorySetupRecommendation): string[] {
+  return [
+    `Dashboard: ${rec.dashboard?.enabled?.value ?? ctx.effective?.dashboard.enabled ? "Enabled" : "Disabled"}${rec.dashboard?.port?.value ? ` on :${rec.dashboard.port.value}` : ""}`,
+    ...(rec.dashboard?.enabled?.reason ? [`Why: ${rec.dashboard.enabled.reason}`] : []),
   ];
 }
 

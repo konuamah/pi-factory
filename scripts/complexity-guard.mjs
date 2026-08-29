@@ -59,21 +59,35 @@ function changedFiles() {
 
 /**
  * Cyclomatic-ish complexity per function, counted with brace tracking so
- * multi-line signatures (async function foo(\n  a,\n  b\n): Promise<X> {)
- * are handled correctly. Counts decision points: if/else-if/for/while/
- * catch/switch/case plus && || ?? ?. operators.
+ * multi-line signatures and class/object methods are handled correctly.
+ * Counts decision points: if/else-if/for/while/catch/switch/case plus
+ * && || ?? ?. operators.
+ *
+ * Detects: function decls (incl. multi-line), arrow consts (incl.
+ * single-param and multi-line bodies), async/regular methods (class or
+ * object shorthand).
  */
 function scoreFile(source) {
   const lines = source.split("\n");
   const functions = [];
   let cur = null;
+  const startFn = (name, startLine) => {
+    if (cur) functions.push(cur);
+    cur = { name, score: 1, inFn: false, depth: 0, startLine };
+  };
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const fm = line.match(/^\s*(?:export\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z0-9_]+)\s*\(/)
-      || line.match(/^\s*(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?\s*\(/);
+    // function declarations (may span lines)
+    let fm = line.match(/^\s*(?:export\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z0-9_]+)\s*\(/);
+    // arrow consts: const f = (a) => { | const f = a => { | const f = async (a) => {
+    if (!fm) fm = line.match(/^\s*(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?(?:\s*\([^)]*\)|[A-Za-z0-9_]+)\s*=>/);
+    // class / object methods (indented): async foo( | foo(  (shorthand)
+    // Negative lookahead excludes control-flow keywords (if/for/while/...) and
+    // call expressions (return foo() is not a method definition).
+    if (!fm) fm = line.match(/^\s+(?:async\s+)?(?!if\b|for\b|while\b|switch\b|catch\b|return\b|throw\b|new\b|delete\b|typeof\b|instanceof\b|case\b|else\b|do\b|try\b|finally\b|with\b|yield\b|await\b|function\b|const\b|let\b|var\b)([A-Za-z0-9_]+)\s*\(/);
+    // async method shorthand in objects (indented, no paren on same line handled above)
     if (fm) {
-      if (cur) functions.push(cur);
-      cur = { name: fm[1], score: 1, inFn: false, depth: 0, startLine: i + 1 };
+      startFn(fm[1], i + 1);
       continue;
     }
     if (!cur) continue;

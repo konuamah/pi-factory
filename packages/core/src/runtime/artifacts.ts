@@ -25,6 +25,12 @@ export interface PrototypeTaskArtifact {
   workspacePath?: string;
   workspaceMode?: "existing" | "created" | "in-place";
   workspaceBranch?: string;
+  controllerHandled?: boolean;
+  artifactRefs?: {
+    discoveryExecutionPath?: string;
+    interviewExecutionPath?: string;
+    plannerExecutionPath?: string;
+  };
 }
 
 export interface PrototypePlanArtifact {

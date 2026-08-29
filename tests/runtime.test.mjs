@@ -2822,3 +2822,54 @@ test('stage-name dependencies resolve to planner task in builder dependency cont
     );
   });
 });
+
+test('controller-native stage tasks are marked done and controllerHandled with artifact refs', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: custom',
+        'workflows:',
+        '  - id: custom',
+        '    name: Custom',
+        '    stages:',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '      - name: implementation',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '      - name: final review',
+        '        type: approval',
+        '        dependsOn: [implementation]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const plan = await readLatestFactoryRunPlan(path.join(root, '.factory', 'runs'));
+    const planTask = (plan.tasks ?? []).find((task) => task.stage === 'plan');
+    assert.ok(planTask, 'expected a plan task');
+    assert.equal(planTask.status, 'done');
+    assert.equal(planTask.controllerHandled, true);
+
+    const runDir = path.dirname(plan.planPath);
+    const planJson = await readJson(path.join(runDir, 'plan.json'));
+    const buildTask = planJson.tasks.find((task) => task.stage === 'implementation');
+    assert.equal(buildTask.status, 'pending');
+    assert.equal(buildTask.controllerHandled, undefined);
+  });
+});

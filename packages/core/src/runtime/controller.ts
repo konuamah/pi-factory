@@ -597,7 +597,7 @@ async function runFactoryControllerInner(
     });
   }
 
-  const interviewContext = await runInterviewStages({
+  const interviewResult = await runInterviewStages({
     stages: interviewStages,
     run,
     input,
@@ -609,6 +609,8 @@ async function runFactoryControllerInner(
     runTaskType,
     discoveryOutputText,
   });
+  const interviewContext = interviewResult.text;
+  const interviewExecutionPath = interviewResult.executionPath;
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "planning", "Building plan");
   if (input.plannerExecutor) {
@@ -690,6 +692,11 @@ async function runFactoryControllerInner(
     config: loaded.effectiveConfig,
     discoveryText: discoveryOutputText,
     planText: plannerOutputText,
+    artifactRefs: {
+      discoveryExecutionPath,
+      interviewExecutionPath,
+      plannerExecutionPath,
+    },
   });
   attachDiscoveryFileHintsToBuildTasks(plan.tasks, discoveryFileHints);
   const planPath = await writePrototypePlanArtifact(run.runDir, plan);
@@ -709,6 +716,8 @@ async function runFactoryControllerInner(
       workspacePath: task.id === "task-1" ? executionCwd : undefined,
       workspaceMode: task.id === "task-1" ? worktree.mode : undefined,
       workspaceBranch: task.id === "task-1" ? worktree.branch : undefined,
+      controllerHandled: task.controllerHandled,
+      artifactRefs: task.artifactRefs,
     })),
   );
   await appendFactoryRunEvent(run.eventsPath, {
@@ -3611,8 +3620,9 @@ async function runInterviewStages(input: {
   plannerSkills: SkillBundleSelection;
   runTaskType: TaskTypeSelection;
   discoveryOutputText?: string;
-}): Promise<string | undefined> {
+}): Promise<{ text?: string; executionPath?: string }> {
   const answers: string[] = [];
+  let lastExecutionPath: string | undefined;
   for (const stage of input.stages) {
     const role = stage.role ?? "planner";
     const executor = executorForRole(input.input, role);
@@ -3671,6 +3681,7 @@ async function runInterviewStages(input: {
     });
     const artifactPath = path.join(input.run.runDir, `${slugifyGoal(stage.name)}-interview-execution.json`);
     await fs.writeFile(artifactPath, JSON.stringify(result, null, 2), "utf8");
+    lastExecutionPath = artifactPath;
     await appendFactoryRunEvent(input.run.eventsPath, {
       timestamp: new Date().toISOString(),
       type: "interview.executor_completed",
@@ -3714,7 +3725,7 @@ async function runInterviewStages(input: {
       decision.feedback ? `User answer:\n${decision.feedback}` : undefined,
     ].filter(Boolean).join("\n"));
   }
-  return answers.length > 0 ? answers.join("\n\n") : undefined;
+  return { text: answers.length > 0 ? answers.join("\n\n") : undefined, executionPath: lastExecutionPath };
 }
 
 function executorForRole(input: RunFactoryControllerInput, role: ModelRole): AgentExecutor | undefined {

@@ -21,6 +21,12 @@ export interface PlannerTask {
   taskType?: string;
   model?: ModelSelection;
   skills?: WorkflowStageSkillPolicy;
+  controllerHandled?: boolean;
+  artifactRefs?: {
+    discoveryExecutionPath?: string;
+    interviewExecutionPath?: string;
+    plannerExecutionPath?: string;
+  };
 }
 
 export interface PlannerArtifact {
@@ -48,24 +54,34 @@ export function buildPlanArtifact(input: {
   config: EffectiveFactoryConfig;
   discoveryText?: string;
   planText?: string;
+  artifactRefs?: {
+    discoveryExecutionPath?: string;
+    interviewExecutionPath?: string;
+    plannerExecutionPath?: string;
+  };
 }): PlannerArtifact {
   const workflowStages = normalizeWorkflowStages(input.config.resolvedWorkflow?.stages ?? []);
 
-  const tasks = workflowStages.map((stage, index) => ({
-    id: `task-${index + 1}`,
-    title: buildTaskTitle(stage.name, input.goal),
-    stage: stage.name,
-    status: stage.name === "planning" || stage.name === "plan" || stage.type === "interview" ? "done" as const : "pending" as const,
-    dependsOn: stage.dependsOn,
-    type: stage.type,
-    role: stage.role,
-    commands: stage.commands,
-    requiresApproval: stage.requiresApproval,
-    requiredCapabilities: stage.requiredCapabilities,
-    taskType: stage.taskType,
-    model: stage.model,
-    skills: stage.skills,
-  }));
+  const tasks = workflowStages.map((stage, index) => {
+    const controllerHandled = isControllerHandledStage(stage.name, stage.type);
+    return {
+      id: `task-${index + 1}`,
+      title: buildTaskTitle(stage.name, input.goal),
+      stage: stage.name,
+      status: controllerHandled ? "done" as const : "pending" as const,
+      dependsOn: stage.dependsOn,
+      type: stage.type,
+      role: stage.role,
+      commands: stage.commands,
+      requiresApproval: stage.requiresApproval,
+      requiredCapabilities: stage.requiredCapabilities,
+      taskType: stage.taskType,
+      model: stage.model,
+      skills: stage.skills,
+      controllerHandled: controllerHandled || undefined,
+      artifactRefs: controllerHandled ? input.artifactRefs : undefined,
+    };
+  });
 
   return {
     goal: input.goal,
@@ -99,6 +115,15 @@ function normalizeWorkflowStages(stages: WorkflowStage[]): PlannerArtifact["work
     model: stage.model,
     skills: stage.skills,
   }));
+}
+
+function isControllerHandledStage(stageName: string, type?: WorkflowNodeType): boolean {
+  const name = stageName.toLowerCase();
+  return type === "interview"
+    || name === "plan"
+    || name === "planning"
+    || name === "discover"
+    || name === "discovery";
 }
 
 function buildTaskTitle(stageName: string, goal: string): string {

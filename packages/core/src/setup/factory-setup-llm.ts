@@ -258,18 +258,27 @@ function normalizeRecommendation(
       };
     }
   }
-  if (r.models && typeof r.models === "object") rec.models = r.models as FactorySetupRecommendation["models"];
+  // Object-valued sections are copied through when the LLM emitted them;
+  // commands are normalized against the discovery context.
+  const objectSections = [
+    "models",
+    "runtime",
+    "repair",
+    "approval",
+    "git",
+    "dependencies",
+    "capabilities",
+    "skills",
+    "dashboard",
+  ] as const;
+  for (const section of objectSections) {
+    if (r[section] && typeof r[section] === "object") {
+      rec[section] = r[section] as never;
+    }
+  }
   if (r.commands && typeof r.commands === "object") rec.commands = normalizeCommands(r.commands as Record<string, unknown>, ctx, fallback);
-  if (r.runtime && typeof r.runtime === "object") rec.runtime = r.runtime as FactorySetupRecommendation["runtime"];
-  if (r.repair && typeof r.repair === "object") rec.repair = r.repair as FactorySetupRecommendation["repair"];
-  if (r.approval && typeof r.approval === "object") rec.approval = r.approval as FactorySetupRecommendation["approval"];
-  if (r.git && typeof r.git === "object") rec.git = r.git as FactorySetupRecommendation["git"];
-  if (r.dependencies && typeof r.dependencies === "object") rec.dependencies = r.dependencies as FactorySetupRecommendation["dependencies"];
-  if (r.capabilities && typeof r.capabilities === "object") rec.capabilities = r.capabilities as FactorySetupRecommendation["capabilities"];
   if (Array.isArray(r.taskTypes)) rec.taskTypes = r.taskTypes as FactorySetupRecommendation["taskTypes"];
-  if (r.skills && typeof r.skills === "object") rec.skills = r.skills as FactorySetupRecommendation["skills"];
-  if (r.dashboard && typeof r.dashboard === "object") rec.dashboard = r.dashboard as FactorySetupRecommendation["dashboard"];
-  if (Array.isArray(r.whyNot)) rec.whyNot = (r.whyNot as FactorySetupRecommendation["whyNot"]);
+  if (Array.isArray(r.whyNot)) rec.whyNot = r.whyNot as FactorySetupRecommendation["whyNot"];
   return rec;
 }
 

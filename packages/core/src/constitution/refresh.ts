@@ -53,51 +53,50 @@ async function detectChangedFiles(root: string, previousScanSha?: string): Promi
   return Array.from(new Set([...diff, ...dirty])).sort();
 }
 
+interface ImpactRule {
+  pattern: RegExp;
+  areas: number[];
+  /** Test against path.basename instead of the full path. */
+  basename?: boolean;
+}
+
+const IMPACT_RULES: ImpactRule[] = [
+  { pattern: /^(README|AGENTS|CLAUDE|CONTRIBUTING|DEVELOPMENT|ARCHITECTURE|SECURITY)\.md/i, areas: [1, 5], basename: true },
+  { pattern: /^docs\//, areas: [1, 5] },
+  { pattern: /^\.github\//, areas: [5, 87] },
+  { pattern: /(^|\/)(\.gitlab-ci|azure-pipelines\.yml)$/i, areas: [5, 87] },
+  { pattern: /(^|\/)(package\.json|pnpm-workspace\.yaml|turbo\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$/i, areas: [2, 9, 10, 11, 20, 81, 83, 85] },
+  { pattern: /(^|\/)(tsconfig(\.[^/]+)?\.json|pyrightconfig\.json|mypy\.ini)$/i, areas: [2, 10, 19, 85] },
+  { pattern: /(^|\/)(test|tests|__tests__)\//i, areas: [4, 73] },
+  { pattern: /\.(test|spec)\./i, areas: [4, 73] },
+  { pattern: /^scripts\//, areas: [6, 20] },
+  { pattern: /(^|\/)(bin|tools)\//, areas: [6, 20] },
+  { pattern: /^src\//, areas: [1, 2, 3] },
+  { pattern: /^app\//, areas: [1, 2, 3] },
+  { pattern: /^packages\//, areas: [1, 2, 3] },
+  { pattern: /^public\//, areas: [8] },
+  { pattern: /^static\//, areas: [8] },
+  { pattern: /^assets\//, areas: [8] },
+  { pattern: /\.(png|jpg|jpeg|gif|svg|ico|webp|css)$/i, areas: [8] },
+  { pattern: /^Dockerfile$/i, areas: [21] },
+  { pattern: /^docker-compose\.ya?ml$/i, areas: [21] },
+  { pattern: /(^|\/)(\.env(\.[^/]+)?|env\.example|\.env\.example)$/i, areas: [15, 16] },
+  { pattern: /(^|\/)(eslint\.config\.(js|mjs|cjs)|\.eslintrc(\.(js|json|yml|yaml))?)$/i, areas: [83] },
+  { pattern: /(^|\/)(prettier\.config\.(js|mjs|cjs)|\.prettierrc(\.(js|json|yml|yaml))?|\.editorconfig)$/i, areas: [84] },
+  { pattern: /(^|\/)(api|routes?)\//, areas: [40, 41] },
+  { pattern: /(openapi|swagger)\.(json|ya?ml)$/i, areas: [40, 41] },
+  { pattern: /(^|\/)(migrations?|prisma|schema|schemas|db|database|sql)\//, areas: [48, 50, 51] },
+  { pattern: /\.(sql|prisma)$/i, areas: [48, 50, 51] },
+];
+
 export function routeImpactedAreas(files: string[]): number[] {
   const impacted = new Set<number>();
   for (const file of files) {
-    if (/^(README|AGENTS|CLAUDE|CONTRIBUTING|DEVELOPMENT|ARCHITECTURE|SECURITY)\.md/i.test(path.basename(file)) || file.startsWith("docs/")) {
-      [1, 5].forEach((id) => impacted.add(id));
-    }
-    if (file.startsWith(".github/") || /(^|\/)(\.gitlab-ci|azure-pipelines\.yml)$/i.test(file)) {
-      [5, 87].forEach((id) => impacted.add(id));
-    }
-    if (/(^|\/)(package\.json|pnpm-workspace\.yaml|turbo\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$/i.test(file)) {
-      [2, 9, 10, 11, 20, 81, 83, 85].forEach((id) => impacted.add(id));
-    }
-    if (/(^|\/)(tsconfig(\.[^/]+)?\.json|pyrightconfig\.json|mypy\.ini)$/i.test(file)) {
-      [2, 10, 19, 85].forEach((id) => impacted.add(id));
-    }
-    if (/(^|\/)(test|tests|__tests__)\//i.test(file) || /\.(test|spec)\./i.test(file)) {
-      [4, 73].forEach((id) => impacted.add(id));
-    }
-    if (/^scripts\//.test(file) || /(^|\/)(bin|tools)\//.test(file)) {
-      [6, 20].forEach((id) => impacted.add(id));
-    }
-    if (/^src\//.test(file) || /^app\//.test(file) || /^packages\//.test(file)) {
-      [1, 2, 3].forEach((id) => impacted.add(id));
-    }
-    if (/^public\//.test(file) || /^static\//.test(file) || /^assets\//.test(file) || /\.(png|jpg|jpeg|gif|svg|ico|webp|css)$/.test(file)) {
-      impacted.add(8);
-    }
-    if (/^Dockerfile$/i.test(file) || /^docker-compose\.ya?ml$/i.test(file)) {
-      impacted.add(21);
-    }
-    if (/(^|\/)(\.env(\.[^/]+)?|env\.example|\.env\.example)$/i.test(file)) {
-      [15, 16].forEach((id) => impacted.add(id));
-    }
-    if (/(^|\/)(eslint\.config\.(js|mjs|cjs)|\.eslintrc(\.(js|json|yml|yaml))?)$/i.test(file)) {
-      impacted.add(83);
-    }
-    if (/(^|\/)(prettier\.config\.(js|mjs|cjs)|\.prettierrc(\.(js|json|yml|yaml))?|\.editorconfig)$/i.test(file)) {
-      impacted.add(84);
-    }
-    if (/(^|\/)(api|routes?)\//.test(file) || /(openapi|swagger)\.(json|ya?ml)$/i.test(file)) {
-      impacted.add(40);
-      impacted.add(41);
-    }
-    if (/(^|\/)(migrations?|prisma|schema|schemas|db|database|sql)\//.test(file) || /\.(sql|prisma)$/.test(file)) {
-      [48, 50, 51].forEach((id) => impacted.add(id));
+    for (const rule of IMPACT_RULES) {
+      const target = rule.basename ? path.basename(file) : file;
+      if (rule.pattern.test(target)) {
+        for (const id of rule.areas) impacted.add(id);
+      }
     }
   }
   return Array.from(impacted).sort((a, b) => a - b);

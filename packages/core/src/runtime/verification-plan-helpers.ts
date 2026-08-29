@@ -1,7 +1,8 @@
 // Verification plan/prompt helpers — extracted from verification.ts.
 
 import { resolveFactorySkills } from "../skills/index.js";
-import { VerificationPlanningError, normalizeCommandForCandidate, parsePackageScriptCommand, shouldRunDependencySetup, firstSetupCommand, packageCommandRunsScript, withDependencySetupCommand } from "./verification.js";
+import { VerificationPlanningError } from "./verification.js";
+import { normalizeCommandForCandidate, parsePackageScriptCommand, shouldRunDependencySetup, firstSetupCommand, packageCommandRunsScript, withDependencySetupCommand } from "./verification-evidence.js";
 import { isSetupLikeCommand } from "./verification-discovery.js";
 import type { VerificationEvidence, VerificationCwdCandidate, VerificationPlan, VerificationCommandConfig, VerificationCommandDecision, VerificationCwdResolution } from "./verification.js";
 import path from "node:path";

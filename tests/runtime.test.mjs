@@ -2766,3 +2766,59 @@ test('baseline-unrelated verification failure warns and proceeds instead of fail
     assert.ok(logs.events.some((line) => /verification.baseline_warning/.test(line)), 'expected baseline warning event');
   });
 });
+
+test('stage-name dependencies resolve to planner task in builder dependency context', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: custom',
+        'workflows:',
+        '  - id: custom',
+        '    name: Custom',
+        '    stages:',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '      - name: implementation',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '      - name: final review',
+        '        type: approval',
+        '        dependsOn: [implementation]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const eventsRaw = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    const contextEvent = eventsRaw
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+      .find((event) => event.type === 'task.context_compiled' && event.data.role === 'builder');
+
+    assert.ok(contextEvent, 'expected a builder context_compiled event');
+    // The builder's dependency context must include the planner task (task-1),
+    // even though the dependency is declared by stage name "plan".
+    assert.ok(
+      Array.isArray(contextEvent.data.dependencies) && contextEvent.data.dependencies.length > 0,
+      `expected planner task in builder dependencies, got ${JSON.stringify(contextEvent.data.dependencies)}`,
+    );
+  });
+});

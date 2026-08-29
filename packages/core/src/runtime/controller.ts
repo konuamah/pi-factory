@@ -2186,7 +2186,7 @@ async function runImplementationTask(input: {
         role: nodeRole,
         goal: input.goal,
         task: input.task,
-        dependencyTasks: input.dependencyTasks?.filter((dep) => input.task.dependsOn.includes(dep.id)),
+        dependencyTasks: input.dependencyTasks?.filter((dep) => resolveDependencyTaskIds(input.task, input.dependencyTasks ?? []).includes(dep.id)),
         skills: nodeSkills.selected,
         fileHints: input.task.context?.fileHints,
         maxChars: 6000,
@@ -2803,6 +2803,28 @@ async function runFinalMergePhase(input: {
       reason,
     });
   }
+}
+
+/**
+ * Resolve the task ids a task depends on, using the same stage-name mapping as
+ * resolveTaskDependencies, with fallback to direct task-id matching.
+ */
+function resolveDependencyTaskIds(task: PlannerTask, tasks: PlannerTask[]): string[] {
+  const tasksByStage = new Map<string, string[]>();
+  for (const candidate of tasks) {
+    const stageKey = candidate.stage.toLowerCase();
+    const existing = tasksByStage.get(stageKey) ?? [];
+    existing.push(candidate.id);
+    tasksByStage.set(stageKey, existing);
+  }
+  return task.dependsOn.flatMap((dependency) => {
+    const byStage = tasksByStage.get(dependency.toLowerCase());
+    if (byStage?.length) {
+      return byStage;
+    }
+    // Fallback: treat as a direct task id.
+    return tasks.some((candidate) => candidate.id === dependency) ? [dependency] : [];
+  });
 }
 
 function resolveTaskDependencies(tasks: PlannerTask[]): Map<string, string[]> {

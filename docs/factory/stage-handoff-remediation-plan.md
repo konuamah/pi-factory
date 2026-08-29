@@ -1,5 +1,7 @@
 # Stage Handoff Remediation Plan
 
+> Status: implemented (all 5 passes landed). Keep this as the reference for how stage handoffs work today.
+
 Use this plan when improving how Factory passes context, decisions, artifacts, and verification state between workflow stages.
 
 ## Background

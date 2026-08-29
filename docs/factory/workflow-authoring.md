@@ -55,8 +55,11 @@ Use `interview` before planning when Factory must ask the user questions first.
 
 - bind the bundled interview skill with `skills.require`, such as `grilling`
 - Factory pauses in a decision gate when the interview asks questions
-- the user's answer is passed into the planner prompt
+- the user's answer is passed into the planner prompt and persisted as a structured record in `interview-decisions.json`
+- that structured record reaches builder context, the reviewer prompt, and approval, not just the planner
 - Factory bundles the interview skill as `skills/grilling`; bind `skills.require: [grilling]` directly
+
+Stage dependencies are resolved by stage name into task ids. A task with `dependsOn: [plan]` includes the planner task as dependency context for the builder, and direct task ids also work.
 
 Use `command` for verification:
 

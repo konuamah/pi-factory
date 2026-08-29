@@ -65,17 +65,15 @@ Dependency-task context can be thinner than intended. Workflow dependencies are 
 
 Review and completion policy can disagree. The reviewer said the candidate was "Not ready for approval" because build failed. The controller still proceeded because verification classification and contract verification allowed a baseline-unrelated build failure. That may be correct policy, but the approval prompt should make the disagreement explicit so the user knows the candidate is task-complete with known baseline repo debt.
 
-## Recommendations
+## Recommendations (implemented)
 
-Keep interview output structured. Store interview questions, answers, selected options, and follow-up constraints as a JSON artifact as well as readable text. Pass the structured form to planning, builder context, review, and run inspection.
+These are now implemented across the stage-handoff remediation:
 
-Represent controller-native stages clearly in plan artifacts. Either mark discovery and interview tasks as already completed with artifact links or keep controller-native stages out of `plan.tasks` and show them separately.
-
-Preserve planner intent as structured fields. Add a machine-readable implementation contract with target files, non-goals, verification checks, known risks, and user decisions.
-
-Fix dependency task handoff. When compiling builder context, resolve dependencies by the same stage-name mapping used by the scheduler, not only by task id.
-
-Make baseline-unrelated completion more visible. If verification failed but the contract can complete, approval should say: task-specific checks passed; baseline failure remains; affected file and suggested remediation are known.
+- **Keep interview output structured.** Interview answers are stored in `interview-decisions.json` (question, answer, option, decision request id) and passed to planning, builder context, review, and run inspection.
+- **Represent controller-native stages clearly in plan artifacts.** `plan`, `discover`, and `interview` tasks are marked `done` with `controllerHandled: true` and artifact path refs.
+- **Preserve planner intent as structured fields.** `plan.json` carries an `implementationContract` (target files, non-goals, verification checks, risks, blockers).
+- **Fix dependency task handoff.** Builder context resolves `dependsOn` by the same stage-name mapping as the scheduler, with direct task-id fallback.
+- **Make baseline-unrelated completion more visible.** Final approval receives `baselineDebt` (failed command, classification, reason, implicated files) and asks explicitly whether to approve despite it.
 
 ## Performance Read
 

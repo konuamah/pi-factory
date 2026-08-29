@@ -131,6 +131,19 @@ When the user wants to add an interview stage, inspect the bundled `skills/grill
 
 Dependency hydration is a first-class setup responsibility. Explain that Factory runs the configured `commands.setup` with shared cache env vars while keeping each worktree's installed dependency state isolated. Do not make the guidance Node-only: support Node, Python, Rust, Go, Java-style, and other projects through the repository's own setup command. Never recommend sharing one writable `node_modules`, `.venv`, or framework-specific dependency folder across worktrees.
 
+
+## Stage Handoffs
+
+Factory passes structured artifacts between workflow stages, not just text. When diagnosing a run, know these:
+
+- `discovery-execution.json` — structured discovery facts (files, constraints) validated before planning.
+- `interview-decisions.json` — structured interview answers (stage, role, question, optionId, answer). These are authoritative human facts: they reach the planner, builder context, reviewer, and approval.
+- `plan.json` — contains `discoveryText`, `planText`, and `implementationContract` (`targetFiles`, `nonGoals`, `verificationChecks`, `risks`, `blockers`) extracted best-effort from planner prose.
+- Controller-native stages (`plan`, `discover`, `interview`) appear in task artifacts as `done` with `controllerHandled: true` and artifact path refs.
+- Baseline-unrelated verification failures are surfaced as `baselineDebt` in final approval: the task-specific contract can pass while repository debt remains. The approval prompt says so explicitly.
+
+Use `/factory show <run-id>`, `/factory logs <run-id>`, and `/factory plan` to inspect these artifacts. A run can complete with baseline repository debt still present; that is expected, not a silent pass.
+
 ## Task Execution Guidance Boundary
 
 You may help the user prepare to run a Factory task:

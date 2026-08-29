@@ -10,3 +10,8 @@
 - Doctor readiness should validate both model routing resolution and Pi-visible provider/model availability, not just the presence of config keys.
 - Broad Factory Concierge setup should produce model-ready config by assigning Pi-visible models to all Factory roles, not only direct users to model inspection.
 - Stage handoffs should preserve both human-readable summaries and structured artifacts. If a controller-native phase, planner decision, interview answer, or baseline-unrelated verification result affects later behavior, downstream stages and approval UI need the structured fact, not only a text blob.
+- Stage-name dependencies (e.g. `dependsOn: [plan]`) must resolve to task ids when passing dependency context to the builder; comparing stage names to task ids silently empties dependency context.
+- Controller-native stages (plan, discover, interview) should appear in task artifacts as `done` with `controllerHandled` and artifact path refs, so run inspection matches the runtime story.
+- Interview answers are authoritative human facts: persist them as a structured `interview-decisions.json` and thread them into planner, builder context, reviewer, and approval — a text blob alone is brittle.
+- Planner intent should be captured as a structured `implementationContract` (target files, non-goals, risks, checks) so downstream stages can inspect it, with best-effort extraction from prose as the backward-compatible baseline.
+- Baseline-unrelated failures: warn and proceed, but make the debt explicit at final approval. The task-specific contract can pass while repository debt remains; the UI must say so rather than pretending full-green.

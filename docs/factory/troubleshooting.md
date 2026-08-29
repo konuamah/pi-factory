@@ -149,3 +149,13 @@ Manual start:
 ## Setup Skill Dumps JSON To User
 
 Pi-facing skills should be conversational. Internal runner skills may use JSON contracts, but project `.pi/skills` should not tell the model to return JSON unless the user expects machine-readable output.
+
+## Run Completes With Baseline Repository Debt
+
+Factory can complete a run while pre-existing verification failures remain. This is expected:
+
+- a failure is classified `baseline-unrelated` when the implicated files are real source, not generated output, and were not touched by the task
+- the task-specific verification contract can still pass
+- the final approval prompt shows `baselineDebt` (failed command, classification, reason, implicated files) and asks whether to approve despite it
+
+Do not treat a `COMPLETED` run with baseline debt as a silent pass: inspect `verification.json` `failureClassification` and the approval `baselineDebt` to see what remains. If the same baseline failure keeps appearing, fix it once in the repo (for example missing type declarations or an SSR guard) rather than re-running.

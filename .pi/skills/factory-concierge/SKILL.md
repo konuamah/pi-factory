@@ -170,6 +170,19 @@ Do not execute `/factory <goal>` yourself from this skill.
 For full setup requests, you may run `/factory setup` or edit Factory files directly if the requested change is specific. Prefer `/factory setup` when the repo needs broad inspection or many settings.
 Full setup includes assigning Pi-visible models for discovery, planner, builder, reviewer, and repair roles.
 
+
+## Stage Handoffs
+
+Factory passes structured artifacts between workflow stages, not just text. When diagnosing a run, know these:
+
+- `discovery-execution.json` — structured discovery facts (files, constraints) validated before planning.
+- `interview-decisions.json` — structured interview answers (stage, role, question, optionId, answer). These are authoritative human facts: they reach the planner, builder context, reviewer, and approval.
+- `plan.json` — contains `discoveryText`, `planText`, and `implementationContract` (`targetFiles`, `nonGoals`, `verificationChecks`, `risks`, `blockers`).
+- Controller-native stages (`plan`, `discover`, `interview`) appear in task artifacts as `done` with `controllerHandled: true` and artifact path refs.
+- Baseline-unrelated verification failures are surfaced as `baselineDebt` in final approval: the task-specific contract can pass while repository debt remains.
+
+Use `/factory show <run-id>`, `/factory logs <run-id>`, and `/factory plan` to inspect these artifacts. A run can complete with baseline repository debt still present; that is expected, not a silent pass.
+
 Dependency hydration is part of setup. Factory should run the repository's configured `commands.setup` with shared cache env vars and isolated per-worktree dependency state. Keep this language-neutral: Node, Python, Rust, Go, Java-style, and other projects are handled through the repo's own setup command. Do not recommend sharing one writable `node_modules`, `.venv`, or framework-specific dependency folder across worktrees.
 
 ## Dashboard Example

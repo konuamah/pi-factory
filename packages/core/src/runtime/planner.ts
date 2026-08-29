@@ -29,11 +29,20 @@ export interface PlannerTask {
   };
 }
 
+export interface ImplementationContract {
+  targetFiles?: string[];
+  nonGoals?: string[];
+  verificationChecks?: Array<{ name: string; command?: string; reason?: string }>;
+  risks?: Array<{ risk: string; mitigation?: string }>;
+  blockers?: string[];
+}
+
 export interface PlannerArtifact {
   goal: string;
   summary: string;
   discoveryText?: string;
   planText?: string;
+  implementationContract?: ImplementationContract;
   workflowStages: Array<{
     name: string;
     dependsOn: string[];
@@ -88,9 +97,109 @@ export function buildPlanArtifact(input: {
     summary: buildSummary(input.goal, input.config, workflowStages),
     discoveryText: input.discoveryText,
     planText: input.planText,
+    implementationContract: extractImplementationContract(input.planText, input.discoveryText),
     workflowStages,
     tasks,
   };
+}
+
+/**
+ * Best-effort extraction of structured planner intent from prose.
+ * Backward-compatible: returns undefined when nothing can be extracted.
+ */
+export function extractImplementationContract(
+  planText?: string,
+  discoveryText?: string,
+): ImplementationContract | undefined {
+  const targetFiles = extractFileList(planText, "target files") ?? extractFileList(discoveryText, "target files");
+  const nonGoals = extractBulletSection(planText, "non-goals", "non goals", "out of scope");
+  const blockers = extractBulletSection(planText, "blockers", "blocked");
+  const risks = extractRisks(planText);
+  const verificationChecks = extractVerificationChecks(planText);
+
+  if (!targetFiles && !nonGoals && !blockers && !risks && !verificationChecks) {
+    return undefined;
+  }
+  return {
+    ...(targetFiles?.length ? { targetFiles } : {}),
+    ...(nonGoals?.length ? { nonGoals } : {}),
+    ...(verificationChecks?.length ? { verificationChecks } : {}),
+    ...(risks?.length ? { risks } : {}),
+    ...(blockers?.length ? { blockers } : {}),
+  };
+}
+
+function extractFileList(text: string | undefined, section: string): string[] | undefined {
+  if (!text) return undefined;
+  const lower = text.toLowerCase();
+  const sectionIndex = lower.indexOf(section);
+  if (sectionIndex < 0) return undefined;
+  const after = text.slice(sectionIndex + section.length).slice(0, 600);
+  const lines = after.split(/\r?\n/);
+  const files: string[] = [];
+  for (const line of lines) {
+    const cleaned = line.replace(/^[-*]\s*/, "").trim();
+    if (!cleaned || /^[a-z ]*$/.test(cleaned)) break;
+    if (/\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|sql|json|ya?ml|md)$/i.test(cleaned)) {
+      files.push(cleaned.replace(/^`|`$/g, ""));
+    }
+  }
+  return files.length > 0 ? files : undefined;
+}
+
+function extractBulletSection(text: string | undefined, ...sectionNames: string[]): string[] | undefined {
+  if (!text) return undefined;
+  const lower = text.toLowerCase();
+  let start = -1;
+  for (const name of sectionNames) {
+    const idx = lower.indexOf(name);
+    if (idx >= 0) { start = idx; break; }
+  }
+  if (start < 0) return undefined;
+  const after = text.slice(start).split(/\r?\n/);
+  const items: string[] = [];
+  for (const line of after.slice(1)) {
+    const cleaned = line.trim();
+    if (!cleaned) continue;
+    if (cleaned.startsWith("-") || cleaned.startsWith("*")) {
+      items.push(cleaned.replace(/^[-*]\s*/, "").trim());
+    } else if (items.length > 0) {
+      break;
+    }
+  }
+  return items.length > 0 ? items : undefined;
+}
+
+function extractRisks(text: string | undefined): ImplementationContract["risks"] {
+  if (!text) return undefined;
+  const lines = text.split(/\r?\n/);
+  const risks: ImplementationContract["risks"] = [];
+  let inSection = false;
+  for (const line of lines) {
+    if (/risk|edge case|trade.?off/i.test(line) && /^[-*]|^\d+\./.test(line.trim())) {
+      inSection = true;
+    }
+    if (inSection) {
+      const cleaned = line.replace(/^[-*]\s*|^\d+\.\s*/, "").trim();
+      if (cleaned && cleaned !== "Risk") {
+        risks.push({ risk: cleaned });
+      }
+    }
+  }
+  return risks.length > 0 ? risks : undefined;
+}
+
+function extractVerificationChecks(text: string | undefined): ImplementationContract["verificationChecks"] {
+  if (!text) return undefined;
+  const lines = text.split(/\r?\n/);
+  const checks: ImplementationContract["verificationChecks"] = [];
+  for (const line of lines) {
+    const cleaned = line.replace(/^[-*]\s*/, "").trim();
+    if (/(npm|pnpm|yarn|npx)\s+(run\s+)?[a-z0-9:_-]+/i.test(cleaned)) {
+      checks.push({ name: cleaned.split(/\s+/)[0] ?? cleaned, command: cleaned });
+    }
+  }
+  return checks.length > 0 ? checks : undefined;
 }
 
 function normalizeWorkflowStages(stages: WorkflowStage[]): PlannerArtifact["workflowStages"] {

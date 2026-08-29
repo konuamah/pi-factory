@@ -2954,3 +2954,60 @@ test('structured interview decisions are persisted and reach builder context', a
     assert.ok(shown.interviewDecisions?.length >= 1);
   });
 });
+
+test('planner intent is extracted into plan.json and reaches builder context', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const plannerExecutor = {
+      async execute(input) {
+        calls.push({ label: 'planner', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: [
+            'Feature Plan',
+            'Target Files:',
+            '- src/components/StatusBar.tsx',
+            '- src/app/page.tsx',
+            'Non-goals:',
+            '- Do not change backend APIs.',
+            'Risks:',
+            '- Status bar overlaps content.',
+            'WAITING_FOR_APPROVAL',
+          ].join('\n'),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a status bar',
+      plannerExecutor,
+      builderExecutor,
+      discoveryExecutor: {
+        async execute(input) {
+          return { executionId: input.executionId, status: 'completed', outputText: JSON.stringify({ status: 'complete', files: ['src/index.ts'], evidence: [{ status: 'confirmed', file: 'src/index.ts', finding: 'Entry point observed' }], unknowns: [] }), events: [] };
+        },
+        async cancel() {},
+      },
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const plan = await readLatestFactoryRunPlan(path.join(root, '.factory', 'runs'));
+    assert.ok(plan.planText?.includes('Target Files'));
+    const runDir = path.dirname(plan.planPath);
+    const planJson = await readJson(path.join(runDir, 'plan.json'));
+    assert.ok(planJson.implementationContract);
+    assert.ok(planJson.implementationContract.targetFiles?.includes('src/components/StatusBar.tsx'));
+    assert.ok(planJson.implementationContract.nonGoals?.some((g) => /backend API/.test(g)));
+
+    const builderPrompt = calls.find((call) => call.label === 'builder')?.prompt ?? '';
+    assert.match(builderPrompt, /Target files:/);
+    assert.match(builderPrompt, /src\/components\/StatusBar\.tsx/);
+    assert.match(builderPrompt, /Non-goals/);
+  });
+});

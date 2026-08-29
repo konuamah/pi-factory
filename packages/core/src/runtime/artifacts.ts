@@ -38,6 +38,13 @@ export interface PrototypePlanArtifact {
   summary: string;
   discoveryText?: string;
   planText?: string;
+  implementationContract?: {
+    targetFiles?: string[];
+    nonGoals?: string[];
+    verificationChecks?: Array<{ name: string; command?: string; reason?: string }>;
+    risks?: Array<{ risk: string; mitigation?: string }>;
+    blockers?: string[];
+  };
   workflowStages: Array<{
     name: string;
     dependsOn: string[];

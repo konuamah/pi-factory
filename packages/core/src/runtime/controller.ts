@@ -26,7 +26,7 @@ import {
   writePrototypeVerificationArtifact,
 } from "./artifacts.js";
 import type { AgentExecutionResult, AgentExecutor } from "./interfaces.js";
-import { buildPlanArtifact, type PlannerTask } from "./planner.js";
+import { buildPlanArtifact, extractImplementationContract, type ImplementationContract, type PlannerTask } from "./planner.js";
 import type { CapabilityPolicy, EffectiveFactoryConfig, ModelRole, ModelSelection, WorkflowStage } from "@factory/schemas";
 import {
   capabilitiesToToolNames,
@@ -853,6 +853,7 @@ async function runFactoryControllerInner(
     maxParallelAgents: 1,
     projectRoot,
     dependencyTasks: plan.tasks,
+    planIntent: plan.implementationContract,
     roleExecutors: {
       planner: input.plannerExecutor,
       builder: input.builderExecutor,
@@ -1891,6 +1892,7 @@ async function runImplementationTasks(input: {
   maxParallelAgents: number;
   projectRoot: string;
   dependencyTasks?: PlannerTask[];
+  planIntent?: ImplementationContract;
   roleExecutors: Partial<Record<ModelRole, AgentExecutor>>;
   roleModels: Partial<Record<ModelRole, { provider?: string; model: string }>>;
   roleSkills: Partial<Record<ModelRole, SkillBundleSelection>>;
@@ -1970,6 +1972,7 @@ async function runImplementationTasks(input: {
           task,
           projectRoot: input.projectRoot,
           dependencyTasks: input.dependencyTasks,
+          planIntent: input.planIntent,
           roleExecutors: input.roleExecutors,
           roleModels: input.roleModels,
           roleSkills: input.roleSkills,
@@ -2014,6 +2017,7 @@ async function runImplementationTask(input: {
   task: PlannerTask;
   projectRoot: string;
   dependencyTasks?: PlannerTask[];
+  planIntent?: ImplementationContract;
   roleExecutors: Partial<Record<ModelRole, AgentExecutor>>;
   roleModels: Partial<Record<ModelRole, { provider?: string; model: string }>>;
   roleSkills: Partial<Record<ModelRole, SkillBundleSelection>>;
@@ -2216,6 +2220,7 @@ async function runImplementationTask(input: {
         dependencyTasks: input.dependencyTasks?.filter((dep) => resolveDependencyTaskIds(input.task, input.dependencyTasks ?? []).includes(dep.id)),
         skills: nodeSkills.selected,
         fileHints: input.task.context?.fileHints,
+        planIntent: input.planIntent,
         maxChars: 6000,
         grantedCapabilities: capabilities.granted,
         deniedCapabilities: capabilities.denied,

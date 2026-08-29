@@ -10,6 +10,7 @@ import {
   computeOverallStatus,
   initializeVerificationProviders,
   registerVerificationProvider,
+  planVerificationExecution,
 } from '../packages/core/dist/index.js';
 
 async function withTempDir(fn) {
@@ -244,5 +245,20 @@ test('custom provider can be registered', async () => {
     const result = await runVerificationEngine({ cwd: root, plan });
     assert.equal(result.overallStatus, 'PASS');
     assert.equal(result.canComplete, true);
+  });
+});
+
+test('deterministic allowedCommands include pytest for python markers', async () => {
+  await withTempDir(async (root) => {
+    await fs.writeFile(path.join(root, 'requirements.txt'), 'pytest\n', 'utf8');
+    const plan = await planVerificationExecution({
+      cwd: root,
+      goal: 'Verify a Python feature',
+      commands: {},
+      allowDeterministicFallback: true,
+    });
+    const allowed = plan.evidence.allowedCommands;
+    assert.ok(allowed.includes('python -m pytest'), 'expected pytest in allowed commands, got: ' + allowed.join(', '));
+    assert.ok(allowed.includes('pip install -r requirements.txt'));
   });
 });

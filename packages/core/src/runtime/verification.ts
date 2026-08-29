@@ -864,6 +864,18 @@ function expectedDependencyMarkers(ecosystemMarkers: string[]): string[] {
   return expected;
 }
 
+const ECOSYSTEM_COMMANDS: Record<string, string[]> = {
+  "requirements.txt": ["python -m pip install -r requirements.txt", "pip install -r requirements.txt", "python -m pytest", "pytest"],
+  "pyproject.toml": ["python -m pip install -e .", "pip install -e .", "python -m pytest", "pytest"],
+  "setup.py": ["python -m pip install -e .", "pip install -e .", "python -m pytest", "pytest"],
+  "Cargo.toml": ["cargo check", "cargo test", "cargo build"],
+  "go.mod": ["go test ./...", "go vet ./...", "go build ./..."],
+  "pom.xml": ["mvn test", "mvn verify", "mvn package"],
+  "gradlew": ["./gradlew test", "./gradlew build"],
+  "build.gradle": ["gradle test", "gradle build"],
+  "build.gradle.kts": ["gradle test", "gradle build"],
+};
+
 async function discoverAllowedCommands(
   targetCwd: string,
   scripts: string[],
@@ -904,32 +916,11 @@ async function discoverAllowedCommands(
     }
   }
 
-  if (ecosystemMarkers.includes("requirements.txt")) {
-    commands.push("python -m pip install -r requirements.txt", "pip install -r requirements.txt");
-  }
-  if (ecosystemMarkers.includes("pyproject.toml") || ecosystemMarkers.includes("setup.py")) {
-    commands.push("python -m pip install -e .", "pip install -e .");
-  }
-  if (ecosystemMarkers.includes("pyproject.toml") || ecosystemMarkers.includes("requirements.txt") || ecosystemMarkers.includes("setup.py")) {
-    commands.push("python -m pytest", "pytest");
-  }
-
-  if (ecosystemMarkers.includes("Cargo.toml")) {
-    commands.push("cargo check", "cargo test", "cargo build");
-  }
-
-  if (ecosystemMarkers.includes("go.mod")) {
-    commands.push("go test ./...", "go vet ./...", "go build ./...");
-  }
-
-  if (ecosystemMarkers.includes("pom.xml")) {
-    commands.push("mvn test", "mvn verify", "mvn package");
-  }
-
-  if (ecosystemMarkers.includes("gradlew")) {
-    commands.push("./gradlew test", "./gradlew build");
-  } else if (ecosystemMarkers.includes("build.gradle") || ecosystemMarkers.includes("build.gradle.kts")) {
-    commands.push("gradle test", "gradle build");
+  for (const marker of ecosystemMarkers) {
+    const markerCommands = ECOSYSTEM_COMMANDS[marker];
+    if (markerCommands) {
+      commands.push(...markerCommands);
+    }
   }
 
   return uniqueStrings(commands);

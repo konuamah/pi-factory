@@ -20,7 +20,9 @@ import { renderLines, renderIntro, clearFactoryWidget, FACTORY_WIDGET_ID } from 
 import { mountFactoryStreamingWidget } from "./streaming-panel.js";
 import { createRequiredConstitutionExecutor } from "./gateway.js";
 import { handleCapabilities, handleModels } from "./gateway-capabilities.js";
-import { handleCleanup, handleConstitution, handleStatus, handleDoctor, handleLogs, handleList, handleShow, handlePlan, handleResume, handleCancel } from "./gateway-runs.js";
+import { handleCleanup, handleConstitution, handleDoctor, handleLogs, handleList, handlePlan, handleResume, handleCancel } from "./gateway-runs.js";
+import { handleStatus } from "./gateway-run-status.js";
+import { handleShow } from "./gateway-run-show.js";
 import { handleWorkflow } from "./gateway-workflow.js";
 import { handleDashboard } from "./gateway.js";
 import { requestPlanApprovalDecision, buildPlanApprovalPreviewLines } from "./approval.js";

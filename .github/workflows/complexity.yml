@@ -1,0 +1,27 @@
+name: complexity-guard
+
+on:
+  pull_request:
+    paths:
+      - "packages/**"
+      - "scripts/complexity-guard.mjs"
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - "scripts/complexity-guard.mjs"
+
+jobs:
+  complexity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run complexity guard (changed files)
+        run: node scripts/complexity-guard.mjs --threshold 40 --changed-only
+      - name: Run complexity guard (full scan)
+        run: node scripts/complexity-guard.mjs --threshold 40

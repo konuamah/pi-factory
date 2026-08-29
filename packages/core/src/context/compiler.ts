@@ -153,70 +153,81 @@ function renderInstructions(
   dependencies: DependencyContext[],
   skills: SkillContext[],
 ): string[] {
-  const instructions: string[] = [];
+  return [
+    renderTaskSection(input.task),
+    renderRoleSection(input.role),
+    renderDependenciesSection(dependencies),
+    renderSkillsSection(skills),
+    renderFailuresSection(input.failures),
+    renderGuidanceSection(guidance.text),
+    renderFileHintsSection(input.fileHints),
+    ...renderPlanIntentSection(input.planIntent),
+    ...renderCapabilitiesSection(input.grantedCapabilities, input.deniedCapabilities),
+    renderRunDecisionsSection(input.runDecisions),
+  ].filter((section): section is string => Boolean(section));
+}
 
-  if (input.task) {
-    instructions.push(`Task id: ${input.task.id}`);
-    instructions.push(`Task stage: ${input.task.stage}`);
-    instructions.push(`Task title: ${input.task.title}`);
-    if (input.task.dependsOn?.length) {
-      instructions.push(`Depends on: ${input.task.dependsOn.join(", ")}`);
-    }
-  }
+function renderTaskSection(task: ContextCompileRequest["task"]): string | undefined {
+  if (!task) return undefined;
+  const lines = [
+    `Task id: ${task.id}`,
+    `Task stage: ${task.stage}`,
+    `Task title: ${task.title}`,
+  ];
+  if (task.dependsOn?.length) lines.push(`Depends on: ${task.dependsOn.join(", ")}`);
+  return lines.join("\n");
+}
 
-  const roleRules = buildRoleRules(input.role);
-  if (roleRules) {
-    instructions.push(roleRules);
-  }
+function renderRoleSection(role: ContextCompileRequest["role"]): string | undefined {
+  return buildRoleRules(role) ?? undefined;
+}
 
-  if (dependencies.length > 0) {
-    instructions.push(`Dependency context:\n${dependencies.map((dep) => `- ${dep.taskId} (${dep.stage}): ${dep.title}`).join("\n")}`);
-  }
+function renderDependenciesSection(dependencies: DependencyContext[]): string | undefined {
+  if (dependencies.length === 0) return undefined;
+  return `Dependency context:\n${dependencies.map((dep) => `- ${dep.taskId} (${dep.stage}): ${dep.title}`).join("\n")}`;
+}
 
-  if (skills.length > 0) {
-    instructions.push(`Selected skills:\n${skills.map((skill) => `- ${skill.id}@${skill.version}: ${skill.reasons.slice(0, 2).join("; ")}`).join("\n")}`);
-  }
+function renderSkillsSection(skills: SkillContext[]): string | undefined {
+  if (skills.length === 0) return undefined;
+  return `Selected skills:\n${skills.map((skill) => `- ${skill.id}@${skill.version}: ${skill.reasons.slice(0, 2).join("; ")}`).join("\n")}`;
+}
 
-  if (input.failures?.length) {
-    instructions.push(`Prior failures:\n${input.failures.map((failure) => `- attempt ${failure.attempt}: ${failure.summary}`).join("\n")}`);
-  }
+function renderFailuresSection(failures: ContextCompileRequest["failures"]): string | undefined {
+  if (!failures?.length) return undefined;
+  return `Prior failures:\n${failures.map((failure) => `- attempt ${failure.attempt}: ${failure.summary}`).join("\n")}`;
+}
 
-  if (guidance.text) {
-    instructions.push(`Project guidance context:\n${guidance.text}`);
-  }
+function renderGuidanceSection(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  return `Project guidance context:\n${text}`;
+}
 
-  if (input.fileHints?.length) {
-    instructions.push(`Likely files: ${input.fileHints.join(", ")}`);
-  }
+function renderFileHintsSection(fileHints: ContextCompileRequest["fileHints"]): string | undefined {
+  if (!fileHints?.length) return undefined;
+  return `Likely files: ${fileHints.join(", ")}`;
+}
 
-  if (input.planIntent) {
-    const { targetFiles, nonGoals, blockers, risks } = input.planIntent;
-    if (targetFiles?.length) {
-      instructions.push(`Target files:\n${targetFiles.map((file) => `- ${file}`).join("\n")}`);
-    }
-    if (nonGoals?.length) {
-      instructions.push(`Non-goals (do not do):\n${nonGoals.map((item) => `- ${item}`).join("\n")}`);
-    }
-    if (risks?.length) {
-      instructions.push(`Known risks:\n${risks.map((r) => `- ${r.risk}${r.mitigation ? ` (mitigation: ${r.mitigation})` : ""}`).join("\n")}`);
-    }
-    if (blockers?.length) {
-      instructions.push(`Blockers:\n${blockers.map((item) => `- ${item}`).join("\n")}`);
-    }
-  }
+function renderPlanIntentSection(planIntent: ContextCompileRequest["planIntent"]): string[] {
+  if (!planIntent) return [];
+  const { targetFiles, nonGoals, blockers, risks } = planIntent;
+  const sections: string[] = [];
+  if (targetFiles?.length) sections.push(`Target files:\n${targetFiles.map((file) => `- ${file}`).join("\n")}`);
+  if (nonGoals?.length) sections.push(`Non-goals (do not do):\n${nonGoals.map((item) => `- ${item}`).join("\n")}`);
+  if (risks?.length) sections.push(`Known risks:\n${risks.map((r) => `- ${r.risk}${r.mitigation ? ` (mitigation: ${r.mitigation})` : ""}`).join("\n")}`);
+  if (blockers?.length) sections.push(`Blockers:\n${blockers.map((item) => `- ${item}`).join("\n")}`);
+  return sections;
+}
 
-  if (input.grantedCapabilities?.length) {
-    instructions.push(`Available capabilities:\n${input.grantedCapabilities.map((capability) => `- ${capability}`).join("\n")}`);
-  }
-  if (input.deniedCapabilities?.length) {
-    instructions.push(`Unavailable capabilities (do not attempt):\n${input.deniedCapabilities.map((capability) => `- ${capability}`).join("\n")}`);
-  }
+function renderCapabilitiesSection(granted: ContextCompileRequest["grantedCapabilities"], denied: ContextCompileRequest["deniedCapabilities"]): string[] {
+  const sections: string[] = [];
+  if (granted?.length) sections.push(`Available capabilities:\n${granted.map((capability) => `- ${capability}`).join("\n")}`);
+  if (denied?.length) sections.push(`Unavailable capabilities (do not attempt):\n${denied.map((capability) => `- ${capability}`).join("\n")}`);
+  return sections;
+}
 
-  if (input.runDecisions?.length) {
-    instructions.push(`Human decisions (authoritative run facts):\n${input.runDecisions.map((decision) => `- D: ${decision.question} → ${decision.optionId}${decision.feedback ? ` (${decision.feedback})` : ""}`).join("\n")}`);
-  }
-
-  return instructions;
+function renderRunDecisionsSection(runDecisions: ContextCompileRequest["runDecisions"]): string | undefined {
+  if (!runDecisions?.length) return undefined;
+  return `Human decisions (authoritative run facts):\n${runDecisions.map((decision) => `- D: ${decision.question} → ${decision.optionId}${decision.feedback ? ` (${decision.feedback})` : ""}`).join("\n")}`;
 }
 
 async function selectRelevantFiles(input: ContextCompileRequest): Promise<ContextFile[]> {

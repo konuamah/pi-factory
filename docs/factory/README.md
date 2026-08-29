@@ -59,6 +59,7 @@ Docs are the primary operational reference layer. Use command output, setup cont
 | "How did Factory perform?" | [case-study-landoptima-status-bar.md](case-study-landoptima-status-bar.md) | Inspect a real completed run |
 | "Fix stage handoffs" | [stage-handoff-remediation-plan.md](stage-handoff-remediation-plan.md) | Follow the remediation rollout |
 | "How do the complexity refactors run?" | [complexity-refactoring-wave-1.md](complexity-refactoring-wave-1.md) | Follow the wave protocol |
+| "What's the complexity refactoring protocol?" | [complexity-refactoring-protocol.md](complexity-refactoring-protocol.md) | Read before any wave |
 
 ## Core References
 

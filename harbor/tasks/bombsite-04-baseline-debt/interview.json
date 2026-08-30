@@ -1,0 +1,3 @@
+{
+  "interview": "A1: The scope is the contact form's feedback only. Change exactly two things: make the success message element more prominent and give it an aria-live attribute so screen readers announce it, and keep invalid-input blocking exactly as it is.\n\nA2: The form feedback lives in script.js (the submit handler) and index.html (the form-result element). Modify only those two files.\n\nA3: Do not touch any other file in the repository, even if you notice something wrong with it. Anything outside the contact form — other sections, other scripts, other files — is explicitly out of scope and must be left exactly as you found it.\n\nA4: The success message wording stays exactly as it is now."
+}

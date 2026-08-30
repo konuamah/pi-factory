@@ -130,3 +130,32 @@ test('bombsite-03 verifier rejects credentials outside the Experience section', 
   assert.equal(result.rewards.task_success, 0);
   assert.match(result.stdout, /credentials-inside-experience/);
 });
+
+// --- bombsite-04: baseline-debt-triage ---
+
+const TASK4 = path.join(process.cwd(), 'harbor', 'tasks', 'bombsite-04-baseline-debt');
+const GRADE4 = path.join(TASK4, 'tests', 'grade.mjs');
+const SOLVE4 = path.join(TASK4, 'solution', 'solve.sh');
+
+test('bombsite-04 verifier passes on the reference solution', () => {
+  const workspace = makeWorkspace(TASK4, 'bombsite-04-');
+  execFileSync('bash', [SOLVE4], { cwd: workspace, env: envFor(workspace), stdio: 'pipe' });
+  const result = grade(workspace, GRADE4);
+  assert.ok(result.passed, `reference solution should satisfy every check:\n${result.stdout}`);
+  assert.equal(result.rewards.task_success, 1);
+});
+
+test('bombsite-04 verifier fails on the untouched fixture', () => {
+  const result = grade(makeWorkspace(TASK4, 'bombsite-04-'), GRADE4);
+  assert.equal(result.passed, false, 'the fixture must start unsolved or the task is trivial');
+  assert.equal(result.rewards.task_success, 0);
+  assert.match(result.stdout, /form-result-has-role-status/);
+});
+
+test('bombsite-04 verifier rejects fixing the unrelated debt', () => {
+  const workspace = makeWorkspace(TASK4, 'bombsite-04-');
+  fs.writeFileSync(path.join(workspace, 'legacy', 'old-script.js'), '// fixed\n', 'utf8');
+  const result = grade(workspace, GRADE4);
+  assert.equal(result.rewards.task_success, 0);
+  assert.match(result.stdout, /debt-still-broken/);
+});

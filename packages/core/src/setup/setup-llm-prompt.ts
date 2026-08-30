@@ -16,10 +16,14 @@ export async function loadFactorySetupSkillSource(cwd: string): Promise<string> 
   }
   try {
     const fsSync = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const packageRoot = path.resolve(moduleDir, "../../../..");
     const candidates2 = [
-      path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../skills/factory-setup/SKILL.md"),
-      path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../skills/factory-setup/SKILL.md"),
-      path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../../skills/factory-setup/SKILL.md"),
+      path.join(packageRoot, "skills", "factory-setup", "SKILL.md"),
+      path.resolve(moduleDir, "../../../skills/factory-setup/SKILL.md"),
+      path.resolve(moduleDir, "../../../../skills/factory-setup/SKILL.md"),
+      path.resolve(moduleDir, "../../../../../skills/factory-setup/SKILL.md"),
       path.resolve(cwd, "skills/factory-setup/SKILL.md"),
     ];
     for (const p of candidates2) {
@@ -44,7 +48,7 @@ export function buildFactorySetupPrompt(context: FactorySetupContext, skillSourc
   const workflowPrimitives = `
 ## Workflow primitives (Factory already supports these — you may emit a custom DAG)
 Stages: { name, dependsOn?: string[], type?: "agent"|"command"|"approval", role?: ModelRole, commands?: string[], requiresApproval?: boolean, requiredCapabilities?: Capability[] }
-Roles: discovery|planner|builder|reviewer|repair  · Keep DAG acyclic, 2-7 stages.
+Roles: discovery|planner|builder|reviewer|repair|landing  · Keep DAG acyclic, 2-7 stages.
 Example simple docs repo: plan -> build -> verify
 Example mature app: discover{discovery} -> plan{planner} -> implementation{builder} -> verification{command} -> review{reviewer} -> approval
 Example DB repo (recommended here): plan -> build -> migration-check{command} -> integration-verify{command} -> review -> approval — Why: DB changes affect app+deploy, verify before review.

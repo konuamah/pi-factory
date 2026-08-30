@@ -4,7 +4,7 @@ import { validateSetupRecommendation } from "./recommend-validate.js";
 import { loadFactorySetupSkillSource, buildFactorySetupPrompt, extractJson } from "./setup-llm-prompt.js";
 import { normalizeRecommendation, normalizeRecommendationStrict, completeRoleModels } from "./setup-llm-normalize.js";
 
-export const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
+export const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair", "landing"];
 
 export interface FactorySetupLlmInput {
   cwd: string;

@@ -4,7 +4,7 @@ import { selectConstitutionContext } from "../constitution/context.js";
 import { findFactorySkills } from "../skills/registry.js";
 import type { SkillSelectionResult } from "../skills/types.js";
 
-export type ContextRole = "discovery" | "planner" | "builder" | "reviewer" | "repair" | "verification";
+export type ContextRole = "discovery" | "planner" | "builder" | "reviewer" | "repair" | "verification" | "landing";
 
 export interface ContextFile {
   path: string;
@@ -139,6 +139,7 @@ function toGuidanceRole(role: ContextRole): "planner" | "builder" | "reviewer" |
     case "builder":
       return "builder";
     case "reviewer":
+    case "landing":
       return "reviewer";
     case "verification":
       return "repair";
@@ -279,6 +280,8 @@ function buildRoleRules(role: ContextRole): string | undefined {
       return "Role rules:\n- Keep changes tightly scoped to the requested task.\n- Use the native Pi tools provided to you; do not print DSML/XML/tool-call markup as text.\n- Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.";
     case "reviewer":
       return "Role rules:\n- Focus on acceptance, consistency, risk, and scope control.\n- Flag unrelated edits, scope creep, missing verification, and instruction drift explicitly.";
+    case "landing":
+      return "Role rules:\n- Decide whether the candidate is safe to land and which landing strategy is appropriate.\n- Prefer explicit risk reasoning, preserve user work, and block loudly when landing is unsafe or ambiguous.";
     case "repair":
       return "Role rules:\n- Focus only on the concrete verification failures.\n- Minimize changes and avoid opportunistic refactors or unrelated doc rewrites.";
     default:

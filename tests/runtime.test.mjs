@@ -57,7 +57,11 @@ async function initGitRepo(root) {
 function makeExecutor(label, calls) {
   return {
     async execute(input) {
-      const actualLabel = input.executionId.includes('discovery') ? 'discovery' : label;
+      const actualLabel = input.executionId.includes('discovery')
+        ? 'discovery'
+        : input.metadata?.role === 'landing'
+          ? 'landing'
+          : label;
       calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt });
       if (actualLabel === 'builder') {
         await fs.writeFile(path.join(input.cwd, 'factory-builder-output.txt'), `${input.executionId}\n`, 'utf8');
@@ -76,6 +80,15 @@ function makeExecutor(label, calls) {
             }, null, 2)
           : actualLabel === 'planner'
           ? ['Feature Plan', '- Update the target document for clarity', '- Keep scope limited to the requested file', 'WAITING_FOR_APPROVAL'].join('\n')
+          : actualLabel === 'landing'
+          ? JSON.stringify({
+              strategy: 'cherry-pick',
+              targetBranch: 'main',
+              reasoning: ['Land the isolated candidate commit after review.'],
+              verification: ['lint', 'typecheck', 'test', 'build'],
+              risk: 'low',
+              expectedFiles: ['factory-builder-output.txt'],
+            })
           : `${actualLabel} completed`,
         events: [],
       };

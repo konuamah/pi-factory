@@ -5,7 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { detectPiModelConfiguration, collectVisiblePiModels } from "@factory/core";
 import type { FactorySetupRecommendation, SetupCommandConfig, ModelRole, ModelSelection } from "@factory/schemas";
 import type { ProposedFactorySetup, SetupDiff } from "./types.js";
-export const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
+export const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair", "landing"];
 
 export interface ExistingConfigShape {
   project?: { baseBranch?: string };

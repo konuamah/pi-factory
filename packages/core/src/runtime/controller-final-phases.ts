@@ -38,6 +38,7 @@ export interface FinalPhasesState {
   verificationPath: string;
   verification: VerificationRunResult;
   verificationPlan: VerificationPlan;
+  taskType: string;
   verificationFailureClassification: VerificationFailureClassification | undefined;
   contractResult: VerificationEngineResult;
   reviewerGuidanceText: string;
@@ -50,7 +51,7 @@ export async function runFinalPhases(state: FinalPhasesState): Promise<RunFactor
   const {
     run, input, loaded, executionCwd, worktree, phases, delayMs, planPath, taskPaths,
     discoveryExecutionPath, plannerExecutionPath, builderExecutionPaths, integrationPath,
-    repairExecutionPaths, verificationPath, verification, verificationPlan, verificationFailureClassification,
+    repairExecutionPaths, verificationPath, verification, verificationPlan, taskType, verificationFailureClassification,
     contractResult, reviewerGuidanceText, reviewerSkills, interviewDecisions, completedTasks,
   } = state;
   const reviewerGuidance = { text: reviewerGuidanceText };
@@ -298,13 +299,14 @@ const landingResult = await runLandingFlow({
   eventsPath: run.eventsPath,
   goal: input.goal,
   mergeCwd: input.cwd,
-  taskType: "general",
+  taskType,
   config: loaded.effectiveConfig,
   completedTasks,
   candidateSha,
   candidateBranch: worktree.branch,
   verificationPlan,
   verification,
+  contractCanComplete: contractResult.canComplete,
   controllerInput: input,
   repairGuidanceText: reviewerGuidance.text,
 });

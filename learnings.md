@@ -17,3 +17,5 @@
 - Baseline-unrelated failures: warn and proceed, but make the debt explicit at final approval. The task-specific contract can pass while repository debt remains; the UI must say so rather than pretending full-green.
 - Discovery should report implementation-surface status as structured JSON, including `implementationSurface: "missing"` for empty or greenfield repos. Do not rely on plain-text sentinel failures when the planner can use the structured status to choose new files.
 - Verification planning should allow an empty command selection only when no configured or discovered runnable commands exist, then record incomplete verification with a missing automated-checks result instead of crashing before `verification.json` is written.
+- Landing should evaluate dirty target state by file overlap, not mere presence. Unrelated Pi/Factory runtime files are evidence, not blockers, when the current checkout is already the target branch and feature files do not overlap.
+- Keep new Factory runtime features split into focused coordinator, AI, Git, and type modules so files stay near 400 lines or under and negative paths remain readable.

@@ -168,7 +168,7 @@ Do not execute `/factory <goal>` yourself from this skill.
 ## Setup Authority
 
 For full setup requests, you may run `/factory setup` or edit Factory files directly if the requested change is specific. Prefer `/factory setup` when the repo needs broad inspection or many settings.
-Full setup includes assigning Pi-visible models for discovery, planner, builder, reviewer, and repair roles.
+Full setup includes assigning Pi-visible models for discovery, planner, builder, reviewer, repair, and landing roles.
 
 
 ## Stage Handoffs
@@ -182,6 +182,7 @@ Factory passes structured artifacts between workflow stages, not just text. When
 - Controller-native stages (`plan`, `discover`, `interview`) appear in task artifacts as `done` with `controllerHandled: true` and artifact path refs.
 - Baseline-unrelated verification failures are surfaced as `baselineDebt` in final approval: the task-specific contract can pass while repository debt remains.
 - When no verification commands are configured or discovered, Factory records incomplete verification with a missing automated-checks result. This is distinct from a planner crash and should be explained as a signal to add real checks when the project has them.
+- Final landing uses `completed-tasks.json`, `landing-plan.json`, `landing-diagnosis-<attempt>.json`, `landing-attempts.jsonl`, and `final-merge.json`. A run is not complete unless required landing is `landed` or explicitly policy-skipped.
 
 Use `/factory show <run-id>`, `/factory logs <run-id>`, and `/factory plan` to inspect these artifacts. A run can complete with baseline repository debt still present; that is expected, not a silent pass.
 

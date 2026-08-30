@@ -20,7 +20,7 @@ import type {
 } from "./types.js";
 import { buildDiffs, renderCustomWorkflowYaml, readExistingConfig, inputForce, pick, pickSetupCommand, buildProjectConfig, type ExistingConfigShape, completeModelAssignments } from "./setup-config-render.js";
 
-const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
+const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair", "landing"];
 
 export interface PlanFactorySetupInput {
   cwd: string;

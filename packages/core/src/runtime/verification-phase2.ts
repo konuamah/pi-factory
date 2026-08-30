@@ -49,7 +49,7 @@ export interface VerificationPhaseState {
   interviewDecisions: InterviewDecisionRecord[];
 }
 
-export async function runVerificationPhase(state: VerificationPhaseState): Promise<RunFactoryControllerResult | { verificationPath: string; repairExecutionPaths: string[]; verification: VerificationRunResult; verificationFailureClassification: VerificationFailureClassification | undefined; contractResult: VerificationEngineResult }> {
+export async function runVerificationPhase(state: VerificationPhaseState): Promise<RunFactoryControllerResult | { verificationPath: string; repairExecutionPaths: string[]; verification: VerificationRunResult; verificationPlan: VerificationPlan; verificationFailureClassification: VerificationFailureClassification | undefined; contractResult: VerificationEngineResult }> {
   const {
     run, input, loaded, executionCwd, projectRoot, worktree, phases, delayMs, planPath, taskPaths,
     plannerExecutionPath, builderExecutionPaths, integrationPath,
@@ -396,5 +396,5 @@ const repairExecutor = input.repairExecutor;
     verificationFailureClassification,
   });
   if (verificationOutcome) return verificationOutcome;
-  return { verificationPath, repairExecutionPaths, verification, verificationFailureClassification, contractResult };
+  return { verificationPath, repairExecutionPaths, verification, verificationPlan, verificationFailureClassification, contractResult };
 }

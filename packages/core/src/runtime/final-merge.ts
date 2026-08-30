@@ -97,7 +97,8 @@ export async function runFinalMergePhase(input: {
       candidateBranch: input.candidateBranch,
       candidateSha: input.candidateSha,
       mergeCwd: input.mergeCwd,
-      status: "merged",
+      status: "landed",
+      outcome: "landed",
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);

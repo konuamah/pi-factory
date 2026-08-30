@@ -131,7 +131,7 @@ async function buildModelReadinessChecks(
   projectRoot: string,
   config: Awaited<ReturnType<typeof loadEffectiveConfig>>["effectiveConfig"],
 ): Promise<FactoryDoctorCheck[]> {
-  const roles: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
+  const roles: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair", "landing"];
   const taskTypes = ["general", ...Object.keys(config.taskTypes ?? {})];
   const checks: FactoryDoctorCheck[] = [];
   const routingErrors = preflightModelRouting({ taskTypes, roles, config });

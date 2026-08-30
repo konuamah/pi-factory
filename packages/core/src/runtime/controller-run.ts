@@ -54,6 +54,7 @@ import { runPlanningPhase } from "./planning-phase2.js";
 import type { PlannerArtifact } from "./planner.js";
 import { runDiscoveryPhase, type DiscoveryPhaseResult } from "./discovery-phase.js";
 import { setupControllerRun } from "./controller-setup.js";
+import { buildCompletedTasks } from "./landing.js";
 
 export async function runFactoryControllerInner(
   input: RunFactoryControllerInput,
@@ -226,6 +227,7 @@ export async function runFactoryControllerInner(
   integrationPath = controllerIntegration.integrationPath;
   let verificationPath: string;
   let verification: VerificationRunResult;
+  let verificationPlan: VerificationPlan;
   let verificationFailureClassification: VerificationFailureClassification | undefined;
   let contractResult: VerificationEngineResult;
   const verificationPhase = await runVerificationPhase({
@@ -257,8 +259,10 @@ export async function runFactoryControllerInner(
   verificationPath = verificationPhase.verificationPath;
   repairExecutionPaths = verificationPhase.repairExecutionPaths;
   verification = verificationPhase.verification;
+  verificationPlan = verificationPhase.verificationPlan;
   verificationFailureClassification = verificationPhase.verificationFailureClassification;
   contractResult = verificationPhase.contractResult;
+  const completedTasks = buildCompletedTasks(implementationRun.taskWorkspaces, loaded.effectiveConfig.git.baseBranch);
   const finalResult = await runFinalPhases({
     run,
     input,
@@ -276,11 +280,14 @@ export async function runFactoryControllerInner(
     repairExecutionPaths,
     verificationPath,
     verification,
+    verificationPlan,
+    taskType: runTaskType.id,
     verificationFailureClassification,
     contractResult,
     reviewerGuidanceText: reviewerGuidance.text ?? "",
     reviewerSkills,
     interviewDecisions,
+    completedTasks,
   });
   return finalResult;
 }

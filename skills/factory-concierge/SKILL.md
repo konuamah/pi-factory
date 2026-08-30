@@ -111,7 +111,7 @@ End-to-end Factory setup includes:
 - `factory.yaml` workflow setup.
 - `.factory/config.yaml` project config.
 - setup, lint, typecheck, test, and build command selection.
-- Pi-visible model routing for discovery, planner, builder, reviewer, and repair roles.
+- Pi-visible model routing for discovery, planner, builder, reviewer, repair, and landing roles.
 - skill discovery and skill import guidance.
 - capability discovery and validation.
 - worktree isolation plus language-neutral dependency hydration and shared cache guidance.
@@ -142,6 +142,7 @@ Factory passes structured artifacts between workflow stages, not just text. When
 - `plan.json` — contains `discoveryText`, `planText`, and `implementationContract` (`targetFiles`, `nonGoals`, `verificationChecks`, `risks`, `blockers`) extracted best-effort from planner prose.
 - Controller-native stages (`plan`, `discover`, `interview`) appear in task artifacts as `done` with `controllerHandled: true` and artifact path refs.
 - Baseline-unrelated verification failures are surfaced as `baselineDebt` in final approval: the task-specific contract can pass while repository debt remains. The approval prompt says so explicitly.
+- Final landing uses `completed-tasks.json`, `landing-plan.json`, `landing-diagnosis-<attempt>.json`, `landing-attempts.jsonl`, and `final-merge.json`. A run is not complete unless required landing is `landed` or explicitly policy-skipped.
 
 Use `/factory show <run-id>`, `/factory logs <run-id>`, and `/factory plan` to inspect these artifacts. A run can complete with baseline repository debt still present; that is expected, not a silent pass.
 
@@ -173,6 +174,7 @@ You must not trigger task execution from Concierge. If the user says "run this t
     If an execution artifact or event reports `executor.timeout` / `model-timeout`, explain that Factory's no-progress watchdog aborted a quiet SDK turn. Recommend tuning `runtime.limits.modelTimeoutMs` or selecting a faster role model only after checking whether the role emitted any text or tool events.
     For verification cwd or package-manager failures, explain that Factory should use the verification planner to reason over candidate roots, package manifests, lockfiles, and scripts. Configured commands express intent, but they should be adapted or omitted when candidate evidence proves a different cwd or package manager.
     If no verification commands are configured or discovered, explain that verification is incomplete with no automated checks, not a planner crash. Recommend adding real `.factory/config.yaml` commands or package scripts when the project has them.
+    For `BLOCKED / merge-blocked`, inspect landing artifacts first. Explain that Factory blocked because final landing did not safely complete; dirty files only block when they overlap landing files or prevent safely switching to the target branch, and incomplete verification blocks required landing until the project has real checks or policy allows it.
     For Next.js 16 lint failures, check package script bodies and dependency versions. If `lint` runs `next lint`, explain that the script is stale and Factory should use an evidence-backed ESLint command such as `npm exec eslint src` when ESLint is installed, rather than blindly running `eslint .` over generated output.
     For Harbor quality-testing requests, point the user to `harbor/` and explain that Harbor should be used for repeated eval tasks with deterministic verifiers rather than as a replacement for ordinary repo tests. The starter task is `harbor/tasks/factory-smoke`, and richer tasks should model real requests like `add a navbar` or `repair a verification failure`.
 11. If dashboard status is requested, use `dashboard-status`; if starting the dashboard is requested, use `start-dashboard`.

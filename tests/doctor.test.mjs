@@ -104,6 +104,7 @@ test("factory doctor passes when all roles resolve and every resolved model is P
           builder: { provider: "openai-codex", model: "gpt-5.4-mini" },
           reviewer: { provider: "openai-codex", model: "gpt-5.4-mini" },
           repair: { provider: "openai-codex", model: "gpt-5.4-mini" },
+          landing: { provider: "openai-codex", model: "gpt-5.4-mini" },
         },
         taskTypes: {
           docs: {},
@@ -186,6 +187,7 @@ test("factory doctor fails model-availability when a resolved model is not prese
           builder: { provider: "openai-codex", model: "gpt-5.4-mini" },
           reviewer: { provider: "openai-codex", model: "gpt-5.4-mini" },
           repair: { provider: "openai-codex", model: "gpt-5.4-mini" },
+          landing: { provider: "openai-codex", model: "gpt-5.4-mini" },
         },
       },
       agentSettings: {
@@ -220,6 +222,7 @@ test("validateFactorySetup is NOT_READY when constitution is missing", async () 
           builder: { provider: "openai-codex", model: "gpt-5.4-mini" },
           reviewer: { provider: "openai-codex", model: "gpt-5.4-mini" },
           repair: { provider: "openai-codex", model: "gpt-5.4-mini" },
+          landing: { provider: "openai-codex", model: "gpt-5.4-mini" },
         },
       },
       agentSettings: {
@@ -247,6 +250,7 @@ test("factory doctor passes when one visible Pi model is reused across all roles
           builder: { provider: "commandcode", model: "claude-sonnet-5" },
           reviewer: { provider: "commandcode", model: "claude-sonnet-5" },
           repair: { provider: "commandcode", model: "claude-sonnet-5" },
+          landing: { provider: "commandcode", model: "claude-sonnet-5" },
         },
         taskTypes: {
           refactor: {},

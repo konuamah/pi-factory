@@ -160,37 +160,66 @@ export async function runFactoryController(
     return result;
   } finally {
     if (runDir && projectRoot) {
-      const warnings: string[] = [];
-      const outcome = await removeRunGitIsolation({
-        runDir,
-        projectRoot,
-        pruneWorktrees: true,
-        pruneBranches: true,
-        baseBranch: baseBranch ?? "main",
-      });
-      warnings.push(...outcome.warnings);
-      // The main run worktree is recorded in task-1 artifacts, but remove it
-      // explicitly as well in case task artifacts were never written (early
-      // failure before the planning phase).
-      if (createdWorktreePath) {
-        try {
-          await execFileAsync("git", ["worktree", "remove", "--force", createdWorktreePath], {
-            cwd: projectRoot,
-            windowsHide: true,
-          });
-        } catch {
-          // Best effort; git worktree prune in removeRunGitIsolation clears stale metadata.
-        }
-      }
-      if (warnings.length > 0) {
+      if (await shouldPreserveRunIsolation(runDir)) {
         await appendFactoryRunEvent(path.join(runDir, "events.jsonl"), {
           timestamp: new Date().toISOString(),
-          type: "run.cleanup_warnings",
-          data: { warnings },
+          type: "run.cleanup_skipped",
+          data: { reason: "blocked run preserves git isolation for recovery" },
         });
+      } else {
+        const warnings: string[] = [];
+        const outcome = await removeRunGitIsolation({
+          runDir,
+          projectRoot,
+          pruneWorktrees: true,
+          pruneBranches: true,
+          baseBranch: baseBranch ?? "main",
+        });
+        warnings.push(...outcome.warnings);
+        // The main run worktree is recorded in task-1 artifacts, but remove it
+        // explicitly as well in case task artifacts were never written (early
+        // failure before the planning phase).
+        if (createdWorktreePath) {
+          try {
+            await execFileAsync("git", ["worktree", "remove", "--force", createdWorktreePath], {
+              cwd: projectRoot,
+              windowsHide: true,
+            });
+          } catch {
+            // Best effort; git worktree prune in removeRunGitIsolation clears stale metadata.
+          }
+        }
+        if (warnings.length > 0) {
+          await appendFactoryRunEvent(path.join(runDir, "events.jsonl"), {
+            timestamp: new Date().toISOString(),
+            type: "run.cleanup_warnings",
+            data: { warnings },
+          });
+        }
       }
     }
   }
+}
+
+async function shouldPreserveRunIsolation(runDir: string): Promise<boolean> {
+  const summary = await readOptionalJson(path.join(runDir, "summary.json"));
+  const state = await readOptionalJson(path.join(runDir, "state.json"));
+  const status = stringValue(summary?.status) ?? stringValue(state?.status);
+  const phase = stringValue(summary?.phase) ?? stringValue(state?.phase);
+  return status === "BLOCKED" || phase === "merge-blocked" || phase === "git-state-blocked";
+}
+
+async function readOptionalJson(filePath: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    const value = JSON.parse(await fs.readFile(filePath, "utf8"));
+    return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 export interface TaskWorkspaceSelection {

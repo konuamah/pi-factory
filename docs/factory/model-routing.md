@@ -10,7 +10,7 @@ Factory should prefer models configured in Pi before built-in defaults. Useful s
 - Pi model stores
 - enabled provider models
 - project Factory model config
-- built-in planner/builder/reviewer/repair fallback names
+- built-in planner/builder/reviewer/repair/landing fallback names
 
 ## Inspect
 
@@ -48,6 +48,12 @@ If the user wants specialization:
 - builder: fast implementation model
 - reviewer: strongest review/risk model
 - repair: fast implementation or debugging model
+- landing: strongest review/risk model for final readiness, strategy, and recovery reasoning
+
+If `models.landing` is absent, Factory may temporarily reuse the reviewer model
+for landing and records that source in `model-ledger.jsonl`. Do not treat that
+as silent routing: `/factory models`, `/factory doctor`, and the ledger should
+make the selected provider/model visible.
 
 ## Avoid
 

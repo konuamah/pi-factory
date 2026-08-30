@@ -7,7 +7,7 @@ export interface FactorySetupChoices {
   modelAssignments: Partial<Record<ModelRole, ModelSelection>>;
 }
 
-const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
+const MODEL_ROLES: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair", "landing"];
 
 export async function promptFactorySetupChoices(
   ui: FactoryPiUi,

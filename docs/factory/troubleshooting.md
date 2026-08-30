@@ -137,6 +137,38 @@ Fix:
 - add real commands to `.factory/config.yaml` or the project manifest once the repository has tests, lint, typecheck, or build scripts
 - keep failing loudly if runnable commands exist and the verification planner omits all of them
 
+## Run Blocks During Landing
+
+Symptom:
+
+```text
+status: BLOCKED
+phase: merge-blocked
+```
+
+Cause:
+
+Factory planned final landing, but refused to claim completion because the
+candidate was not safely landed. This is intentional: required landing must not
+report `COMPLETED` unless `final-merge.json` is `landed` or explicitly
+`policy-skipped`.
+
+Inspect:
+
+- `completed-tasks.json` for the normalized candidate commit, source branch, workspace mode, and changed files
+- `landing-plan.json` for the AI-selected strategy, reasoning, expected files, verification, risk, and guard verdict
+- `landing-diagnosis-<attempt>.json` for the failure class and recovery hint
+- `landing-attempts.jsonl` for each attempted plan/execution/verification cycle
+- `final-merge.json` for the stable landing status and outcome
+
+Fix:
+
+- if dirty files overlap the landing files, clean or stash those files before retrying
+- if unrelated Pi/Factory runtime files are dirty and the current checkout is already the target branch, treat them as evidence rather than a blocker
+- if verification is incomplete, add real verification commands or package scripts before expecting a required landing to complete
+- if the candidate commit or branch is missing, inspect `completed-tasks.json` and rerun or resume from the preserved candidate workspace
+- if the landing model returns invalid JSON, fix model routing or provider behavior; Factory should block rather than mutate Git with a guessed fallback
+
 ## Next Lint Fails On Next.js 16
 
 Symptom:

@@ -157,7 +157,7 @@ export function defaultProjectConfigTemplate(modelAssignments?: Partial<Record<M
 }
 
 function renderModelAssignments(modelAssignments?: Partial<Record<ModelRole, ModelSelection>>): string {
-  const orderedRoles: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
+  const orderedRoles: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair", "landing"];
   const lines = orderedRoles.flatMap((role) => {
     const selection = modelAssignments?.[role];
     if (!selection?.model) {

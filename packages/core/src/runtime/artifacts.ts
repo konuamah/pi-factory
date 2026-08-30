@@ -269,12 +269,98 @@ export interface PrototypeIntegrationArtifact {
   }>;
 }
 
+export interface PrototypeCompletedTaskArtifact {
+  taskId: string;
+  targetBranch: string;
+  sourceBranch?: string;
+  commitSha: string;
+  changedFiles: string[];
+  workspaceMode: "created" | "existing" | "in-place";
+  worktreePath?: string;
+}
+
+export interface PrototypeLandingPlanArtifact {
+  strategy: "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "skip" | "block";
+  targetBranch: string;
+  candidateSha?: string;
+  sourceBranch?: string;
+  reasoning: string[];
+  verification: string[];
+  risk: "low" | "medium" | "high";
+  expectedFiles: string[];
+  recoveryPlan?: string;
+  guardVerdict: {
+    ok: boolean;
+    reasons: string[];
+  };
+}
+
+export interface PrototypeLandingDiagnosisArtifact {
+  kind:
+    | "dirty-target"
+    | "merge-conflict"
+    | "cherry-pick-conflict"
+    | "rebase-conflict"
+    | "missing-candidate"
+    | "candidate-empty"
+    | "transient-only-change"
+    | "verification-failed"
+    | "verification-missing"
+    | "baseline-debt"
+    | "environment-failure"
+    | "unsafe-risk"
+    | "auth-required"
+    | "timeout"
+    | "unknown";
+  reasoning: string[];
+  retryable: boolean;
+  recoveryAction:
+    | "repair-code"
+    | "resolve-conflict"
+    | "refresh-target"
+    | "rerun-verification"
+    | "replan-landing"
+    | "prepare-environment"
+    | "ask-approval"
+    | "block";
+  risk: "low" | "medium" | "high";
+  recoveryHint: string;
+}
+
+export interface PrototypeLandingAttemptArtifact {
+  attempt: number;
+  plan: PrototypeLandingPlanArtifact;
+  execution: {
+    status: "landed" | "blocked" | "failed" | "skipped";
+    outcome: string;
+    reason?: string;
+  };
+  verification?: {
+    overallStatus: "passed" | "failed" | "incomplete";
+    commands: string[];
+  };
+  diagnosis?: PrototypeLandingDiagnosisArtifact;
+}
+
 export interface PrototypeFinalMergeArtifact {
   mergeBaseBranch: string;
   candidateBranch?: string;
   candidateSha?: string;
   mergeCwd: string;
-  status: "merged" | "skipped";
+  status: "landed" | "skipped" | "blocked" | "failed";
+  outcome?:
+    | "landed"
+    | "policy-skipped"
+    | "dirty-checkout"
+    | "conflict"
+    | "verification-failed"
+    | "missing-candidate"
+    | "unsafe-plan"
+    | "unknown";
+  strategy?: "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "skip" | "block";
+  targetBranch?: string;
+  sourceBranch?: string;
+  recoveryHint?: string;
   reason?: string;
 }
 
@@ -292,6 +378,9 @@ export interface PrototypeSummaryArtifact {
   builderExecutionPaths?: string[];
   integrationPath?: string;
   finalMergePath?: string;
+  landingStatus?: "landed" | "skipped" | "blocked" | "failed";
+  landingAttempts?: number;
+  recoveryHint?: string;
   repairExecutionPaths?: string[];
   reviewerExecutionPath?: string;
   verificationPath: string;
@@ -299,4 +388,4 @@ export interface PrototypeSummaryArtifact {
 }
 
 
-export { writePrototypePlanArtifact, writePrototypeTaskArtifacts, writePrototypeVerificationArtifact, writePrototypePlannerExecutionArtifact, writePrototypeDiscoveryExecutionArtifact, writePrototypeRepairExecutionArtifact, writePrototypeReviewerExecutionArtifact, writePrototypeBuilderExecutionArtifact, writePrototypeIntegrationArtifact, writePrototypeFinalMergeArtifact, writePrototypeSummaryArtifact } from "./artifact-writers.js";
+export { writePrototypePlanArtifact, writePrototypeTaskArtifacts, writePrototypeVerificationArtifact, writePrototypePlannerExecutionArtifact, writePrototypeDiscoveryExecutionArtifact, writePrototypeRepairExecutionArtifact, writePrototypeReviewerExecutionArtifact, writePrototypeBuilderExecutionArtifact, writePrototypeIntegrationArtifact, writePrototypeCompletedTasksArtifact, writePrototypeLandingPlanArtifact, writePrototypeLandingDiagnosisArtifact, appendPrototypeLandingAttemptArtifact, writePrototypeFinalMergeArtifact, writePrototypeSummaryArtifact } from "./artifact-writers.js";

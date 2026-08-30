@@ -2,7 +2,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { PrototypePlanArtifact, PrototypeTaskArtifact, PrototypeVerificationArtifact, PrototypePlannerExecutionArtifact, PrototypeDiscoveryExecutionArtifact, PrototypeRepairExecutionArtifact, PrototypeReviewerExecutionArtifact, PrototypeBuilderExecutionArtifact, PrototypeIntegrationArtifact, PrototypeFinalMergeArtifact, PrototypeSummaryArtifact } from "./artifacts.js";
+import type { PrototypePlanArtifact, PrototypeTaskArtifact, PrototypeVerificationArtifact, PrototypePlannerExecutionArtifact, PrototypeDiscoveryExecutionArtifact, PrototypeRepairExecutionArtifact, PrototypeReviewerExecutionArtifact, PrototypeBuilderExecutionArtifact, PrototypeIntegrationArtifact, PrototypeCompletedTaskArtifact, PrototypeLandingPlanArtifact, PrototypeLandingDiagnosisArtifact, PrototypeLandingAttemptArtifact, PrototypeFinalMergeArtifact, PrototypeSummaryArtifact } from "./artifacts.js";
 
 export async function writePrototypePlanArtifact(
   runDir: string,
@@ -90,6 +90,43 @@ export async function writePrototypeIntegrationArtifact(
 ): Promise<string> {
   const filePath = path.join(runDir, "integration.json");
   await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
+export async function writePrototypeCompletedTasksArtifact(
+  runDir: string,
+  artifact: PrototypeCompletedTaskArtifact[],
+): Promise<string> {
+  const filePath = path.join(runDir, "completed-tasks.json");
+  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
+export async function writePrototypeLandingPlanArtifact(
+  runDir: string,
+  artifact: PrototypeLandingPlanArtifact,
+): Promise<string> {
+  const filePath = path.join(runDir, "landing-plan.json");
+  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
+export async function writePrototypeLandingDiagnosisArtifact(
+  runDir: string,
+  attempt: number,
+  artifact: PrototypeLandingDiagnosisArtifact,
+): Promise<string> {
+  const filePath = path.join(runDir, `landing-diagnosis-${attempt}.json`);
+  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  return filePath;
+}
+
+export async function appendPrototypeLandingAttemptArtifact(
+  runDir: string,
+  artifact: PrototypeLandingAttemptArtifact,
+): Promise<string> {
+  const filePath = path.join(runDir, "landing-attempts.jsonl");
+  await fs.appendFile(filePath, `${JSON.stringify(artifact)}\n`, "utf8");
   return filePath;
 }
 

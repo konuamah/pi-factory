@@ -9,14 +9,16 @@ import { writePrototypeReviewerExecutionArtifact, writePrototypeSummaryArtifact 
 import { buildReviewerPrompt, renderSkillBundleForPrompt } from "./prompts.js";
 import { emitProgress, movePhase, wait } from "./phase-plumbing.js";
 import { readGitHeadSha } from "./git-ops.js";
-import { runFinalMergePhase } from "./final-merge.js";
 import { buildRunFailureResult } from "./controller-helpers.js";
+import { runLandingFlow } from "./landing.js";
 import type { RunFactoryControllerInput, RunFactoryControllerResult } from "./controller.js";
 import type { VerificationRunResult } from "./verification.js";
 import type { VerificationFailureClassification } from "./failure-classification.js";
-import type { VerificationContractPlan, VerificationEngineResult } from "../verification/index.js";
+import type { VerificationEngineResult } from "../verification/index.js";
 import type { SkillBundleSelection } from "../skills/index.js";
 import type { InterviewDecisionRecord } from "./controller.js";
+import type { VerificationPlan } from "./verification.js";
+import type { PrototypeCompletedTaskArtifact } from "./artifacts.js";
 
 export interface FinalPhasesState {
   run: Awaited<ReturnType<typeof createFactoryRun>>;
@@ -35,19 +37,21 @@ export interface FinalPhasesState {
   repairExecutionPaths: string[];
   verificationPath: string;
   verification: VerificationRunResult;
+  verificationPlan: VerificationPlan;
   verificationFailureClassification: VerificationFailureClassification | undefined;
   contractResult: VerificationEngineResult;
   reviewerGuidanceText: string;
   reviewerSkills: SkillBundleSelection;
   interviewDecisions: InterviewDecisionRecord[];
+  completedTasks: PrototypeCompletedTaskArtifact[];
 }
 
 export async function runFinalPhases(state: FinalPhasesState): Promise<RunFactoryControllerResult> {
   const {
     run, input, loaded, executionCwd, worktree, phases, delayMs, planPath, taskPaths,
     discoveryExecutionPath, plannerExecutionPath, builderExecutionPaths, integrationPath,
-    repairExecutionPaths, verificationPath, verification, verificationFailureClassification,
-    contractResult, reviewerGuidanceText, reviewerSkills, interviewDecisions,
+    repairExecutionPaths, verificationPath, verification, verificationPlan, verificationFailureClassification,
+    contractResult, reviewerGuidanceText, reviewerSkills, interviewDecisions, completedTasks,
   } = state;
   const reviewerGuidance = { text: reviewerGuidanceText };
   let reviewerExecutionPath: string | undefined;
@@ -287,42 +291,53 @@ if (!approved) {
 
 await wait(delayMs);
 
-await movePhase(run.statePath, run.eventsPath, run.runId, input, "merge", "Finalizing approved candidate");
-finalMergePath = await runFinalMergePhase({
+await movePhase(run.statePath, run.eventsPath, run.runId, input, "landing-planning", "Planning final landing");
+const landingResult = await runLandingFlow({
   runDir: run.runDir,
+  runId: run.runId,
   eventsPath: run.eventsPath,
+  goal: input.goal,
   mergeCwd: input.cwd,
-  candidateBranch: worktree.branch,
+  taskType: "general",
+  config: loaded.effectiveConfig,
+  completedTasks,
   candidateSha,
-  baseBranch: loaded.effectiveConfig.git.baseBranch,
-  finalMergePolicy: loaded.effectiveConfig.approval.finalMerge,
-  worktreeMode: worktree.mode,
+  candidateBranch: worktree.branch,
+  verificationPlan,
+  verification,
+  controllerInput: input,
+  repairGuidanceText: reviewerGuidance.text,
 });
+finalMergePath = landingResult.finalMergePath;
 
 await wait(delayMs);
 
 const completedState = await updateFactoryRunState({
   statePath: run.statePath,
-  patch: { status: "COMPLETED", phase: "complete" },
+  patch: { status: landingResult.status, phase: landingResult.phase },
 });
 await appendFactoryRunEvent(run.eventsPath, {
   timestamp: new Date().toISOString(),
-  type: "run.completed",
-  data: { goal: input.goal },
+  type: landingResult.status === "COMPLETED" ? "run.completed" : "run.blocked",
+  data: landingResult.status === "COMPLETED"
+    ? { goal: input.goal }
+    : { goal: input.goal, reason: landingResult.recoveryHint ?? "final landing did not complete" },
 });
 await emitProgress(input, {
   runId: run.runId,
-  phase: "complete",
-  status: "COMPLETED",
-  message: "Prototype controller run completed",
+  phase: completedState.phase,
+  status: landingResult.status,
+  message: landingResult.status === "COMPLETED"
+    ? "Prototype controller run completed"
+    : landingResult.recoveryHint ?? "Landing blocked",
 });
 
 const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
   runId: run.runId,
   goal: input.goal,
-  status: "COMPLETED",
+  status: landingResult.status,
   phase: completedState.phase,
-  approved: true,
+  approved: landingResult.approved,
   candidateSha,
   planPath,
   taskPaths,
@@ -331,11 +346,35 @@ const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
   builderExecutionPaths,
   integrationPath,
   finalMergePath,
+  landingStatus: landingResult.landingStatus,
+  landingAttempts: landingResult.landingAttempts,
+  recoveryHint: landingResult.recoveryHint,
   repairExecutionPaths,
   reviewerExecutionPath,
   verificationPath,
   verificationStatus: verification.overallStatus,
 });
+
+if (landingResult.status !== "COMPLETED") {
+  return buildRunFailureResult({
+    run,
+    executionCwd,
+    worktree,
+    phases,
+    planPath,
+    taskPaths,
+    discoveryExecutionPath,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    integrationPath,
+    finalMergePath,
+    candidateSha,
+    repairExecutionPaths,
+    reviewerExecutionPath,
+    verificationPath,
+    summaryPath,
+  });
+}
 
 return {
   runId: run.runId,

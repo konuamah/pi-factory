@@ -1,4 +1,4 @@
-export type ModelRole = "discovery" | "planner" | "builder" | "reviewer" | "repair";
+export type ModelRole = "discovery" | "planner" | "builder" | "reviewer" | "repair" | "landing";
 
 export interface ExecutionLimits {
   totalRunTimeoutMs?: number;

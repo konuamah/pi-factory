@@ -99,6 +99,7 @@ export interface RunFactoryControllerInput {
   builderExecutor?: AgentExecutor;
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
+  landingExecutor?: AgentExecutor;
   verificationPlannerExecutor?: AgentExecutor;
   failureClassifierExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
@@ -199,11 +200,12 @@ export interface TaskWorkspaceSelection {
   branch?: string;
   shouldIntegrate: boolean;
   changedFiles?: string[];
+  commitSha?: string;
 }
 
 export function resolveNodeRole(task: PlannerTask): ModelRole {
   const role = task.role as ModelRole | undefined;
-  if (role === "discovery" || role === "planner" || role === "reviewer" || role === "repair" || role === "builder") {
+  if (role === "discovery" || role === "planner" || role === "reviewer" || role === "repair" || role === "builder" || role === "landing") {
     return role;
   }
   return "builder";

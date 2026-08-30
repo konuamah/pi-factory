@@ -70,22 +70,26 @@ export async function resolveTaskWorkspace(input: {
 export interface WorkspaceCommitResult {
   committed: boolean;
   changedFiles: string[];
+  allChangedFiles: string[];
+  commitSha?: string;
 }
 
 export async function commitWorkspaceChanges(cwd: string, task: PlannerTask): Promise<WorkspaceCommitResult> {
   try {
-    const changedFiles = await readChangedFiles(cwd);
+    const allChangedFiles = await readChangedFiles(cwd);
+    const changedFiles = allChangedFiles.filter((file) => !isTransientFactoryPath(file));
     if (changedFiles.length === 0) {
-      return { committed: false, changedFiles };
+      return { committed: false, changedFiles, allChangedFiles };
     }
-    await execFileAsync("git", ["add", "-A"], { cwd, windowsHide: true });
+    await execFileAsync("git", ["add", "--all", "--", ...changedFiles], { cwd, windowsHide: true });
     await execFileAsync("git", ["commit", "-m", `Factory task ${task.id}: ${task.title}`], {
       cwd,
       windowsHide: true,
     });
-    return { committed: true, changedFiles };
+    const commitSha = await readGitHeadSha(cwd);
+    return { committed: true, changedFiles, allChangedFiles, commitSha };
   } catch {
-    return { committed: false, changedFiles: [] };
+    return { committed: false, changedFiles: [], allChangedFiles: [] };
   }
 }
 
@@ -111,5 +115,28 @@ export async function readGitHeadSha(cwd: string): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+export function isTransientFactoryPath(file: string): boolean {
+  const normalized = file.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+  const segments = [
+    ".pi-glla/",
+    ".factory/runs/",
+    ".worktrees/",
+    "worktrees/",
+    "dist/",
+    "build/",
+    "coverage/",
+    "node_modules/",
+    ".next/",
+    ".turbo/",
+    "out/",
+    "target/",
+    "__pycache__/",
+    ".cache/",
+    ".venv/",
+    "venv/",
+  ];
+  return segments.some((segment) => normalized === segment.slice(0, -1) || normalized.startsWith(segment));
 }
 

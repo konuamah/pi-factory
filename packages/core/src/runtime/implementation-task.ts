@@ -271,7 +271,7 @@ export async function runImplementationTask(input: {
         });
         input.builderExecutionPaths.push(executionPath);
 
-        let committedChange: WorkspaceCommitResult = { committed: false, changedFiles: [] };
+        let committedChange: WorkspaceCommitResult = { committed: false, changedFiles: [], allChangedFiles: [] };
         if (result.status === "completed") {
           committedChange = await commitWorkspaceChanges(workspace.path, input.task);
         }
@@ -319,6 +319,7 @@ export async function runImplementationTask(input: {
       const builderExecutionPath = builderAttempt.executionPath;
       const committedChange = builderAttempt.committedChange;
       workspace.changedFiles = committedChange.changedFiles;
+      workspace.commitSha = committedChange.commitSha;
 
       if (builderResult.status !== "completed") {
         await updatePrototypeTaskArtifact({

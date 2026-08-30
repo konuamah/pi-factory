@@ -19,3 +19,4 @@
 - Verification planning should allow an empty command selection only when no configured or discovered runnable commands exist, then record incomplete verification with a missing automated-checks result instead of crashing before `verification.json` is written.
 - Landing should evaluate dirty target state by file overlap, not mere presence. Unrelated Pi/Factory runtime files are evidence, not blockers, when the current checkout is already the target branch and feature files do not overlap.
 - Keep new Factory runtime features split into focused coordinator, AI, Git, and type modules so files stay near 400 lines or under and negative paths remain readable.
+- Discovery evidence must observe tracked project config: skip transient Factory subpaths (.factory/runs, dependencies, cache, logs) rather than the whole .factory directory, or confirmed findings about .factory/config.yaml are rejected as hallucinated.

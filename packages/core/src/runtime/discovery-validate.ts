@@ -184,15 +184,24 @@ export async function collectDiscoveryFiles(cwd: string): Promise<string[]> {
   }
 }
 
+// Factory's run state is transient, but .factory/config.yaml is tracked project
+// config that Discovery is allowed to cite, so skip the transient subpaths only.
+const DISCOVERY_TRANSIENT_PATHS = new Set([
+  ".factory/runs",
+  ".factory/dependencies",
+  ".factory/cache",
+  ".factory/logs",
+]);
+
 export function shouldSkipDiscoveryDirectory(name: string, relativePath: string): boolean {
   return name === ".git"
-    || name === ".factory"
     || name === ".worktrees"
     || name === "node_modules"
     || name === ".next"
     || name === "dist"
     || name === "build"
     || name === "coverage"
+    || DISCOVERY_TRANSIENT_PATHS.has(relativePath)
     || relativePath === "vendor/pi-factory";
 }
 

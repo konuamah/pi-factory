@@ -188,6 +188,7 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(discoveryPrompt, /Repository evidence packet \(authoritative\):/);
     assert.match(discoveryPrompt, /candidate_files:/);
     assert.match(discoveryPrompt, /observed_files:/);
+    assert.match(discoveryPrompt, /observed_files:\n(?:- [^\n]+\n)*- \.factory\/config\.yaml/);
     const builderPrompt = calls.find((call) => call.label === 'builder')?.prompt ?? '';
     const reviewerPrompt = calls.find((call) => call.label === 'reviewer')?.prompt ?? '';
 

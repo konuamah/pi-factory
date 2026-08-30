@@ -96,8 +96,12 @@ A correct agent trial produces:
 
 ## What is NOT set up yet
 
-- Only `bombsite-01-ui-shell` exists; the other four task families are planned
-  but not built.
+- All five task families exist and are oracle-validated: `bombsite-01-ui-shell`
+  (tabbed phone page), `bombsite-02-status-surface` (interview decides an
+  Availability surface), `bombsite-03-verification-adaptation` (stale lint
+  command), `bombsite-04-baseline-debt` (unrelated broken JS, scope
+  preservation), `bombsite-05-repair-verification` (seeded failing check,
+  repair path).
 - No `-k N` attempt distributions or `summarizeBenchmarkResults` runs yet.
 - `harbor check` (LLM-judge rubric lint) needs model credentials and is not
   part of the gate.

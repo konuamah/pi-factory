@@ -176,10 +176,12 @@ Full setup includes assigning Pi-visible models for discovery, planner, builder,
 Factory passes structured artifacts between workflow stages, not just text. When diagnosing a run, know these:
 
 - `discovery-execution.json` — structured discovery facts (files, constraints) validated before planning.
+- Discovery uses structured implementation-surface status. `implementationSurface: "missing"` is valid for empty or greenfield repos and should flow into planning so the planner names new files for Builder to create.
 - `interview-decisions.json` — structured interview answers (stage, role, question, optionId, answer). These are authoritative human facts: they reach the planner, builder context, reviewer, and approval.
 - `plan.json` — contains `discoveryText`, `planText`, and `implementationContract` (`targetFiles`, `nonGoals`, `verificationChecks`, `risks`, `blockers`).
 - Controller-native stages (`plan`, `discover`, `interview`) appear in task artifacts as `done` with `controllerHandled: true` and artifact path refs.
 - Baseline-unrelated verification failures are surfaced as `baselineDebt` in final approval: the task-specific contract can pass while repository debt remains.
+- When no verification commands are configured or discovered, Factory records incomplete verification with a missing automated-checks result. This is distinct from a planner crash and should be explained as a signal to add real checks when the project has them.
 
 Use `/factory show <run-id>`, `/factory logs <run-id>`, and `/factory plan` to inspect these artifacts. A run can complete with baseline repository debt still present; that is expected, not a silent pass.
 

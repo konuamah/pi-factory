@@ -147,6 +147,9 @@ export function validateSelectedCommands(
   chosenCandidate?: VerificationCwdCandidate,
 ): VerificationCommandConfig {
   if (!selected || Object.keys(selected).filter((name) => name !== "cwd").length === 0) {
+    if (!hasRunnableVerificationEvidence(evidence)) {
+      return {};
+    }
     throw new VerificationPlanningError("VERIFICATION_PLANNER_EMPTY_COMMANDS: Verification planner selected no commands.");
   }
   const result: VerificationCommandConfig = {};
@@ -175,9 +178,18 @@ export function validateSelectedCommands(
     throw new VerificationPlanningError(`VERIFICATION_PLANNER_INVALID_SETUP: Selected setup command is not a setup/install command: ${result.setup}`);
   }
   if (Object.keys(result).length === 0) {
+    if (!hasRunnableVerificationEvidence(evidence)) {
+      return {};
+    }
     throw new VerificationPlanningError("VERIFICATION_PLANNER_EMPTY_COMMANDS: Verification planner selected no valid commands.");
   }
   return result;
+}
+
+export function hasRunnableVerificationEvidence(evidence: VerificationEvidence): boolean {
+  const configured = Object.entries(evidence.configuredCommands)
+    .some(([name, command]) => name !== "cwd" && typeof command === "string" && Boolean(command.trim()));
+  return configured || evidence.allowedCommands.length > 0;
 }
 
 export function determineResolutionFromEvidence(

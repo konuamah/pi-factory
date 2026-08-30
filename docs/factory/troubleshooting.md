@@ -58,6 +58,21 @@ Fix:
 - if `outputText` contains malformed JSON, Factory retries once with a strict JSON repair prompt and preserves the invalid payload as `discovery-execution-invalid.json`
 - keep `runtime.limits` in `.factory/config.yaml` aligned with the repository size and model/provider behavior
 
+## Discovery Finds No Implementation Surface
+
+Symptom:
+
+```text
+Discovery result reports implementationSurface: missing
+```
+
+Fix:
+
+- treat this as valid Discovery output when the repository is empty, greenfield, or has no existing app surface for the requested task
+- let planning choose explicit new files for Builder to create
+- do not use plain-text sentinel failures such as `DISCOVERY_FAILED: ...`; Discovery should always return structured JSON
+- keep failing loudly when Discovery names existing files that are missing, unobserved, directory-only, or unsupported by confirmed evidence
+
 ## Agent Turn Appears Stuck
 
 Symptom:
@@ -106,6 +121,21 @@ Fix:
 - adapt package-script commands to the selected package manager when the script exists, for example `pnpm lint` -> `npm run lint`
 - omit configured stages whose scripts do not exist in the selected package instead of inventing commands
 - if no verification-planning executor is available, deterministic fallback may adapt only evidence-backed package-script commands
+
+## Verification Has No Commands
+
+Symptom:
+
+```text
+No automated verification commands were configured or discovered for this workspace.
+```
+
+Fix:
+
+- treat this as incomplete verification, not a planner crash
+- inspect `verification.json` and use the contract/manual review results to decide whether the task can continue
+- add real commands to `.factory/config.yaml` or the project manifest once the repository has tests, lint, typecheck, or build scripts
+- keep failing loudly if runnable commands exist and the verification planner omits all of them
 
 ## Next Lint Fails On Next.js 16
 

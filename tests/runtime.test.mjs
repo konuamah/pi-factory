@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { classifyIntegrationFailure, classifyVerificationFailure, initializeFactoryProject, planVerificationExecution, readLatestFactoryRunLogs, readLatestFactoryRunPlan, resumeLatestFactoryRun, runRuntimeHarness, showFactoryRun } from '../packages/core/dist/index.js';
+import { classifyIntegrationFailure, classifyVerificationFailure, initializeFactoryProject, planVerificationExecution, readLatestFactoryRunLogs, readLatestFactoryRunPlan, resumeLatestFactoryRun, runRuntimeHarness, runVerificationCommands, showFactoryRun } from '../packages/core/dist/index.js';
 
 const execFile = promisify(execFileCb);
 
@@ -169,7 +169,9 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(discoveryPrompt, /Do not:\n- implement anything\n- modify files\n- write code\n- create an implementation plan/);
     assert.match(discoveryPrompt, /Return JSON only/);
     assert.match(discoveryPrompt, /"status": "complete"/);
-    assert.match(discoveryPrompt, /DISCOVERY_FAILED/);
+    assert.match(discoveryPrompt, /implementationSurface/);
+    assert.match(discoveryPrompt, /If no existing implementation file exists/);
+    assert.doesNotMatch(discoveryPrompt, /DISCOVERY_FAILED/);
     assert.match(discoveryPrompt, /Repository evidence packet \(authoritative\):/);
     assert.match(discoveryPrompt, /candidate_files:/);
     assert.match(discoveryPrompt, /observed_files:/);
@@ -184,7 +186,7 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(plannerPrompt, /src\/index\.ts/);
     assert.match(plannerPrompt, /execution contract for the Builder/);
     assert.match(plannerPrompt, /Do not perform broad repository discovery here/);
-    assert.match(plannerPrompt, /Do not ask Builder to find, locate, search for, or identify implementation files/);
+    assert.match(plannerPrompt, /Do not ask Builder to broadly find, locate, search for, or identify implementation files/);
     assert.match(plannerPrompt, /PLANNING DECISIONS/);
     assert.match(plannerPrompt, /IMPLEMENTATION SEQUENCE/);
     assert.match(plannerPrompt, /VERIFICATION CONTRACT/);
@@ -703,12 +705,55 @@ test('directory-only discovery fails loudly before planning', async () => {
         requestPlanApproval: async () => ({ decision: 'approve' }),
         requestApproval: async () => true,
       }),
-      /Discovery failed: Discovery did not identify any concrete implementation file/,
+      /Discovery failed: Discovery listed files, but none were concrete implementation files/,
     );
 
     assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
     assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
   });
+});
+
+test('missing implementation surface is passed to planning as structured discovery status', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: JSON.stringify({
+            status: 'complete',
+            implementationSurface: 'missing',
+            files: [],
+            evidence: [
+              { status: 'unknown', finding: 'No application implementation files were found in the repository evidence.' },
+            ],
+            unknowns: ['The requested portfolio page needs a new implementation surface.'],
+          }),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'make a portfolio page for a doctor in html js no css',
+      discoveryExecutor,
+      plannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'reject' }),
+      requestApproval: async () => true,
+    });
+
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'planner').length, 1);
+    const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
+    assert.match(plannerPrompt, /"implementationSurface": "missing"/);
+    assert.match(plannerPrompt, /choose explicit new files for the Builder to create/);
+    assert.match(plannerPrompt, /portfolio page needs a new implementation surface/);
+  }, { rootPackage: false });
 });
 
 test('discovery with missing files fails loudly before planning', async () => {
@@ -845,7 +890,7 @@ test('discovery with no confirmed evidence fails loudly before planning', async 
   });
 });
 
-test('explicit discovery failure stops before planning', async () => {
+test('magic-string discovery failure is rejected as invalid structured output', async () => {
   await withTempProject(async (root) => {
     const calls = [];
     const discoveryExecutor = {
@@ -871,7 +916,7 @@ test('explicit discovery failure stops before planning', async () => {
         requestPlanApproval: async () => ({ decision: 'approve' }),
         requestApproval: async () => true,
       }),
-      /Discovery failed: Could not identify the implementation surface\./,
+      /Discovery failed: Discovery returned invalid structured JSON/,
     );
 
     assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
@@ -1265,6 +1310,55 @@ test('verification planner rejects invalid json, unknown cwd, and invented comma
       /VERIFICATION_PLANNER_INVALID_COMMAND/,
     );
   });
+});
+
+test('verification planner allows no commands only when no runnable evidence exists', async () => {
+  await withTempProject(async (root) => {
+    const emptyPlan = await planVerificationExecution({
+      cwd: root,
+      goal: 'Verify a static greenfield page',
+      commands: {},
+      executor: verificationExecutorFor({
+        cwd: root,
+        commands: {},
+        rationale: 'No automated commands are configured or discoverable.',
+      }),
+    });
+
+    assert.deepEqual(emptyPlan.commands, {});
+    assert.equal(emptyPlan.selectionSource, 'ai');
+    assert.ok(emptyPlan.evidence.commandDecisions.every((decision) => decision.selected === false));
+
+    await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'tmp', scripts: { test: 'node -e ""' } }, null, 2), 'utf8');
+
+    await assert.rejects(
+      () => planVerificationExecution({
+        cwd: root,
+        goal: 'Verify a package with tests',
+        commands: {},
+        executor: verificationExecutorFor({
+          cwd: root,
+          commands: {},
+          rationale: 'Incorrectly skipped available tests.',
+        }),
+      }),
+      /VERIFICATION_PLANNER_EMPTY_COMMANDS/,
+    );
+  }, { rootPackage: false });
+});
+
+test('verification command runner records missing automated checks instead of passing empty command sets', async () => {
+  await withTempProject(async (root) => {
+    const result = await runVerificationCommands({
+      cwd: root,
+      commands: {},
+    });
+
+    assert.equal(result.overallStatus, 'incomplete');
+    assert.deepEqual(result.commands.map((command) => command.name), ['automated-checks']);
+    assert.equal(result.commands[0].status, 'missing');
+    assert.match(result.commands[0].stderr, /No automated verification commands/);
+  }, { rootPackage: false });
 });
 
 test('verification planner rejects docker commands unless configured or scripted', async () => {

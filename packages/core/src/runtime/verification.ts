@@ -249,6 +249,15 @@ export async function runVerificationCommands(input: {
     }
   }
 
+  if (results.length === 0) {
+    results.push({
+      name: "automated-checks",
+      command: "",
+      status: "missing",
+      stderr: "No automated verification commands were configured or discovered for this workspace.",
+    });
+  }
+
   const hasFailed = results.some((result) => result.status === "failed");
   const hasMissing = results.some((result) => result.status === "missing");
 

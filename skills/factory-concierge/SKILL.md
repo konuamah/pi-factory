@@ -137,6 +137,7 @@ Dependency hydration is a first-class setup responsibility. Explain that Factory
 Factory passes structured artifacts between workflow stages, not just text. When diagnosing a run, know these:
 
 - `discovery-execution.json` — structured discovery facts (files, constraints) validated before planning.
+- Discovery uses structured implementation-surface status. `implementationSurface: "missing"` is valid for empty or greenfield repos and should flow into planning so the planner names new files for Builder to create.
 - `interview-decisions.json` — structured interview answers (stage, role, question, optionId, answer). These are authoritative human facts: they reach the planner, builder context, reviewer, and approval.
 - `plan.json` — contains `discoveryText`, `planText`, and `implementationContract` (`targetFiles`, `nonGoals`, `verificationChecks`, `risks`, `blockers`) extracted best-effort from planner prose.
 - Controller-native stages (`plan`, `discover`, `interview`) appear in task artifacts as `done` with `controllerHandled: true` and artifact path refs.
@@ -168,8 +169,10 @@ You must not trigger task execution from Concierge. If the user says "run this t
 9. If worktree dependency setup, repeated installs, cache reuse, or hydration policy is mentioned, recommend `configure-dependencies` for config changes or `answer-only` for conceptual answers.
 10. If runs, logs, latest work, or plans are mentioned, recommend `list-runs`, `show-run`, `show-logs`, `show-plan`, or `show-status`.
     For discovery failures, inspect the latest run logs and execution artifact details first. If `discovery-execution.json` shows `status: failed` or `errorMessage` with a timeout, explain that the executor timed out rather than treating it as a missing repository artifact.
+    If Discovery reports `implementationSurface: "missing"`, explain that this is a valid greenfield/empty-repo status and planning should name explicit new files. Do not recommend or rely on plain-text sentinel failures such as `DISCOVERY_FAILED: ...`.
     If an execution artifact or event reports `executor.timeout` / `model-timeout`, explain that Factory's no-progress watchdog aborted a quiet SDK turn. Recommend tuning `runtime.limits.modelTimeoutMs` or selecting a faster role model only after checking whether the role emitted any text or tool events.
     For verification cwd or package-manager failures, explain that Factory should use the verification planner to reason over candidate roots, package manifests, lockfiles, and scripts. Configured commands express intent, but they should be adapted or omitted when candidate evidence proves a different cwd or package manager.
+    If no verification commands are configured or discovered, explain that verification is incomplete with no automated checks, not a planner crash. Recommend adding real `.factory/config.yaml` commands or package scripts when the project has them.
     For Next.js 16 lint failures, check package script bodies and dependency versions. If `lint` runs `next lint`, explain that the script is stale and Factory should use an evidence-backed ESLint command such as `npm exec eslint src` when ESLint is installed, rather than blindly running `eslint .` over generated output.
     For Harbor quality-testing requests, point the user to `harbor/` and explain that Harbor should be used for repeated eval tasks with deterministic verifiers rather than as a replacement for ordinary repo tests. The starter task is `harbor/tasks/factory-smoke`, and richer tasks should model real requests like `add a navbar` or `repair a verification failure`.
 11. If dashboard status is requested, use `dashboard-status`; if starting the dashboard is requested, use `start-dashboard`.

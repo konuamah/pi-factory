@@ -7,6 +7,7 @@ import path from "node:path";
 
 export interface DiscoveryContract {
   status: "complete" | "failed";
+  implementationSurface?: "identified" | "missing" | "ambiguous";
   files?: string[];
   evidence?: Array<{ status: "confirmed" | "inferred" | "unknown"; file?: string; finding: string }>;
   unknowns?: string[];
@@ -32,9 +33,6 @@ export async function validateDiscoveryOutput(value: string | undefined, cwd: st
   if (!text) {
     return { ok: false, reason: "Discovery returned no output" };
   }
-  if (/^DISCOVERY_FAILED:/i.test(text)) {
-    return { ok: false, reason: text.replace(/^DISCOVERY_FAILED:\s*/i, "").trim() || "Discovery failed" };
-  }
 
   const parsed = parseDiscoveryJson(text);
   if (!parsed) {
@@ -48,20 +46,26 @@ export async function validateDiscoveryOutput(value: string | undefined, cwd: st
   }
 
   const files = Array.isArray(parsed.files) ? parsed.files : [];
-  if (!files.some(isConcreteFile)) {
-    return { ok: false, reason: "Discovery did not identify any concrete implementation file" };
+  const concreteFiles = files.map(normalizeDiscoveryFilePath).filter((file): file is string => Boolean(file));
+  if (files.length > 0 && concreteFiles.length === 0) {
+    return { ok: false, reason: "Discovery listed files, but none were concrete implementation files" };
   }
-  const missingFiles = await findMissingDiscoveryFiles(cwd, files);
-  if (missingFiles.length > 0) {
-    return { ok: false, reason: `Discovery identified files that do not exist: ${missingFiles.join(", ")}` };
-  }
-  const unobservedFiles = findUnobservedDiscoveryFiles(files, evidencePacket);
-  if (unobservedFiles.length > 0) {
-    return { ok: false, reason: `Discovery referenced files not observed by Factory evidence: ${unobservedFiles.join(", ")}` };
+  if (concreteFiles.length > 0) {
+    const missingFiles = await findMissingDiscoveryFiles(cwd, concreteFiles);
+    if (missingFiles.length > 0) {
+      return { ok: false, reason: `Discovery identified files that do not exist: ${missingFiles.join(", ")}` };
+    }
+    const unobservedFiles = findUnobservedDiscoveryFiles(concreteFiles, evidencePacket);
+    if (unobservedFiles.length > 0) {
+      return { ok: false, reason: `Discovery referenced files not observed by Factory evidence: ${unobservedFiles.join(", ")}` };
+    }
   }
 
   const evidence = Array.isArray(parsed.evidence) ? parsed.evidence : [];
-  if (!evidence.some((item) => item?.status === "confirmed" && isConcreteFile(item.file) && item.finding?.trim())) {
+  if (!evidence.some((item) => item?.finding?.trim()) && !parsed.unknowns?.some((item) => item.trim())) {
+    return { ok: false, reason: "Discovery did not provide evidence or unknowns" };
+  }
+  if (concreteFiles.length > 0 && !evidence.some((item) => item?.status === "confirmed" && isConcreteFile(item.file) && item.finding?.trim())) {
     return { ok: false, reason: "Discovery did not provide confirmed evidence tied to a concrete file" };
   }
   const evidenceFiles = evidence
@@ -77,7 +81,14 @@ export async function validateDiscoveryOutput(value: string | undefined, cwd: st
     return { ok: false, reason: `Discovery evidence references files not observed by Factory evidence: ${unobservedEvidenceFiles.join(", ")}` };
   }
 
-  return { ok: true, discovery: parsed };
+  return {
+    ok: true,
+    discovery: {
+      ...parsed,
+      implementationSurface: parsed.implementationSurface ?? (concreteFiles.length > 0 ? "identified" : "missing"),
+      files: concreteFiles,
+    },
+  };
 }
 
 export function findUnobservedDiscoveryFiles(files: string[], evidencePacket: DiscoveryEvidencePacket): string[] {
@@ -338,6 +349,7 @@ export function buildDiscoveryJsonRepairPrompt(outputText: string): string {
     "Return only one valid JSON object that follows this exact shape:",
     "{",
     "  \"status\": \"complete\" | \"failed\",",
+    "  \"implementationSurface\": \"identified\" | \"missing\" | \"ambiguous\",",
     "  \"files\": [\"relative/path.ext\"],",
     "  \"evidence\": [{ \"status\": \"confirmed\" | \"inferred\" | \"unknown\", \"file\": \"relative/path.ext\", \"finding\": \"short finding\" }],",
     "  \"unknowns\": [\"short unknown\"],",

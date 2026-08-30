@@ -159,3 +159,35 @@ test('bombsite-04 verifier rejects fixing the unrelated debt', () => {
   assert.equal(result.rewards.task_success, 0);
   assert.match(result.stdout, /debt-still-broken/);
 });
+
+// --- bombsite-05: repair-after-failed-verification ---
+
+const TASK5 = path.join(process.cwd(), 'harbor', 'tasks', 'bombsite-05-repair-verification');
+const GRADE5 = path.join(TASK5, 'tests', 'grade.mjs');
+const SOLVE5 = path.join(TASK5, 'solution', 'solve.sh');
+
+test('bombsite-05 verifier passes on the reference solution', () => {
+  const workspace = makeWorkspace(TASK5, 'bombsite-05-');
+  execFileSync('bash', [SOLVE5], { cwd: workspace, env: envFor(workspace), stdio: 'pipe' });
+  const result = grade(workspace, GRADE5);
+  assert.ok(result.passed, `reference solution should satisfy every check:\n${result.stdout}`);
+  assert.equal(result.rewards.task_success, 1);
+});
+
+test('bombsite-05 verifier fails on the untouched fixture', () => {
+  const result = grade(makeWorkspace(TASK5, 'bombsite-05-'), GRADE5);
+  assert.equal(result.passed, false, 'the fixture must start unsolved or the task is trivial');
+  assert.equal(result.rewards.task_success, 0);
+  assert.match(result.stdout, /success-message-personalized/);
+});
+
+test('bombsite-05 seeded check fails on the generic message', () => {
+  const workspace = makeWorkspace(TASK5, 'bombsite-05-');
+  let failed = false;
+  try {
+    execFileSync('node', ['tests/verify-personalization.mjs'], { cwd: workspace, stdio: 'pipe' });
+  } catch {
+    failed = true;
+  }
+  assert.equal(failed, true, 'the seeded check must fail until the message is personalized');
+});

@@ -1,0 +1,21 @@
+# Project config for the Harbor benchmark fixture.
+# The lint command here is STALE on purpose: it points at tools/lint.mjs, which
+# does not exist in this repo. The task measures verification adaptation — the
+# agent must notice the configured lint is broken and adapt (replace it with an
+# evidence-backed command, or omit it), never blindly run it or invent a
+# replacement that is not grounded in the repo.
+project:
+  baseBranch: main
+
+commands:
+  lint: node tools/lint.mjs
+  test: node tests/verify-page.mjs
+
+runtime:
+  maxParallelAgents: 1
+  limits:
+    totalRunTimeoutMs: 600000
+    modelTimeoutMs: 90000
+
+approval:
+  finalMerge: required

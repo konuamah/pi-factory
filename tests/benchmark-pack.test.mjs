@@ -99,3 +99,34 @@ test('bombsite-02 verifier rejects the surface with the wrong status text', () =
   assert.equal(result.rewards.task_success, 0);
   assert.match(result.stdout, /availability-status-text/);
 });
+
+// --- bombsite-03: verification-adaptation ---
+
+const TASK3 = path.join(process.cwd(), 'harbor', 'tasks', 'bombsite-03-verification-adaptation');
+const GRADE3 = path.join(TASK3, 'tests', 'grade.mjs');
+const SOLVE3 = path.join(TASK3, 'solution', 'solve.sh');
+
+test('bombsite-03 verifier passes on the reference solution', () => {
+  const workspace = makeWorkspace(TASK3, 'bombsite-03-');
+  execFileSync('bash', [SOLVE3], { cwd: workspace, env: envFor(workspace), stdio: 'pipe' });
+  const result = grade(workspace, GRADE3);
+  assert.ok(result.passed, `reference solution should satisfy every check:\n${result.stdout}`);
+  assert.equal(result.rewards.task_success, 1);
+});
+
+test('bombsite-03 verifier fails on the untouched fixture', () => {
+  const result = grade(makeWorkspace(TASK3, 'bombsite-03-'), GRADE3);
+  assert.equal(result.passed, false, 'the fixture must start unsolved or the task is trivial');
+  assert.equal(result.rewards.task_success, 0);
+  assert.match(result.stdout, /all-three-credentials-present/);
+});
+
+test('bombsite-03 verifier rejects credentials outside the Experience section', () => {
+  const workspace = makeWorkspace(TASK3, 'bombsite-03-');
+  const html = fs.readFileSync(path.join(workspace, 'index.html'), 'utf8');
+  const block = '  <ul>\n    <li>M.D., University of Ghana Medical School</li>\n    <li>Board Certified, Family Medicine</li>\n    <li>12 years of clinical experience</li>\n  </ul>\n';
+  fs.writeFileSync(path.join(workspace, 'index.html'), html.replace('<main>', block + '<main>'), 'utf8');
+  const result = grade(workspace, GRADE3);
+  assert.equal(result.rewards.task_success, 0);
+  assert.match(result.stdout, /credentials-inside-experience/);
+});

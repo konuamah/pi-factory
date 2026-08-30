@@ -1,0 +1,33 @@
+schema_version = "1.4"
+
+artifacts = [
+  { source = "/app/.factory/runs", destination = "factory-runs" },
+]
+
+[task]
+name = "local/factory-bombsite-03-verification-adaptation"
+version = "1.0.0"
+description = "Add credentials highlights to the doctor page while the fixture's configured lint command is stale; verification must adapt to repo reality. Oracle validates; agent trials score Factory orchestration."
+[[task.authors]]
+name = "Kelvi"
+keywords = ["factory", "harbor", "benchmark", "html", "javascript", "interview", "adaptation"]
+
+[metadata]
+family = "verification-adaptation"
+stressSite = "bombsite"
+pillarFocus = ["interviewQuality", "handoffQuality", "adaptationQuality"]
+interviewRequired = true
+networkPolicy = "public"
+
+[verifier]
+timeout_sec = 300.0
+
+[agent]
+timeout_sec = 1200.0
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 900.0
+cpus = 2
+memory_mb = 2048
+storage_mb = 10240

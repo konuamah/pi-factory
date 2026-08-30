@@ -2,6 +2,7 @@ import { runRuntimeHarness } from "@factory/core";
 import { PiAgentExecutor } from "./executor.js";
 import { createFakePiSessionFactory } from "./fake-session-factory.js";
 import { createPiSdkSessionFactory } from "./sdk-factory.js";
+import { createScriptedDecisionHandler, loadScriptedDecisionAnswers } from "./headless.js";
 
 export async function runPiRuntimeHarness(): Promise<void> {
   const useRealSdk = process.env.FACTORY_PI_USE_REAL_SDK === "1";
@@ -53,6 +54,13 @@ export async function runPiRuntimeHarness(): Promise<void> {
   });
 
   const goal = process.env.FACTORY_PI_RUNTIME_GOAL ?? "Create a prototype implementation plan";
+  const decisionsFile = process.env.FACTORY_PI_DECISIONS_FILE;
+  const requestDecision = decisionsFile
+    ? createScriptedDecisionHandler(await loadScriptedDecisionAnswers(decisionsFile))
+    : undefined;
+  if (!requestDecision) {
+    process.stdout.write("no interview answers file set (FACTORY_PI_DECISIONS_FILE); interview stages will fail\n");
+  }
   const forceVerificationFailure = process.env.FACTORY_PI_FORCE_VERIFY_FAIL === "1";
   if (forceVerificationFailure) {
     process.stdout.write("forcing verification failure via FACTORY_PI_FORCE_VERIFY_FAIL=1\n");
@@ -66,6 +74,7 @@ export async function runPiRuntimeHarness(): Promise<void> {
     repairExecutor,
     reviewerExecutor,
     verificationPlannerExecutor,
+    requestDecision,
     requestPlanApproval: async ({ runId, goal: approvalGoal, planPath, taskCount, workflowStages }) => {
       process.stdout.write(`\nplan auto-approved for ${runId}: ${approvalGoal} | tasks=${taskCount} | stages=${workflowStages.join('->')} | plan=${planPath}\n`);
       return { decision: 'approve' };

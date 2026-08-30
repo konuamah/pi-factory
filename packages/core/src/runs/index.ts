@@ -11,4 +11,5 @@ export * from "./guidance.js";
 export * from "./resume.js";
 export * from "./cleanup.js";
 export * from "./model-ledger.js";
+export * from "./artifacts-read.js";
 export * from "./store.js";

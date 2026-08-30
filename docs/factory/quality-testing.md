@@ -45,6 +45,29 @@ For each task:
 - verify with concrete outcomes such as DOM output, build success, lint success, screenshots, structured artifacts, or run-state artifacts
 - keep the verifier deterministic even when the task prompt is natural language
 
+## Running Factory headless (no human)
+
+`packages/executors/pi/dist/runtime-harness.js` runs a real Factory workflow end to end without a TUI. It needs three environment variables and one answers file:
+
+```bash
+FACTORY_PI_USE_REAL_SDK=1        # real Pi SDK session (unset = fake session, plumbing only)
+FACTORY_PI_RUNTIME_GOAL="add a navbar"
+FACTORY_PI_DECISIONS_FILE=/path/interview.json
+node packages/executors/pi/dist/runtime-harness.js
+```
+
+The answers file is a JSON object mapping a decision to its scripted answer. Keys are matched case-insensitively against, in order: `title:<decision title>`, `<decision title>`, `source:<decision source>` (for example `interview`), and the `"*"` wildcard:
+
+```json
+{ "interview": "Use MongoDB text search only; do not add a new platform." }
+```
+
+Plan approval and final approval are auto-approved and logged. If a decision arrives with no matching entry, the run **fails loud** rather than inventing an answer:
+
+```text
+Scripted interview answers have no entry for decision "Interview: grill" (source INTERVIEW).
+```
+
 ## Factory orchestration benchmark
 
 The approved design for scoring Factory behavior (interview rounds, stage handoffs, verification adaptation, landing, scope) with Harbor driving real Pi + Factory runs lives in [bombsite-benchmark-plan.md](bombsite-benchmark-plan.md). Key rules there: Harbor Oracle validates that a task is solvable and that the verifier detects it, while real agent trials populate benchmark statistics, and the scorer is a read-only core export consumed by both paths.

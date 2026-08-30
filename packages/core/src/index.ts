@@ -19,3 +19,4 @@ export * from "./skills/index.js";
 export * from "./setup/index.js";
 export * from "./verification/index.js";
 export * from "./workflows/index.js";
+export * from "./benchmark/index.js";

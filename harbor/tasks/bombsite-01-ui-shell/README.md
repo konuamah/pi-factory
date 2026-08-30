@@ -85,12 +85,28 @@ grader against three local states: reference solution → 1.0; untouched fixture
 → 0.0 (fails `nav-is-a-list`, `active-section-distinguishable`); a `styles.css`
 shortcut → 0.0 (fails `no-css-introduced`).
 
-**Gate 5c/5d, not yet run.** Pi + Factory are not in this image. The agent
-trial installs them on top, then runs the headless harness
-(`FACTORY_PI_USE_REAL_SDK=1`, `FACTORY_PI_DECISIONS_FILE=/task/interview.json`)
-so the six-pillar `scoreFactoryRun()` has real run artifacts to score. Until
-that happens, this task proves the benchmark is *valid*, not that it *measures*
-anything.
+**Gate 5c/5d, validated.** Pi + Factory are not in the base image; the agent
+install adds them, then runs the headless harness. The real trial landed and
+was scored:
+
+```bash
+PYTHONPATH=harbor/agents harbor run -p harbor/tasks/bombsite-01-ui-shell \
+  --agent factory_pi:FactoryPiAgent \
+  -m openai-codex/gpt-5.4-mini \
+  --ak interview_answers_path=harbor/tasks/bombsite-01-ui-shell/interview.json
+# agent_info.name: factory-pi | reward task_success: 1
+# collected run scores overall 0.965 via scoreFactoryRun
+```
+
+Prerequisites: Pi credentials on the host (`~/.pi/agent/auth.json` — the
+agent reads it directly for the openai-codex OAuth token), Docker up, and a
+provider/model reachable from the container. The command also works with any
+`provider/model` Pi exposes (e.g. `commandcode/deepseek/deepseek-v4-flash`).
+The agent injects `COMMANDCODE_API_KEY` when the provider is commandcode, and
+points Pi at a trimmed config dir (`PI_CODING_AGENT_DIR=/tmp/harbor-factory-pi`)
+so the host's own settings.json (which lists pi-goal-list-loop-audit) never
+contaminates the measured run. Interview answers live at `/task/interview.json`
+— outside `/app`, so the agent cannot read what it is scored on.
 
 ## Notes
 

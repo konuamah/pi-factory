@@ -1,0 +1,18 @@
+# Project config for the Harbor benchmark fixture.
+# Role models are supplied by the agent trial through the container
+# environment; the Oracle validation path does not run Pi at all.
+project:
+  baseBranch: main
+
+commands:
+  lint: node --check script.js
+  test: node tests/verify-page.mjs
+
+runtime:
+  maxParallelAgents: 1
+  limits:
+    totalRunTimeoutMs: 600000
+    modelTimeoutMs: 90000
+
+approval:
+  finalMerge: required

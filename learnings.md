@@ -29,3 +29,4 @@
 - Harbor 0.22 parses /logs/verifier/reward.json (verifier/verifier.py); the adapter guide still documents reward.txt. Write both when a task must satisfy both sources.
 - Factory's Pi SDK path must create session SERVICES (createAgentSessionServices) so installed provider packages register their models; a bare ModelRuntime.create() only knows built-in providers and cannot resolve commandcode (field-observed: ModelProviderResolutionError on the real trial).
 - Headless model routing must inject provider/model into .factory/config.yaml, not only pass modelOverrides: verification reads config.models.planner directly (verification-phase2), so a config without a models block falls back to a provider-less default and dies at verification.
+- bombsite-02 status-surface: the interview decides the surface's content and the grader checks those decisions verbatim (id, heading, status text, position), so interview-to-plan-to-build continuity is what's being measured.

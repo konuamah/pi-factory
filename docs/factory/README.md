@@ -56,6 +56,7 @@ Docs are the primary operational reference layer. Use command output, setup cont
 | "Something broke" | [troubleshooting.md](troubleshooting.md) | Diagnose by symptom |
 | "Show examples" | [examples.md](examples.md) | Follow a worked pattern |
 | "Set up quality testing" | [quality-testing.md](quality-testing.md) | Use Harbor tasks and verifiers |
+| "Benchmark Factory orchestration" | [bombsite-benchmark-plan.md](bombsite-benchmark-plan.md) | Approved plan: Harbor + scripted interviews + six-pillar scorer |
 | "How did Factory perform?" | [case-study-landoptima-status-bar.md](case-study-landoptima-status-bar.md) | Inspect a real completed run |
 | "Fix stage handoffs" | [stage-handoff-remediation-plan.md](stage-handoff-remediation-plan.md) | Follow the remediation rollout |
 | "How do the complexity refactors run?" | [complexity-refactoring-wave-1.md](complexity-refactoring-wave-1.md) | Follow the wave protocol |

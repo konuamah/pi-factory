@@ -45,6 +45,10 @@ For each task:
 - verify with concrete outcomes such as DOM output, build success, lint success, screenshots, structured artifacts, or run-state artifacts
 - keep the verifier deterministic even when the task prompt is natural language
 
+## Factory orchestration benchmark
+
+The approved design for scoring Factory behavior (interview rounds, stage handoffs, verification adaptation, landing, scope) with Harbor driving real Pi + Factory runs lives in [bombsite-benchmark-plan.md](bombsite-benchmark-plan.md). Key rules there: Harbor Oracle validates that a task is solvable and that the verifier detects it, while real agent trials populate benchmark statistics, and the scorer is a read-only core export consumed by both paths.
+
 ## Windows note
 
 On this machine, `harbor init` created the task files successfully but then crashed while printing a Unicode checkmark under a `cp1252` console. Use the wrapped command:

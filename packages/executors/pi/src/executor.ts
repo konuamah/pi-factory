@@ -12,6 +12,12 @@ import type {
   PiSessionLike,
 } from "./types.js";
 
+// Streaming updates carry a cumulative snapshot of the whole message, so keeping
+// every one is quadratic in output size and blew past V8's max string length in
+// JSON.stringify ("Invalid string length"). Their text still accumulates in
+// outputChunks; the final payloads arrive as message_end / turn_end / tool_execution_end.
+const TRANSIENT_EVENT_TYPES = new Set(["message_update", "tool_execution_update"]);
+
 export class PiAgentExecutor implements AgentExecutor {
   private readonly activeSessions = new Map<string, PiSessionLike>();
 
@@ -124,10 +130,12 @@ export class PiAgentExecutor implements AgentExecutor {
   }
 
   private captureEvent(state: PiExecutorState, event: PiSessionEvent): void {
-    state.events.push({
-      type: event.type,
-      data: event.data,
-    });
+    if (!TRANSIENT_EVENT_TYPES.has(event.type)) {
+      state.events.push({
+        type: event.type,
+        data: event.data,
+      });
+    }
 
     if (event.text) {
       state.outputChunks.push(event.text);

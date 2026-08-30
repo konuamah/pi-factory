@@ -411,6 +411,33 @@ test('missing limits fall back to Factory default timeouts instead of hanging', 
   assert.equal(aborted, true);
 });
 
+test('streaming message_update events are not accumulated into result events', async () => {
+  const session = {
+    async prompt() {
+      for (let i = 0; i < 500; i += 1) {
+        this.listener?.({
+          type: 'message_update',
+          data: { type: 'message_update', message: 'x'.repeat(2000) },
+        });
+      }
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {},
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: { async create() { return { session }; } },
+  });
+
+  const result = await executor.execute({ executionId: 'exec-stream-bloat', cwd: process.cwd(), prompt: 'build' });
+
+  assert.equal(result.events.filter((event) => event.type === 'message_update').length, 0);
+  assert.ok(JSON.stringify(result.events).length < 10_000);
+});
+
 test('model timeout fails a silent SDK turn with a clear watchdog error', async () => {
   let aborted = false;
   const session = {

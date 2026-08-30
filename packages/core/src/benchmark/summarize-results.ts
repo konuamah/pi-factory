@@ -18,6 +18,20 @@ export interface BenchmarkSummary {
   meanInterviewRounds: number;
   pillars: Partial<Record<PillarName, { mean: number; samples: number }>>;
   excludedOracleTrials: number;
+  /** Timing distribution across agent trials (null = no agent trial had it measurable). */
+  timing: {
+    medianTotalMs: number | null;
+    p90TotalMs: number | null;
+    medianHarnessMs: number | null;
+    medianAgentMs: number | null;
+    medianModelMs: number | null;
+    medianToolsMs: number | null;
+    medianFactoryVerificationMs: number | null;
+    medianHarborVerifierMs: number | null;
+    medianHarnessFraction: number | null;
+    modelCallsMedian: number | null;
+    toolCallsMedian: number | null;
+  };
 }
 
 export function summarizeBenchmarkResults(trials: BenchmarkTrial[]): BenchmarkSummary {
@@ -82,6 +96,31 @@ export function summarizeBenchmarkResults(trials: BenchmarkTrial[]): BenchmarkSu
     meanInterviewRounds: mean(reports.map((report) => Number(report.pillars.interviewQuality.components.roundCount ?? 0))),
     pillars,
     excludedOracleTrials: oracle.length,
+    timing: summarizeTiming(agents),
+  };
+}
+
+function summarizeTiming(agents: BenchmarkTrial[]): BenchmarkSummary["timing"] {
+  const performance = agents.map((trial) => trial.performance).filter((p): p is NonNullable<BenchmarkTrial["performance"]> => Boolean(p));
+  const pick = (fn: (p: NonNullable<BenchmarkTrial["performance"]>) => number | null): number | null => {
+    const values = performance.map(fn).filter((value): value is number => typeof value === "number");
+    return values.length > 0 ? median(values) : null;
+  };
+  return {
+    medianTotalMs: pick((p) => p.totalMs),
+    p90TotalMs: (() => {
+      const values = performance.map((p) => p.totalMs).sort((a, b) => a - b);
+      return values.length > 0 ? values[Math.min(values.length - 1, Math.ceil(values.length * 0.9) - 1)] : null;
+    })(),
+    medianHarnessMs: pick((p) => p.harnessMs),
+    medianAgentMs: pick((p) => p.agentMs),
+    medianModelMs: pick((p) => p.modelMs),
+    medianToolsMs: pick((p) => p.toolsMs),
+    medianFactoryVerificationMs: pick((p) => p.factoryVerificationMs),
+    medianHarborVerifierMs: pick((p) => p.harborVerifierMs),
+    medianHarnessFraction: pick((p) => p.harnessFraction),
+    modelCallsMedian: pick((p) => p.modelCallCount),
+    toolCallsMedian: pick((p) => p.toolCallCount),
   };
 }
 

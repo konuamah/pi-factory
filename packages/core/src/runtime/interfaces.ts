@@ -22,6 +22,9 @@ export interface AgentExecutionResult {
   outputText: string;
   events: Array<{
     type: string;
+    // Arrival time at the executor collector, when recorded. Used by the
+    // benchmark performance report to bracket model/tool durations.
+    at?: number;
     data?: Record<string, unknown>;
   }>;
   errorMessage?: string;

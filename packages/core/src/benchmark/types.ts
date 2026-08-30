@@ -82,6 +82,8 @@ export type TrialKind = "oracle" | "agent";
 export interface BenchmarkTrial {
   trialKind: TrialKind;
   report?: BenchmarkReport;
+  /** Performance report for this trial (harness/model/tools/eval buckets). */
+  performance?: import("./performance.js").PerformanceReport;
   taskSuccess?: number;
 }
 

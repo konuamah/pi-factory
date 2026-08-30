@@ -94,6 +94,46 @@ A correct agent trial produces:
 | trial exits nonzero at setup | `super().install()` bootstrap hiccup | re-run; check `agent/setup/` logs |
 | `task_success: 0` but checks mostly pass | agent broke a specific check | read `/logs/verifier/metrics.json` for the failed-check list |
 
+## Performance (where the time goes)
+
+Every trial is reduced to four buckets — **HARNESS / AGENT / EVAL** (plus MODEL
+and TOOLS inside AGENT) — via `computePerformanceReport()`
+(`packages/core/src/benchmark/performance.ts`), fed from Harbor's
+`result.json` phases plus the collected run's SDK event stream:
+
+```text
+TOTAL
+├── HARNESS          environment_setup + agent_setup (container + Pi/Factory start)
+├── AGENT            Harbor agent_execution
+│   ├── MODEL        assistant message_start→end windows (LLM time, its own bucket)
+│   ├── TOOLS        union of tool_execution_start→end intervals (parallel-aware)
+│   ├── FACTORY VERIFY  the run's own verification phase
+│   └── AGENT_OTHER  remainder (orchestration, thinking gaps)
+└── HARBOR VERIFIER  scoring
+```
+
+Two rules make the numbers meaningful:
+
+- **MODEL measures assistant messages only** — tool-result messages have their
+  own lifecycle and would inflate the model bucket.
+- **TOOLS is the union of tool intervals, not the sum** — Pi runs tools in
+  parallel by default, so summing would double-count overlapping work.
+  `toolExecutionSumMs` is still reported separately as the tool *workload*.
+
+`modelCallCount` / `toolCallCount` distinguish slow calls from churn: MODEL 60s
+over 4 calls means a slow provider; over 24 calls means the agent is churning.
+
+Across runs, `summarizeBenchmarkResults()` returns timing medians
+(`medianModelMs`, `medianToolsMs`, `medianHarnessMs`, `medianTotalMs`, p90,
+harness fraction). Oracle trials are excluded. Missing data is `null` + a
+warning, never zero, and an accounting check warns if `AGENT_OTHER` would go
+negative (overlapping intervals).
+
+The event timestamps (`at`) that power MODEL/TOOLS are stamped by the executor
+collector (`captureEvent`), so artifacts from runs before that change carry no
+`at` and report `null` with a warning — a fresh agent trial is needed for the
+full split.
+
 ## What is NOT set up yet
 
 - All five task families exist and are oracle-validated: `bombsite-01-ui-shell`

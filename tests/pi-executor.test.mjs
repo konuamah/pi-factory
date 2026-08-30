@@ -660,3 +660,28 @@ test('configured provider/model that cannot be resolved throws loudly', async ()
     /could not be resolved/i,
   );
 });
+
+test('recorded events carry monotonic arrival timestamps', async () => {
+  const events = [];
+  const session = {
+    async prompt() {
+      this.listener?.({ type: 'message_start', data: { message: 'x' } });
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      this.listener?.({ type: 'message_end', data: { message: 'x' } });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {},
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({ sessionFactory: { async create() { return { session }; } } });
+  const result = await executor.execute({ executionId: 'exec-at', cwd: process.cwd(), prompt: 'build' });
+  const stamped = result.events.filter((event) => event.type === 'message_start' || event.type === 'message_end');
+  assert.equal(stamped.length, 2);
+  for (const event of stamped) {
+    assert.equal(typeof event.at, 'number');
+  }
+  assert.ok(stamped[1].at >= stamped[0].at, 'timestamps must be monotonic');
+});

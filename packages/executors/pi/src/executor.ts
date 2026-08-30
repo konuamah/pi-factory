@@ -133,6 +133,10 @@ export class PiAgentExecutor implements AgentExecutor {
     if (!TRANSIENT_EVENT_TYPES.has(event.type)) {
       state.events.push({
         type: event.type,
+        // Arrival time at the collector. Paired _start/_end events bracket
+        // durations (message_start/end = model time, tool_execution_start/end =
+        // tool time) for the benchmark's performance report.
+        at: Date.now(),
         data: event.data,
       });
     }

@@ -31,6 +31,19 @@ export function createPiSdkSessionFactory(
       };
       const diagnostics: PiSessionFactoryResult["diagnostics"] = [];
 
+      // Services load the project's Pi packages/extensions and register their
+      // providers on the returned modelRuntime. A bare ModelRuntime.create()
+      // only knows built-in providers, so a model from an installed provider
+      // package (commandcode and friends) cannot be resolved without this.
+      const services = sdk.createAgentSessionServices
+        ? await sdk.createAgentSessionServices({ cwd: input.cwd })
+        : undefined;
+      if (services) {
+        createOptions.modelRuntime = services.modelRuntime;
+        createOptions.settingsManager = services.settingsManager;
+        createOptions.resourceLoader = services.resourceLoader;
+      }
+
       const tools = input.tools && input.tools.length > 0 ? input.tools : undefined;
       let executableTools: Array<{ name: string; execute: (args: unknown) => Promise<unknown> }> | undefined;
       if (tools) {
@@ -57,8 +70,8 @@ export function createPiSdkSessionFactory(
       // If caller supplies a model, respect it strictly; otherwise let Pi use
       // the user's default (commandcode/OAuth etc.) — do NOT inject a stale env model.
       if (input.model) {
-        const resolution = await resolveRequestedModel(sdk, input.model);
-        if (resolution.modelRuntime) {
+        const resolution = await resolveRequestedModel(sdk, input.model, services);
+        if (resolution.modelRuntime && !createOptions.modelRuntime) {
           createOptions.modelRuntime = resolution.modelRuntime;
         }
         if (resolution.resolvedModel) {
@@ -167,11 +180,14 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
 }
 
+type PiModelRuntime = Awaited<ReturnType<NonNullable<PiSdkModule["ModelRuntime"]>["create"]>>;
+
 async function resolveRequestedModel(
   sdk: PiSdkModule,
   model: NonNullable<PiSessionFactoryInput["model"]>,
+  services?: PiSdkServices,
 ): Promise<{
-  modelRuntime?: Awaited<ReturnType<NonNullable<PiSdkModule["ModelRuntime"]>["create"]>>;
+  modelRuntime?: PiModelRuntime;
   resolvedModel?: unknown;
   warning?: string;
 }> {
@@ -181,15 +197,19 @@ async function resolveRequestedModel(
     );
   }
 
-  // SDK 0.82 no longer exposes ModelRuntime — pass model directly to createAgentSession.
-  // Old path kept for backward compat when ModelRuntime exists.
-  if (!sdk.ModelRuntime?.create) {
+  // Prefer the runtime that already has the project's provider packages registered.
+  let modelRuntime: PiModelRuntime | undefined = services?.modelRuntime as PiModelRuntime | undefined;
+  if (!modelRuntime && sdk.ModelRuntime?.create) {
+    modelRuntime = await sdk.ModelRuntime.create();
+  }
+
+  // SDK builds without a queryable runtime: hand the provider/model pair to
+  // createAgentSession and let Pi resolve it against its own defaults.
+  if (!modelRuntime) {
     return {
       resolvedModel: { provider: model.provider, model: model.model, id: model.model },
     };
   }
-
-  const modelRuntime = await sdk.ModelRuntime.create();
 
   const resolvedModel =
     typeof modelRuntime.getModel === "function"
@@ -197,8 +217,14 @@ async function resolveRequestedModel(
       : undefined;
 
   if (!resolvedModel) {
+    const extensionErrors = (services?.diagnostics ?? [])
+      .filter((diagnostic) => diagnostic.type === "error")
+      .map((diagnostic) => diagnostic.message);
+    const detail = extensionErrors.length
+      ? ` Pi reported: ${extensionErrors.join("; ")}`
+      : "";
     throw new ModelProviderResolutionError(
-      `Configured model \"${model.provider}:${model.model}\" could not be resolved by the Pi SDK. No fallback is used. Fix it by running the Factory concierge skill (recommended) or /factory models to see which models this Pi SDK actually exposes, then set models.planner / models.builder / models.reviewer / models.repair in .factory/config.yaml to one of those, e.g. { provider: \"<provider>\", model: \"<model-id>\" }.`,
+      `Configured model \"${model.provider}:${model.model}\" could not be resolved by the Pi SDK.${detail} No fallback is used. Fix it by running the Factory concierge skill (recommended) or /factory models to see which models this Pi SDK actually exposes, then set models.planner / models.builder / models.reviewer / models.repair in .factory/config.yaml to one of those, e.g. { provider: \"<provider>\", model: \"<model-id>\" }.`,
     );
   }
 
@@ -274,8 +300,20 @@ interface PiSdkAgentSession {
   dispose(): Promise<void> | void;
 }
 
+interface PiSdkServices {
+  cwd: string;
+  agentDir: string;
+  modelRuntime?: {
+    getModel?: (provider: string, model: string) => unknown;
+  };
+  settingsManager?: unknown;
+  resourceLoader?: unknown;
+  diagnostics?: Array<{ type: string; message: string }>;
+}
+
 interface PiSdkModule {
   createAgentSession(options: Record<string, unknown>): Promise<{ session: PiSdkAgentSession }>;
+  createAgentSessionServices?(options: { cwd: string }): Promise<PiSdkServices>;
   SessionManager: {
     inMemory(cwd?: string): unknown;
   };

@@ -544,6 +544,88 @@ test('configured model without provider throws a loud provider resolution error'
   );
 });
 
+test('provider packages are resolved through session services, not a bare runtime', async () => {
+  // Regression for the Gate 5d failure: a bare ModelRuntime.create() knows only
+  // built-in providers, so a model from an installed provider package (e.g.
+  // commandcode) cannot be resolved unless the runtime from
+  // createAgentSessionServices -- which registers package providers -- is used.
+  const calls = [];
+  let receivedModel;
+  const sdkFactory = createPiSdkSessionFactory({
+    sdkLoader: async () => ({
+      SessionManager: { inMemory: (cwd) => ({ cwd }) },
+      // Present but deliberately unable to resolve the model, to prove it is
+      // not the runtime that wins.
+      ModelRuntime: {
+        async create() {
+          calls.push('bare-runtime');
+          return { getModel: () => undefined };
+        },
+      },
+      async createAgentSessionServices({ cwd }) {
+        calls.push(`services:${cwd}`);
+        return {
+          cwd,
+          agentDir: '/tmp/agent',
+          modelRuntime: {
+            getModel: (provider, model) => ({ provider, id: model }),
+          },
+          settingsManager: { id: 'settings' },
+          resourceLoader: { id: 'resources' },
+          diagnostics: [],
+        };
+      },
+      async createAgentSession(options) {
+        receivedModel = options.model;
+        calls.push(`session:runtime=${options.modelRuntime ? 'yes' : 'no'}`);
+        return { session: makeSdkSession() };
+      },
+    }),
+  });
+
+  const executor = new PiAgentExecutor({ sessionFactory: sdkFactory });
+  const result = await executor.execute({
+    executionId: 'exec-services-model',
+    cwd: '/work/app',
+    prompt: 'review',
+    model: { provider: 'commandcode', model: 'deepseek/deepseek-v4-flash' },
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(calls, ['services:/work/app', 'session:runtime=yes']);
+  assert.equal(receivedModel.provider, 'commandcode');
+});
+
+test('unresolvable model reports Pi extension diagnostics instead of a bare message', async () => {
+  const sdkFactory = createPiSdkSessionFactory({
+    sdkLoader: async () => ({
+      SessionManager: { inMemory: (cwd) => ({ cwd }) },
+      async createAgentSessionServices({ cwd }) {
+        return {
+          cwd,
+          agentDir: '/tmp/agent',
+          modelRuntime: { getModel: () => undefined },
+          diagnostics: [{ type: 'error', message: 'Extension "pi-broken" failed to load' }],
+        };
+      },
+      async createAgentSession() {
+        return { session: makeSdkSession() };
+      },
+    }),
+  });
+
+  const executor = new PiAgentExecutor({ sessionFactory: sdkFactory });
+  await assert.rejects(
+    executor.execute({
+      executionId: 'exec-services-diagnostics',
+      cwd: process.cwd(),
+      prompt: 'review',
+      model: { provider: 'commandcode', model: 'nope' },
+    }),
+    /could not be resolved.*pi-broken/s,
+  );
+});
+
 test('configured provider/model that cannot be resolved throws loudly', async () => {
   const sdkFactory = createPiSdkSessionFactory({
     sdkLoader: async () => ({

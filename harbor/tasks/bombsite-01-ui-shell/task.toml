@@ -1,5 +1,9 @@
 schema_version = "1.4"
 
+artifacts = [
+  { source = "/app/.factory/runs", destination = "factory-runs" },
+]
+
 [task]
 name = "local/factory-bombsite-01-ui-shell"
 version = "1.0.0"
@@ -7,6 +11,10 @@ description = "Rework the Bombsite doctor portfolio page into a tabbed, phone-us
 [[task.authors]]
 name = "Kelvi"
 keywords = ["factory", "harbor", "benchmark", "html", "javascript", "interview"]
+
+artifacts = [
+  { source = "/app/.factory/runs", destination = "factory-runs" },
+]
 
 [metadata]
 family = "ui-shell"

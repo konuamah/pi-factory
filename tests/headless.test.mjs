@@ -7,6 +7,7 @@ import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import { initializeFactoryProject, runRuntimeHarness } from '../packages/core/dist/index.js';
 import { createScriptedDecisionHandler, loadScriptedDecisionAnswers, parseScriptedDecisionAnswers } from '../packages/executors/pi/dist/headless.js';
+import { writeRoleModelsConfig } from '../packages/executors/pi/dist/runtime-harness.js';
 
 const execFile = promisify(execFileCb);
 
@@ -46,10 +47,40 @@ test('createScriptedDecisionHandler matches by title, source, or wildcard and re
   );
 });
 
-test('loadScriptedDecisionAnswers reads the JSON answers file', async () => {
-  const file = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'factory-headless-')), 'interview.json');
-  await fs.writeFile(file, JSON.stringify({ INTERVIEW: 'answer text' }), 'utf8');
-  assert.deepEqual(await loadScriptedDecisionAnswers(file), { INTERVIEW: 'answer text' });
+test('writeRoleModelsConfig injects models for every role and replaces stale blocks', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'factory-models-'));
+  try {
+    await fs.mkdir(path.join(root, '.factory'), { recursive: true });
+    await fs.writeFile(
+      path.join(root, '.factory', 'config.yaml'),
+      ['project:', '  baseBranch: main', 'models:', '  planner:', '    provider: stale', '    model: old'].join('\n') + '\n',
+      'utf8',
+    );
+
+    await writeRoleModelsConfig(root, 'openai-codex', 'gpt-5.4-mini');
+    const text = await fs.readFile(path.join(root, '.factory', 'config.yaml'), 'utf8');
+
+    assert.match(text, /models:/);
+    assert.doesNotMatch(text, /provider: stale/);
+    for (const role of ['discovery', 'planner', 'builder', 'reviewer', 'repair', 'landing']) {
+      assert.match(text, new RegExp(`${role}:\\n    provider: openai-codex\\n    model: gpt-5\\.4-mini`));
+    }
+    assert.match(text, /project:/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('writeRoleModelsConfig creates .factory/config.yaml when missing', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'factory-models-missing-'));
+  try {
+    await writeRoleModelsConfig(root, 'openai-codex', 'gpt-5.4-mini');
+    const text = await fs.readFile(path.join(root, '.factory', 'config.yaml'), 'utf8');
+    assert.match(text, /models:/);
+    assert.match(text, /discovery:/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 async function withInterviewProject(fn) {

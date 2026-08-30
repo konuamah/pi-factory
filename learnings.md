@@ -27,3 +27,5 @@
 - Interview continuity is unmeasurable when the answer only confirms the question's recommendations (all answer tokens appear in the question): report null, not a pass based on a plan existing.
 - Harbor task files must live under environment/ (that directory is the Docker build context) - a custom fixture/ directory is never copied, and tests/ must stay OUTSIDE environment/ or the rubric ships into the agent image.
 - Harbor 0.22 parses /logs/verifier/reward.json (verifier/verifier.py); the adapter guide still documents reward.txt. Write both when a task must satisfy both sources.
+- Factory's Pi SDK path must create session SERVICES (createAgentSessionServices) so installed provider packages register their models; a bare ModelRuntime.create() only knows built-in providers and cannot resolve commandcode (field-observed: ModelProviderResolutionError on the real trial).
+- Headless model routing must inject provider/model into .factory/config.yaml, not only pass modelOverrides: verification reads config.models.planner directly (verification-phase2), so a config without a models block falls back to a provider-less default and dies at verification.

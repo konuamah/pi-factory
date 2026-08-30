@@ -1,8 +1,10 @@
-import { runRuntimeHarness } from "@factory/core";
+import { runRuntimeHarness, type RunFactoryControllerInput } from "@factory/core";
 import { PiAgentExecutor } from "./executor.js";
 import { createFakePiSessionFactory } from "./fake-session-factory.js";
 import { createPiSdkSessionFactory } from "./sdk-factory.js";
 import { createScriptedDecisionHandler, loadScriptedDecisionAnswers } from "./headless.js";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 export async function runPiRuntimeHarness(): Promise<void> {
   const useRealSdk = process.env.FACTORY_PI_USE_REAL_SDK === "1";
@@ -54,6 +56,21 @@ export async function runPiRuntimeHarness(): Promise<void> {
   });
 
   const goal = process.env.FACTORY_PI_RUNTIME_GOAL ?? "Create a prototype implementation plan";
+  const cwd = process.env.FACTORY_PI_RUNTIME_CWD ?? process.cwd();
+  const roleModel = process.env.FACTORY_PI_MODEL?.trim();
+  if (roleModel) {
+    const separator = roleModel.indexOf("/");
+    if (separator <= 0) {
+      throw new Error(`FACTORY_PI_MODEL must be "provider/model", got "${roleModel}".`);
+    }
+    await writeRoleModelsConfig(cwd, roleModel.slice(0, separator), roleModel.slice(separator + 1));
+  }
+  // A repo whose .factory/config.yaml declares no role models otherwise falls
+  // back to built-in defaults that carry no provider, which the SDK factory
+  // rejects (observed live: verification read config.models.planner directly
+  // and got the provider-less default "opus"). writeRoleModelsConfig above
+  // makes every role resolve through the normal config path.
+  let modelOverrides: RunFactoryControllerInput["modelOverrides"] | undefined;
   const decisionsFile = process.env.FACTORY_PI_DECISIONS_FILE;
   const requestDecision = decisionsFile
     ? createScriptedDecisionHandler(await loadScriptedDecisionAnswers(decisionsFile))
@@ -67,8 +84,9 @@ export async function runPiRuntimeHarness(): Promise<void> {
   }
 
   const result = await runRuntimeHarness({
-    cwd: process.cwd(),
+    cwd,
     goal,
+    modelOverrides,
     plannerExecutor,
     builderExecutor,
     repairExecutor,
@@ -103,3 +121,26 @@ if (entryArg) {
     void runPiRuntimeHarness();
   }
 }
+
+// Verification and other phases read role models straight off the effective
+// config (verification-phase2 uses config.models.planner), bypassing the
+// controller's modelOverrides. To make a headless run deterministic across
+// every role, write the provider/model into .factory/config.yaml before the
+// controller loads it.
+export async function writeRoleModelsConfig(cwd: string, provider: string, model: string): Promise<void> {
+  const configPath = path.join(cwd, ".factory", "config.yaml");
+  let text = "";
+  try {
+    text = await fs.readFile(configPath, "utf8");
+  } catch {
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+  }
+  const roleNames = ["discovery", "planner", "builder", "reviewer", "repair", "landing"];
+  const block = ["models:", ...roleNames.map((role) => `  ${role}:\n    provider: ${provider}\n    model: ${model}`)].join("\n");
+  // Replace any existing top-level `models:` section so the injected models
+  // win; otherwise a stale block could override this run's intent.
+  const stripped = text.replace(/^models:\n(?:[ \t]+.*\n?)*/m, "");
+  const merged = (stripped.trimEnd() ? stripped.trimEnd() + "\n\n" : "") + block + "\n";
+  await fs.writeFile(configPath, merged, "utf8");
+}
+

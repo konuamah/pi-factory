@@ -22,6 +22,8 @@ import type { VerificationContractPlan, VerificationEngineResult } from "../veri
 import type { ReviewProviderOptions } from "../verification/providers/review.js";
 import type { TaskTypeSelection } from "../models/index.js";
 import type { SkillBundleSelection } from "../skills/index.js";
+import { runVerificationRepairSection } from "./verification-repair-section.js";
+import { handleVerificationOutcome } from "./verification-outcome.js";
 
 export interface VerificationPhaseState {
   run: Awaited<ReturnType<typeof createFactoryRun>>;
@@ -303,9 +305,7 @@ const ignoredCommandNames = new Set(
 );
 if (ignoredCommandNames.size > 0) {
   contractPlan.requirements = contractPlan.requirements.filter((requirement) => {
-    if (requirement.type !== "COMMAND") {
-      return true;
-    }
+    if (requirement.type !== "COMMAND") return true;
     return !ignoredCommandNames.has(requirement.description.replace(/^Run /, "").toLowerCase());
   });
 }
@@ -354,143 +354,47 @@ if (pendingDecision?.decision) {
 }
 
 const repairExecutor = input.repairExecutor;
-const environmentPrepState = await attemptEnvironmentPreparation({
-  run,
-  input,
-  repairExecutor,
-  repairModel: loaded.effectiveConfig.models.repair,
-  repairEnabled: loaded.effectiveConfig.repair.enabled,
-  verificationPlan,
-  implementationChangedFiles,
-  verification,
-  verificationFailureClassification,
-});
-verification = environmentPrepState.verification;
-verificationFailureClassification = environmentPrepState.verificationFailureClassification;
-const shouldAttemptEnvPrep = environmentPrepState.shouldAttemptEnvPrep;
-const repairableFailures = verificationFailureClassification?.perCommand
-  .filter((c) => c.category === "real-code-failure" && c.suggestedAction === "repair") ?? [];
-const shouldAttemptVerificationRepair = verification.overallStatus === "failed"
-  && Boolean(repairExecutor)
-  && loaded.effectiveConfig.repair.enabled
-  && repairableFailures.length > 0;
-if (verification.overallStatus === "failed" && !shouldAttemptVerificationRepair && !shouldAttemptEnvPrep) {
-  await appendFactoryRunEvent(run.eventsPath, {
-    timestamp: new Date().toISOString(),
-    type: "repair.skipped",
-    data: {
-      reason: verificationFailureClassification?.reason ?? "Verification failure is not eligible for repair.",
-      failureKind: verificationFailureClassification?.kind,
-      implementationChangedFiles,
-    },
-  });
-}
-
-if (shouldAttemptVerificationRepair && repairExecutor) {
-  const repairState = await runVerificationRepairLoop({
+  let reviewerExecutionPath: string | undefined;
+  const repairSection = await runVerificationRepairSection({
     run,
     input,
-    repairConfig: loaded.effectiveConfig.repair,
-    repairModel: loaded.effectiveConfig.models.repair,
+    loaded,
+    executionCwd,
     repairGuidanceText: repairGuidance.text ?? "",
-    repairSkillsBundleText: renderSkillBundleForPrompt(repairSkills),
+    repairSkills,
     verificationPlan,
     contractPlan,
     implementationChangedFiles,
-    executionCwd,
     verification,
     verificationFailureClassification,
     verificationPath,
     contractResult,
     repairExecutionPaths,
   });
-  verification = repairState.verification;
-  verificationFailureClassification = repairState.verificationFailureClassification;
-  verificationPath = repairState.verificationPath;
-  contractResult = repairState.contractResult;
-  repairExecutionPaths = repairState.repairExecutionPaths;
-}
-
-let reviewerExecutionPath: string | undefined;
-
-// Baseline-unrelated failures (pre-existing repo issues, not caused by the task)
-// warn and proceed instead of failing the run.
-const allFailuresBaseline = verification.overallStatus === "failed"
-  && Boolean(verificationFailureClassification)
-  && verificationFailureClassification!.perCommand.length > 0
-  && verificationFailureClassification!.perCommand.every(
-    (c) => c.category === "baseline-unrelated" || c.suggestedAction === "ignore",
-  );
-
-if (verification.overallStatus === "failed" && allFailuresBaseline) {
-  await appendFactoryRunEvent(run.eventsPath, {
-    timestamp: new Date().toISOString(),
-    type: "verification.baseline_warning",
-    data: {
-      reason: verificationFailureClassification?.reason,
-      perCommand: verificationFailureClassification?.perCommand,
-    },
-  });
-  await emitProgress(input, {
-    runId: run.runId,
-    phase: "verification",
-    status: "RUNNING",
-    message: `Verification warnings (baseline-unrelated): ${verificationFailureClassification?.reason ?? "pre-existing repo issues"}`,
-  });
-  await appendRepoLearning({
-    projectRoot,
-    category: "verification-baseline-warning",
-    summary: verificationFailureClassification?.reason ?? "Baseline-unrelated verification failure",
-    data: {
-      perCommand: verificationFailureClassification?.perCommand,
-    },
-  });
-} else if (verification.overallStatus === "failed") {
-  const failedState = await updateFactoryRunState({
-    statePath: run.statePath,
-    patch: { status: "FAILED", phase: "verification-failed" },
-  });
-  await appendFactoryRunEvent(run.eventsPath, {
-    timestamp: new Date().toISOString(),
-    type: "run.failed",
-    data: { reason: "verification failed" },
-  });
-  const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
-    runId: run.runId,
-    goal: input.goal,
-    status: "FAILED",
-    phase: failedState.phase,
-    approved: false,
-    planPath,
-    taskPaths,
-    plannerExecutionPath,
-    builderExecutionPaths,
-    integrationPath,
-    repairExecutionPaths,
-
-    reviewerExecutionPath,
-    verificationPath,
-    verificationStatus: verification.overallStatus,
-  });
-
-  return buildRunFailureResult({
+  verification = repairSection.verification;
+  verificationFailureClassification = repairSection.verificationFailureClassification;
+  verificationPath = repairSection.verificationPath;
+  contractResult = repairSection.contractResult;
+  repairExecutionPaths = repairSection.repairExecutionPaths;
+  const verificationOutcome = await handleVerificationOutcome({
     run,
+    input,
+    projectRoot,
     executionCwd,
     worktree,
     phases,
+    delayMs,
     planPath,
     taskPaths,
+    discoveryExecutionPath,
     plannerExecutionPath,
     builderExecutionPaths,
     integrationPath,
     repairExecutionPaths,
-    reviewerExecutionPath,
     verificationPath,
-    summaryPath,
+    verification,
+    verificationFailureClassification,
   });
-}
-
-// Verified: only after all required checks pass.
-
+  if (verificationOutcome) return verificationOutcome;
   return { verificationPath, repairExecutionPaths, verification, verificationFailureClassification, contractResult };
 }

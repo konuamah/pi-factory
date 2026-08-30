@@ -68,9 +68,10 @@ export async function validateLandingPlan(input: {
   if (input.plan.risk === "high" && input.plan.strategy !== "block") {
     reasons.push("High-risk landing plans must block instead of executing automatically.");
   }
-  if (input.finalMergePolicy === "required" && input.verificationStatus === "incomplete" && input.plan.strategy !== "block") {
-    reasons.push("Required landing cannot execute while verification is incomplete.");
-  }
+  // Verification "incomplete" means no runnable commands existed, not that a
+  // check failed. The human approval gate already sees verificationStatus and
+  // baseline debt, and post-landing verification blocks a candidate whose
+  // contract cannot complete — blocking here too made approval meaningless.
   if (["cherry-pick", "rebase"].includes(input.plan.strategy) && !input.plan.candidateSha) {
     reasons.push(`Strategy ${input.plan.strategy} requires a candidate SHA.`);
   }

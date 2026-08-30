@@ -105,6 +105,17 @@ test("landing guard ignores unrelated runtime dirties but blocks feature overlap
   });
   assert.equal(runtimeVerdict.ok, true);
 
+  const noCommandsVerdict = await validateLandingPlan({
+    mergeCwd: root,
+    plan,
+    dirtyRelevantFiles: runtimeDirty.relevant,
+    dirtyUnrelatedFiles: runtimeDirty.unrelated,
+    finalMergePolicy: "required",
+    completedTasks,
+    verificationStatus: "incomplete",
+  });
+  assert.equal(noCommandsVerdict.ok, true);
+
   await fs.writeFile(path.join(root, "index.html"), "<h1>User draft</h1>\n", "utf8");
   const featureDirty = classifyDirtyFiles(["index.html"], completedTasks);
   const featureVerdict = await validateLandingPlan({

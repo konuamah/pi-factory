@@ -165,7 +165,7 @@ Fix:
 
 - if dirty files overlap the landing files, clean or stash those files before retrying
 - if unrelated Pi/Factory runtime files are dirty and the current checkout is already the target branch, treat them as evidence rather than a blocker
-- if verification is incomplete, add real verification commands or package scripts before expecting a required landing to complete
+- if verification is incomplete, the candidate still lands after human approval, but `verification.json` records a missing `automated-checks` result: add real verification commands or package scripts so the run gets automated proof instead of manual review only
 - if the candidate commit or branch is missing, inspect `completed-tasks.json` and rerun or resume from the preserved candidate workspace
 - if the landing model returns invalid JSON, fix model routing or provider behavior; Factory should block rather than mutate Git with a guessed fallback
 

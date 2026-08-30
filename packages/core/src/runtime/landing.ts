@@ -113,7 +113,9 @@ export async function runLandingFlow(input: {
       model: modelSelection?.model,
       plan,
       reason: guardVerdict.reasons.join("; "),
-      dirtyFiles: dirtyContext.relevant.length > 0 ? dirtyContext.relevant : dirtyContext.all,
+      // The guard reasons already name every file they blocked on; handing the
+      // diagnoser all dirty files made it mislabel unrelated dirties as the cause.
+      dirtyFiles: dirtyContext.relevant,
       verification: input.verification,
     });
     return finishBlockedLanding(input, landingPlanArtifact, diagnosis, guardVerdict.reasons.join("; "));

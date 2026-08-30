@@ -1,0 +1,29 @@
+schema_version = "1.4"
+
+[task]
+name = "local/factory-bombsite-01-ui-shell"
+version = "1.0.0"
+description = "Rework the Bombsite doctor portfolio page into a tabbed, phone-usable page with no CSS. Oracle validates the task; agent trials score Factory orchestration."
+[[task.authors]]
+name = "Kelvi"
+keywords = ["factory", "harbor", "benchmark", "html", "javascript", "interview"]
+
+[metadata]
+family = "ui-shell"
+stressSite = "bombsite"
+pillarFocus = ["interviewQuality", "handoffQuality", "scopeQuality"]
+interviewRequired = true
+networkPolicy = "public"
+
+[verifier]
+timeout_sec = 300.0
+
+[agent]
+timeout_sec = 1200.0
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 900.0
+cpus = 2
+memory_mb = 2048
+storage_mb = 10240

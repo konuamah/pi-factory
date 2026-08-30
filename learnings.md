@@ -25,3 +25,5 @@
 - Never accumulate raw streaming events (message_update/tool_execution_update carry cumulative message snapshots) into result events: it is quadratic and hit V8 max string length in JSON.stringify ("Invalid string length") on a 131MB planner-execution.json. Keep deltas in outputChunks, keep only terminal events.
 - Benchmark layer added: readRunArtifacts() is now the single typed reader for run dirs (missing vs corrupt reported separately), and scoreFactoryRun()/summarizeBenchmarkResults() renormalize weights around null pillars instead of scoring unmeasurable things as 0 or 1.
 - Interview continuity is unmeasurable when the answer only confirms the question's recommendations (all answer tokens appear in the question): report null, not a pass based on a plan existing.
+- Harbor task files must live under environment/ (that directory is the Docker build context) - a custom fixture/ directory is never copied, and tests/ must stay OUTSIDE environment/ or the rubric ships into the agent image.
+- Harbor 0.22 parses /logs/verifier/reward.json (verifier/verifier.py); the adapter guide still documents reward.txt. Write both when a task must satisfy both sources.

@@ -3,6 +3,7 @@ import type {
   AgentExecutionResult,
   AgentExecutor,
 } from "@factory/core";
+import { builtInDefaults } from "@factory/core";
 import { parseDsmlToolCalls, detectDsmlMarkup, parseDsmlParameters, decodeDsmlText, normalizeDsmlToolName, buildDsmlToolResultPrompt, summarizeToolResult, extractToolName, extractToolArgs, toolToCapability, withAgentTurnTimeouts, isAbortError } from "./executor-helpers.js";
 import type {
   PiExecutorOptions,
@@ -25,6 +26,14 @@ export class PiAgentExecutor implements AgentExecutor {
       tools: gatedTools,
       metadata: input.metadata,
     });
+
+    // Timeouts are harness-enforced. Partial or missing caller limits still get
+    // Factory's default watchdogs, so a wedged SDK session can never hang a run.
+    const defaultLimits = builtInDefaults.runtime.limits ?? {};
+    const limits = {
+      modelTimeoutMs: input.limits?.modelTimeoutMs ?? defaultLimits.modelTimeoutMs,
+      totalRunTimeoutMs: input.limits?.totalRunTimeoutMs ?? defaultLimits.totalRunTimeoutMs,
+    };
 
     const state: PiExecutorState = {
       executionId: input.executionId,
@@ -54,7 +63,7 @@ export class PiAgentExecutor implements AgentExecutor {
     try {
       const promptResult = await withAgentTurnTimeouts(
         () => created.session.prompt(input.prompt),
-        input.limits,
+        limits,
         (mark) => {
           markProgress = mark;
         },

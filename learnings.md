@@ -21,3 +21,4 @@
 - Keep new Factory runtime features split into focused coordinator, AI, Git, and type modules so files stay near 400 lines or under and negative paths remain readable.
 - Discovery evidence must observe tracked project config: skip transient Factory subpaths (.factory/runs, dependencies, cache, logs) rather than the whole .factory directory, or confirmed findings about .factory/config.yaml are rejected as hallucinated.
 - Landing guards must match the failure they name: pass only the files the guard reasons cite into the diagnoser, and never block required landing on verification "incomplete" (no runnable commands) — the human approval gate already sees that status.
+- Harness-enforced limits must not depend on every call site remembering to pass them: the Pi executor now applies Factory default model/total timeouts when limits are missing or partial, because one omitted field silently disabled every watchdog and hung a run forever.

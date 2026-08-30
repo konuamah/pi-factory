@@ -378,6 +378,39 @@ test('DSML tool markup is bridged through executable session tools', async () =>
   assert.equal(result.events.some((event) => event.type === 'executor.dsml_tool_completed'), true);
 });
 
+test('missing limits fall back to Factory default timeouts instead of hanging', async () => {
+  let aborted = false;
+  const session = {
+    async prompt() {
+      await new Promise(() => {});
+    },
+    subscribe() {
+      return () => {};
+    },
+    async abort() {
+      aborted = true;
+    },
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: {
+      async create() {
+        return { session };
+      },
+    },
+  });
+
+  const result = await Promise.race([
+    executor.execute({ executionId: 'exec-default-timeout', cwd: process.cwd(), prompt: 'build' }),
+    new Promise((resolve) => setTimeout(() => resolve('HUNG'), 90_000)),
+  ]);
+
+  assert.notEqual(result, 'HUNG');
+  assert.equal(result.status, 'failed');
+  assert.match(result.errorMessage, /model-timeout/);
+  assert.equal(aborted, true);
+});
+
 test('model timeout fails a silent SDK turn with a clear watchdog error', async () => {
   let aborted = false;
   const session = {

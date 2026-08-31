@@ -15,7 +15,7 @@ Planner task titles should use the same compact title for status/log readability
 
 For discovery failures, inspect the execution artifact. `implementationSurface: "missing"` is valid for empty or greenfield repos and should not be treated as a crash.
 
-For model timeouts or executor watchdog aborts, explain that Factory's runtime limit stopped a quiet SDK turn. Recommend tuning `runtime.limits.modelTimeoutMs` or choosing a faster role model only after checking whether the role emitted text or tool events.
+For model timeouts or executor watchdog aborts, explain that Factory's runtime limit stopped a quiet SDK turn. Distinguish the timeout types: `model-idle-timeout` (no SDK activity for `modelIdleTimeoutMs`), `tool-timeout` (a single tool exceeded `toolTimeoutMs`), `turn-timeout` (the whole turn exceeded `turnTimeoutMs`), and `run-timeout` (the whole run exceeded the shared `runTimeoutMs` deadline). Recommend tuning `runtime.limits.modelIdleTimeoutMs` or choosing a faster role model only after checking whether the role emitted text or tool events. Note `modelTimeoutMs`/`totalRunTimeoutMs` are deprecated aliases for `modelIdleTimeoutMs`/`turnTimeoutMs`.
 
 Final run output and `/factory show <run-id>` should show the latest `task.failed` reason, builder status, and builder execution path. If users only see `implementation-failed`, inspect events for the more specific failure reason.
 

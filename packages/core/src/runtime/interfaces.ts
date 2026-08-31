@@ -9,10 +9,26 @@ export interface AgentExecutionInput {
   tools?: string[];
   metadata?: Record<string, unknown>;
   limits?: {
-    totalRunTimeoutMs?: number;
-    modelTimeoutMs?: number;
+    turnTimeoutMs?: number;
+    modelIdleTimeoutMs?: number;
     toolTimeoutMs?: number;
+    runTimeoutMs?: number;
+    adaptiveGrace?: {
+      enabled?: boolean;
+      durationMs?: number;
+      maxExtensionsPerTurn?: number;
+    };
     maxTurns?: number;
+    /**
+     * Absolute wall-clock deadline (ms epoch) for the whole run, established by
+     * the controller when the run starts. Shared across all agent turns so a
+     * new prompt never resets the run budget.
+     */
+    runDeadlineAt?: number;
+    /** @deprecated Alias for `modelIdleTimeoutMs`. */
+    modelTimeoutMs?: number;
+    /** @deprecated Alias for `turnTimeoutMs`. */
+    totalRunTimeoutMs?: number;
   };
 }
 

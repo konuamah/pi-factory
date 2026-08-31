@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { AgentExecutor } from "./interfaces.js";
+import type { AgentExecutor, AgentExecutionInput } from "./interfaces.js";
 import { pathExists } from "./fs-utils.js";
 import { collectFileEvidence } from "./file-evidence.js";
 import { planFileResolution, buildDeterministicFileResolutionPlan } from "./file-planning.js";
@@ -66,6 +66,7 @@ export async function resolveFileReferences(input: {
   executor?: AgentExecutor;
   model?: { provider?: string; model: string };
   runId?: string;
+  limits?: AgentExecutionInput["limits"];
 }): Promise<FileResolutionResult> {
   const refs = extractFileReferences(input.goal);
   if (refs.length === 0) {
@@ -117,6 +118,7 @@ export async function resolveFileReferences(input: {
       executor: input.executor,
       model: input.model,
       runId: input.runId,
+      limits: input.limits,
     });
     resolutionSource = "ai";
   } catch {

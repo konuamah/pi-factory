@@ -129,36 +129,112 @@ export function toolToCapability(toolName: string): string | undefined {
   }
 }
 
-export async function withAgentTurnTimeouts<T>(
+export interface WatchdogDiagnostics {
+  startedAt: number;
+  lastActivityAt?: number;
+  lastActivityType?: string;
+  lastProgressAt?: number;
+  lastProgressType?: string;
+  executionState: "model" | "tool" | "idle" | "completed";
+  activeTools: Array<{ name: string; callId?: string; startedAt: number }>;
+  activityCounts: Record<string, number>;
+  progressCounts: Record<string, number>;
+  graceUsed: boolean;
+}
+
+export interface TurnTimeoutResult {
+  kind: "ok";
+  value: unknown;
+  diagnostics: WatchdogDiagnostics;
+}
+
+export interface TurnTimeoutFailure {
+  kind: "timeout";
+  message: string;
+  timeoutType:
+    | "model-idle-timeout"
+    | "tool-timeout"
+    | "turn-timeout"
+    | "run-timeout";
+  limitMs: number;
+  elapsedMs: number;
+  turnElapsedMs: number;
+  runElapsedMs: number;
+  diagnostics: WatchdogDiagnostics;
+}
+
+export type TurnTimeoutOutcome = TurnTimeoutResult | TurnTimeoutFailure;
+
+export interface WatchdogHandle {
+  markActivity(type?: string): void;
+  markProgress(type?: string): void;
+  markToolStart(tool: { name: string; callId?: string }): void;
+  markToolEnd(tool: { name: string; callId?: string }): void;
+}
+
+/**
+ * Activity != Progress != Completion.
+ *
+ * - `markActivity` (model text / any SDK event) resets the model idle timer but
+ *   does not mean the task is advancing.
+ * - `markProgress` (tool start / tool result / turn transition) resets progress
+ *   accounting and is the meaningful signal.
+ * - `markToolStart` pauses the model idle timer and arms the tool timeout.
+ * - `markToolEnd` resumes the model idle timer once no tools are active.
+ */
+export function withAgentTurnTimeouts<T>(
   fn: () => Promise<T>,
   limits: AgentExecutionInput["limits"],
-  registerProgressMarker: (markProgress: () => void) => void,
-): Promise<{ kind: "ok"; value: T } | { kind: "timeout"; message: string; timeoutType: string; limitMs: number; elapsedMs: number }> {
-  const totalRunTimeoutMs = limits?.totalRunTimeoutMs;
-  const modelTimeoutMs = limits?.modelTimeoutMs;
-  const hasTotalTimeout = Boolean(totalRunTimeoutMs && totalRunTimeoutMs > 0);
-  const hasProgressTimeout = Boolean(modelTimeoutMs && modelTimeoutMs > 0);
-  if (!hasTotalTimeout && !hasProgressTimeout) {
-    registerProgressMarker(() => {});
-    return { kind: "ok", value: await fn() };
+  registerHandle: (handle: WatchdogHandle) => void,
+): Promise<TurnTimeoutOutcome> {
+  const modelIdleTimeoutMs = limits?.modelIdleTimeoutMs ?? limits?.modelTimeoutMs;
+  const toolTimeoutMs = limits?.toolTimeoutMs;
+  const turnTimeoutMs = limits?.turnTimeoutMs ?? limits?.totalRunTimeoutMs;
+  const runDeadlineAt = limits?.runDeadlineAt;
+  const graceDurationMs = limits?.adaptiveGrace?.durationMs;
+  const maxExtensions = limits?.adaptiveGrace?.maxExtensionsPerTurn ?? 1;
+  const graceEnabled = Boolean(limits?.adaptiveGrace?.enabled && graceDurationMs && graceDurationMs > 0);
+
+  const hasModelIdle = Boolean(modelIdleTimeoutMs && modelIdleTimeoutMs > 0);
+  const hasToolTimeout = Boolean(toolTimeoutMs && toolTimeoutMs > 0);
+  const hasTurnTimeout = Boolean(turnTimeoutMs && turnTimeoutMs > 0);
+  const hasRunDeadline = Boolean(runDeadlineAt && runDeadlineAt > 0);
+  if (!hasModelIdle && !hasToolTimeout && !hasTurnTimeout && !hasRunDeadline) {
+    registerHandle({
+      markActivity: () => {},
+      markProgress: () => {},
+      markToolStart: () => {},
+      markToolEnd: () => {},
+    });
+    return Promise.resolve(fn()).then((value) => ({ kind: "ok", value, diagnostics: emptyDiagnostics() }));
   }
 
   const startedAt = Date.now();
+  const diagnostics: WatchdogDiagnostics = emptyDiagnostics(startedAt);
+  let graceUsed = false;
+  let graceExtensions = 0;
+
   return new Promise((resolve, reject) => {
     let settled = false;
-    let totalTimer: ReturnType<typeof setTimeout> | undefined;
-    let progressTimer: ReturnType<typeof setTimeout> | undefined;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let turnTimer: ReturnType<typeof setTimeout> | undefined;
+    let runTimer: ReturnType<typeof setTimeout> | undefined;
+    const toolTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     const clearTimers = () => {
-      if (totalTimer) clearTimeout(totalTimer);
-      if (progressTimer) clearTimeout(progressTimer);
+      if (idleTimer) clearTimeout(idleTimer);
+      if (turnTimer) clearTimeout(turnTimer);
+      if (runTimer) clearTimeout(runTimer);
+      for (const timer of toolTimers.values()) clearTimeout(timer);
+      toolTimers.clear();
     };
 
     const settleOk = (value: T) => {
       if (settled) return;
       settled = true;
       clearTimers();
-      resolve({ kind: "ok", value });
+      diagnostics.executionState = "completed";
+      resolve({ kind: "ok", value, diagnostics });
     };
 
     const settleError = (error: unknown) => {
@@ -168,49 +244,158 @@ export async function withAgentTurnTimeouts<T>(
       reject(error);
     };
 
-    const settleTimeout = (timeoutType: string, limitMs: number, message: string) => {
-      if (!settled) {
-        settled = true;
-        clearTimers();
-        resolve({
-          kind: "timeout",
-          message,
-          timeoutType,
-          limitMs,
-          elapsedMs: Date.now() - startedAt,
-        });
+    const settleTimeout = (
+      timeoutType: TurnTimeoutFailure["timeoutType"],
+      limitMs: number,
+      message: string,
+    ) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      // Preserve the real execution state at the moment the watchdog fired
+      // ("tool" for tool timeouts, "model" for idle while the model is
+      // thinking). Only fall back to "idle" if nothing else is happening.
+      if (diagnostics.executionState !== "tool" && diagnostics.executionState !== "model") {
+        diagnostics.executionState = "idle";
       }
+      const now = Date.now();
+      resolve({
+        kind: "timeout",
+        message,
+        timeoutType,
+        limitMs,
+        elapsedMs: now - startedAt,
+        turnElapsedMs: now - startedAt,
+        runElapsedMs: runDeadlineAt ? Math.max(0, now - (runDeadlineAt - (limits?.runTimeoutMs ?? 0))) : now - startedAt,
+        diagnostics,
+      });
     };
 
-    const armProgressTimer = () => {
-      if (!hasProgressTimeout || !modelTimeoutMs || settled) {
+    const armIdleTimer = (now: number) => {
+      if (!hasModelIdle || !modelIdleTimeoutMs || settled || diagnostics.executionState === "tool") {
         return;
       }
-      if (progressTimer) clearTimeout(progressTimer);
-      progressTimer = setTimeout(() => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        if (diagnostics.executionState === "tool") return;
+        // Deterministic bounded grace: at most one extension per turn. The
+        // grace window is granted only when the model actually goes quiet past
+        // the idle limit, never up-front on arming, so activity cannot
+        // "look busy" and repeatedly earn extensions.
+        if (graceEnabled && !graceUsed && graceExtensions < maxExtensions && graceDurationMs) {
+          graceUsed = true;
+          graceExtensions += 1;
+          diagnostics.graceUsed = true;
+          const now = Date.now();
+          const window = graceDurationMs;
+          idleTimer = setTimeout(() => {
+            if (diagnostics.executionState === "tool") return;
+            settleTimeout(
+              "model-idle-timeout",
+              modelIdleTimeoutMs,
+              `No model activity for ${Math.round(modelIdleTimeoutMs / 1000)}s (model-idle-timeout)`,
+            );
+          }, window);
+          return;
+        }
         settleTimeout(
-          "model-timeout",
-          modelTimeoutMs,
-          `Agent execution made no progress for ${Math.round(modelTimeoutMs / 1000)}s (model-timeout)`,
+          "model-idle-timeout",
+          modelIdleTimeoutMs,
+          `No model activity for ${Math.round(modelIdleTimeoutMs / 1000)}s (model-idle-timeout)`,
         );
-      }, modelTimeoutMs);
+      }, modelIdleTimeoutMs);
     };
 
-    registerProgressMarker(armProgressTimer);
-    armProgressTimer();
+    const handle: WatchdogHandle = {
+      markActivity(type = "sdk-event") {
+        if (settled) return;
+        const now = Date.now();
+        diagnostics.lastActivityAt = now;
+        diagnostics.lastActivityType = type;
+        diagnostics.activityCounts[type] = (diagnostics.activityCounts[type] ?? 0) + 1;
+        armIdleTimer(now);
+      },
+      markProgress(type = "progress") {
+        if (settled) return;
+        const now = Date.now();
+        diagnostics.lastProgressAt = now;
+        diagnostics.lastProgressType = type;
+        diagnostics.progressCounts[type] = (diagnostics.progressCounts[type] ?? 0) + 1;
+      },
+      markToolStart(tool) {
+        if (settled) return;
+        const now = Date.now();
+        diagnostics.executionState = "tool";
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = undefined;
+        const key = tool.callId ?? tool.name;
+        diagnostics.activeTools.push({ name: tool.name, callId: tool.callId, startedAt: now });
+        this.markProgress("tool-start");
+        if (hasToolTimeout && toolTimeoutMs) {
+          if (toolTimers.has(key)) clearTimeout(toolTimers.get(key));
+          toolTimers.set(key, setTimeout(() => {
+            settleTimeout(
+              "tool-timeout",
+              toolTimeoutMs,
+              `Tool '${tool.name}' exceeded ${Math.round(toolTimeoutMs / 1000)}s (tool-timeout)`,
+            );
+          }, toolTimeoutMs));
+        }
+      },
+      markToolEnd(tool) {
+        if (settled) return;
+        const key = tool.callId ?? tool.name;
+        const timer = toolTimers.get(key);
+        if (timer) {
+          clearTimeout(timer);
+          toolTimers.delete(key);
+        }
+        diagnostics.activeTools = diagnostics.activeTools.filter((t) => (t.callId ?? t.name) !== key);
+        this.markProgress("tool-result");
+        if (diagnostics.activeTools.length === 0) {
+          diagnostics.executionState = "model";
+          armIdleTimer(Date.now());
+        }
+      },
+    };
 
-    if (hasTotalTimeout && totalRunTimeoutMs) {
-      totalTimer = setTimeout(() => {
+    registerHandle(handle);
+    armIdleTimer(startedAt);
+
+    if (hasTurnTimeout && turnTimeoutMs) {
+      turnTimer = setTimeout(() => {
         settleTimeout(
-          "total-run-timeout",
-          totalRunTimeoutMs,
-          `Agent execution timed out after ${Math.round(totalRunTimeoutMs / 1000)}s (total-run-timeout)`,
+          "turn-timeout",
+          turnTimeoutMs,
+          `Agent turn exceeded ${Math.round(turnTimeoutMs / 1000)}s (turn-timeout)`,
         );
-      }, totalRunTimeoutMs);
+      }, turnTimeoutMs);
+    }
+
+    if (hasRunDeadline && runDeadlineAt) {
+      const remaining = Math.max(0, runDeadlineAt - Date.now());
+      runTimer = setTimeout(() => {
+        settleTimeout(
+          "run-timeout",
+          remaining,
+          `Run deadline exceeded (run-timeout)`,
+        );
+      }, remaining);
     }
 
     void fn().then(settleOk, settleError);
   });
+}
+
+function emptyDiagnostics(startedAt = Date.now()): WatchdogDiagnostics {
+  return {
+    startedAt,
+    executionState: "model",
+    activeTools: [],
+    activityCounts: {},
+    progressCounts: {},
+    graceUsed: false,
+  };
 }
 
 export function isAbortError(error: unknown): boolean {

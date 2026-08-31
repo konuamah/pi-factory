@@ -57,6 +57,7 @@ try {
     repairModel: loaded.effectiveConfig.models.repair,
     repairGuidanceContext: repairGuidance.text,
     repairSkillBundleText: renderSkillBundleForPrompt(repairSkills),
+    limits: loaded.effectiveConfig.runtime.limits,
   });
 } catch (error) {
   const integrationFailure = await classifyIntegrationFailure(executionCwd, error);

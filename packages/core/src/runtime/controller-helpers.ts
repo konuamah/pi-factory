@@ -49,6 +49,7 @@ export interface VerificationRepairLoopContext {
   verificationPath: string;
   contractResult: VerificationEngineResult;
   repairExecutionPaths: string[];
+  limits?: EffectiveFactoryConfig["runtime"]["limits"];
 }
 
 export async function runVerificationRepairLoop(
@@ -102,6 +103,7 @@ export async function runVerificationRepairLoop(
       ),
       model: repairModel,
       tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+      limits: context.limits,
       metadata: {
         role: "repair",
         runId: run.runId,
@@ -216,6 +218,7 @@ export interface EnvironmentPreparationContext {
   implementationChangedFiles: string[];
   verification: VerificationRunResult;
   verificationFailureClassification: VerificationFailureClassification | undefined;
+  limits?: EffectiveFactoryConfig["runtime"]["limits"];
 }
 
 export async function attemptEnvironmentPreparation(
@@ -254,6 +257,7 @@ export async function attemptEnvironmentPreparation(
       prompt: buildEnvironmentPrepPrompt(verification.cwd, environmentFailures),
       model: repairModel,
       tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+      limits: context.limits,
       metadata: { role: "repair", purpose: "environment-preparation", runId: run.runId },
     });
     await appendFactoryRunEvent(run.eventsPath, {

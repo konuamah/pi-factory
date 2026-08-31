@@ -128,6 +128,7 @@ if (input.reviewerExecutor) {
     prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills), interviewDecisions),
     model: loaded.effectiveConfig.models.reviewer,
     tools: ["read", "grep", "find", "ls"],
+    limits: loaded.effectiveConfig.runtime.limits,
     metadata: {
       role: "reviewer",
       runId: run.runId,

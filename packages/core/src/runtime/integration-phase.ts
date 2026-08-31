@@ -28,6 +28,7 @@ export async function runIntegrationPhase(input: {
   repairModel?: { provider?: string; model: string };
   repairGuidanceContext?: string;
   repairSkillBundleText?: string;
+  limits?: EffectiveFactoryConfig["runtime"]["limits"];
 }): Promise<string | undefined> {
   const mergedBranches: Array<{
     taskId: string;
@@ -96,6 +97,7 @@ export async function runIntegrationPhase(input: {
         repairModel: input.repairModel,
         repairGuidanceContext: input.repairGuidanceContext,
         repairSkillBundleText: input.repairSkillBundleText,
+        limits: input.limits,
       });
 
       if (!repaired) {
@@ -137,6 +139,7 @@ export async function attemptIntegrationAutoRepair(input: {
   repairModel?: { provider?: string; model: string };
   repairGuidanceContext?: string;
   repairSkillBundleText?: string;
+  limits?: EffectiveFactoryConfig["runtime"]["limits"];
 }): Promise<boolean> {
   if (!input.repairExecutor || input.conflictingFiles.length === 0) {
     return false;
@@ -158,6 +161,7 @@ export async function attemptIntegrationAutoRepair(input: {
     prompt: buildIntegrationRepairPrompt(input.goal, input.branch, input.conflictingFiles, input.repairGuidanceContext, input.repairSkillBundleText),
     model: input.repairModel,
     tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+    limits: input.limits,
     metadata: {
       role: "repair",
       runId: input.runId,

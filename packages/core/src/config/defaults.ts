@@ -13,9 +13,11 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
   runtime: {
     maxParallelAgents: 2,
     limits: {
-      totalRunTimeoutMs: 900_000,
-      modelTimeoutMs: 60_000,
+      turnTimeoutMs: 900_000,
+      modelIdleTimeoutMs: 60_000,
       toolTimeoutMs: 30_000,
+      runTimeoutMs: 3_600_000,
+      adaptiveGrace: { enabled: false, durationMs: 30_000, maxExtensionsPerTurn: 1 },
       maxTurns: 50,
     },
   },

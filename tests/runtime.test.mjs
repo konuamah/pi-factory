@@ -62,7 +62,7 @@ function makeExecutor(label, calls) {
         : input.metadata?.role === 'landing'
           ? 'landing'
           : label;
-      calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt });
+      calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt, limits: input.limits });
       if (actualLabel === 'builder') {
         await fs.writeFile(path.join(input.cwd, 'factory-builder-output.txt'), `${input.executionId}\n`, 'utf8');
       }
@@ -118,6 +118,50 @@ async function writeProjectSkill(root, id, body, metadataLines = []) {
     'utf8',
   );
 }
+
+test('a single run deadline is shared across discovery and planner executor calls', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  lint: node -e ""',
+        '  typecheck: node -e ""',
+        '  test: node -e ""',
+        '  build: node -e ""',
+        'runtime:',
+        '  limits:',
+        '    runTimeoutMs: 120000',
+        'git:',
+        '  allowWorktrees: false',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const discoveryCall = calls.find((call) => call.label === 'discovery');
+    const plannerCall = calls.find((call) => call.label === 'planner');
+    assert.ok(discoveryCall?.limits?.runDeadlineAt, 'discovery gets a run deadline');
+    assert.ok(plannerCall?.limits?.runDeadlineAt, 'planner gets a run deadline');
+    assert.equal(discoveryCall.limits.runDeadlineAt, plannerCall.limits.runDeadlineAt);
+    assert.ok(discoveryCall.limits.runDeadlineAt > Date.now());
+  });
+});
 
 test('project instruction files are injected into planner context ahead of constitution summary', async () => {
   await withTempProject(async (root) => {
@@ -260,7 +304,7 @@ test('invalid discovery output fails loudly before planning', async () => {
     );
 
     assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
-    assert.equal(calls.find((call) => call.label === 'discovery').limits.modelTimeoutMs, 60_000);
+    assert.equal(calls.find((call) => call.label === 'discovery').limits.modelIdleTimeoutMs, 60_000);
     assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
     const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
     const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
@@ -301,7 +345,7 @@ test('failed discovery executor reports executor error instead of empty output',
     );
 
     assert.equal(calls.filter((call) => call.label === 'discovery').length, 1);
-    assert.equal(calls.find((call) => call.label === 'discovery').limits.totalRunTimeoutMs, 900_000);
+    assert.equal(calls.find((call) => call.label === 'discovery').limits.turnTimeoutMs, 900_000);
     assert.equal(calls.filter((call) => call.label === 'planner').length, 0);
     const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
     const runDir = path.join(root, '.factory', 'runs', runs.at(-1));

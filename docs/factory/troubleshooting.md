@@ -61,7 +61,7 @@ Fix:
 - if the SDK assistant message ended with `stopReason: error`, trust the preserved `errorMessage` instead of treating the empty text as model silence
 - if the executor timed out, use a faster discovery model or reduce discovery scope before retrying
 - if `outputText` contains malformed JSON, Factory retries once with a strict JSON repair prompt and preserves the invalid payload as `discovery-execution-invalid.json`
-- keep `runtime.limits` in `.factory/config.yaml` aligned with the repository size and model/provider behavior
+- keep `runtime.limits` in `.factory/config.yaml` aligned with the repository size and model/provider behavior (`modelIdleTimeoutMs`, `toolTimeoutMs`, `turnTimeoutMs`, `runTimeoutMs`)
 
 ## Discovery Finds No Implementation Surface
 
@@ -83,17 +83,34 @@ Fix:
 Symptom:
 
 ```text
-Agent execution made no progress for 60s (model-timeout)
+Agent execution made no progress for 60s (model-idle-timeout)
 ```
 
 Fix:
 
 - inspect `/factory logs` and the role execution artifact for `executor.timeout`
-- treat `modelTimeoutMs` as the no-progress watchdog for Pi SDK agent turns
-- if task titles contain the full prompt or pasted article, fix Factory task-title generation before blaming the target repo
-- final run output and `/factory show <run-id>` should surface the latest `task.failed` reason, builder status, and builder execution path so users see `model-timeout` instead of only `implementation-failed`
-- increase `runtime.limits.modelTimeoutMs` only when the provider regularly pauses longer than the current value while still making useful progress
+- treat `modelIdleTimeoutMs` as the no-activity watchdog for Pi SDK agent turns
+- `Activity != Progress != Completion`: a model emitting text resets the idle watchdog even if it is not advancing the task; a tool call or tool result is meaningful progress
+- final run output and `/factory show <run-id>` should surface the latest `task.failed` reason, builder status, and builder execution path so users see the specific timeout type instead of only `implementation-failed`
+- increase `runtime.limits.modelIdleTimeoutMs` only when the provider regularly pauses longer than the current value while still making useful progress
 - prefer a faster model for the affected role when the watchdog repeatedly trips before any tool or text event
+
+### Timeout types
+
+| Timeout | Meaning | Fix |
+| --- | --- | --- |
+| `model-idle-timeout` | No SDK activity (text or tool event) for `modelIdleTimeoutMs` | Use a faster model or raise `modelIdleTimeoutMs` |
+| `tool-timeout` | A single tool call exceeded `toolTimeoutMs` | Inspect the tool; the model idle watchdog is paused while a tool runs |
+| `turn-timeout` | The whole agent turn exceeded `turnTimeoutMs` (hard, activity does not extend it) | Raise `turnTimeoutMs` or break the task into smaller turns |
+| `run-timeout` | The whole run exceeded `runTimeoutMs` (one shared absolute deadline) | Raise `runTimeoutMs`; this is a true run-level budget, not per-turn |
+
+### Deprecated aliases
+
+- `runtime.limits.modelTimeoutMs` is a deprecated alias for `modelIdleTimeoutMs`.
+- `runtime.limits.totalRunTimeoutMs` was misnamed and is a deprecated alias for `turnTimeoutMs` (it was always per-turn, not per-run).
+- Use `runTimeoutMs` for a true run-level deadline.
+
+Diagnostics on every `executor.timeout` event include `lastActivityType`, `lastActivityAt`, `lastProgressType`, `lastProgressAt`, `executionState`, `activeTools`, `activityCounts`, `progressCounts`, `graceUsed`, `turnElapsedMs`, and `runElapsedMs`, so you can tell a silent provider apart from a talkative-but-unproductive model.
 
 ## Discovered Command Not Actually Discovered
 

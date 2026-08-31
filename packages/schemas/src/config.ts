@@ -1,10 +1,44 @@
 export type ModelRole = "discovery" | "planner" | "builder" | "reviewer" | "repair" | "landing";
 
 export interface ExecutionLimits {
-  totalRunTimeoutMs?: number;
-  modelTimeoutMs?: number;
+  /**
+   * Hard ceiling for one agent turn (model + tool activity combined).
+   * Replaces the ambiguous `totalRunTimeoutMs` (which was actually per-turn).
+   */
+  turnTimeoutMs?: number;
+  /**
+   * Fires when the model/provider emits no activity (SDK events) for this long.
+   * Text events count as activity and keep this timer reset.
+   */
+  modelIdleTimeoutMs?: number;
+  /**
+   * Hard ceiling for a single tool execution. The model idle watchdog is paused
+   * while a tool owns execution.
+   */
   toolTimeoutMs?: number;
+  /**
+   * Hard ceiling across all turns/phases of one Factory run (controller-owned).
+   */
+  runTimeoutMs?: number;
+  /**
+   * Absolute wall-clock deadline (ms epoch) for the whole run, established by
+   * the controller when the run starts and shared across all agent turns.
+   */
+  runDeadlineAt?: number;
+  /**
+   * Optional deterministic grace for model reasoning pauses. At most one
+   * extension per turn; never extends tool or turn/run hard ceilings.
+   */
+  adaptiveGrace?: {
+    enabled?: boolean;
+    durationMs?: number;
+    maxExtensionsPerTurn?: number;
+  };
   maxTurns?: number;
+  /** @deprecated Alias for `modelIdleTimeoutMs`. */
+  modelTimeoutMs?: number;
+  /** @deprecated Alias for `turnTimeoutMs` (was misnamed as a run timeout). */
+  totalRunTimeoutMs?: number;
 }
 
 export interface ModelSelection {

@@ -480,7 +480,7 @@ test('missing limits fall back to Factory default timeouts instead of hanging', 
 
   assert.notEqual(result, 'HUNG');
   assert.equal(result.status, 'failed');
-  assert.match(result.errorMessage, /model-timeout/);
+  assert.match(result.errorMessage, /model-idle-timeout/);
   assert.equal(aborted, true);
 });
 
@@ -538,16 +538,19 @@ test('model timeout fails a silent SDK turn with a clear watchdog error', async 
     cwd: process.cwd(),
     prompt: 'build',
     limits: {
-      modelTimeoutMs: 20,
-      totalRunTimeoutMs: 1000,
+      modelIdleTimeoutMs: 20,
+      turnTimeoutMs: 1000,
     },
   });
 
   assert.equal(result.status, 'failed');
   assert.equal(aborted, true);
-  assert.match(result.errorMessage, /made no progress.*model-timeout/);
+  assert.match(result.errorMessage, /model-idle-timeout/);
   const timeoutEvent = result.events.find((event) => event.type === 'executor.timeout');
-  assert.equal(timeoutEvent?.data?.timeoutType, 'model-timeout');
+  assert.equal(timeoutEvent?.data?.timeoutType, 'model-idle-timeout');
+  assert.ok(timeoutEvent?.data?.lastActivityAt === undefined);
+  assert.deepEqual(timeoutEvent?.data?.activityCounts, {});
+  assert.equal(timeoutEvent?.data?.graceUsed, false);
 });
 
 test('model timeout watchdog resets when SDK events arrive', async () => {
@@ -581,14 +584,230 @@ test('model timeout watchdog resets when SDK events arrive', async () => {
     cwd: process.cwd(),
     prompt: 'build',
     limits: {
-      modelTimeoutMs: 25,
-      totalRunTimeoutMs: 1000,
+      modelIdleTimeoutMs: 25,
+      turnTimeoutMs: 1000,
     },
   });
 
   assert.equal(result.status, 'completed');
   assert.equal(result.outputText, 'working done');
   assert.equal(result.events.some((event) => event.type === 'executor.timeout'), false);
+});
+
+test('tool execution pauses the model idle watchdog and tools are tracked', async () => {
+  // A long tool (200ms) must not trip a 60ms idle watchdog; the tool timeout
+  // and turn timeout bound it instead. Tool start/end also count as progress.
+  const session = {
+    listener: undefined,
+    async prompt() {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      this.listener?.({
+        type: 'tool_execution_start',
+        data: {
+          toolCallId: 't1',
+          assistantMessageEvent: { type: 'toolCall', name: 'bash' },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      this.listener?.({
+        type: 'tool_execution_end',
+        data: {
+          toolCallId: 't1',
+          assistantMessageEvent: { type: 'toolCall', name: 'bash' },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      this.listener?.({ type: 'message_update', text: 'done' });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {
+      throw new Error('should not abort');
+    },
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({ sessionFactory: { async create() { return { session }; } } });
+  const result = await executor.execute({
+    executionId: 'exec-tool-pause',
+    cwd: process.cwd(),
+    prompt: 'build',
+    limits: {
+      modelIdleTimeoutMs: 60,
+      toolTimeoutMs: 1000,
+      turnTimeoutMs: 2000,
+    },
+  });
+  assert.equal(result.status, 'completed');
+  assert.equal(result.events.some((event) => event.type === 'executor.timeout'), false);
+});
+
+test('tool timeout aborts a session when a single tool exceeds its bound', async () => {
+  let aborted = false;
+  const session = {
+    listener: undefined,
+    async prompt() {
+      // Emit a tool start, then never emit tool end or more events. The tool
+      // timeout (30ms) should fire before the model idle watchdog (1000ms).
+      this.listener?.({
+        type: 'tool_execution_start',
+        data: {
+          toolCallId: 't1',
+          assistantMessageEvent: { type: 'toolCall', name: 'bash' },
+        },
+      });
+      await new Promise(() => {});
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {
+      aborted = true;
+    },
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: {
+      async create() {
+        return { session };
+      },
+    },
+  });
+  const result = await executor.execute({
+    executionId: 'exec-tool-timeout',
+    cwd: process.cwd(),
+    prompt: 'build',
+    limits: {
+      modelIdleTimeoutMs: 1000,
+      toolTimeoutMs: 30,
+      turnTimeoutMs: 2000,
+    },
+  });
+  assert.equal(result.status, 'failed');
+  assert.match(result.errorMessage, /tool-timeout/);
+  assert.equal(aborted, true);
+  const ev = result.events.find((e) => e.type === 'executor.timeout');
+  assert.equal(ev?.data?.timeoutType, 'tool-timeout');
+  assert.equal(ev?.data?.executionState, 'tool');
+  assert.ok(ev?.data?.activeTools.some((t) => t.name === 'bash'));
+});
+
+test('run deadline is not reset by a new prompt and fails deterministically', async () => {
+  let aborted = false;
+  const session = {
+    listener: undefined,
+    async prompt() {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      this.listener?.({ type: 'message_update', text: 'tick ' });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      this.listener?.({ type: 'message_update', text: 'tock' });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {
+      aborted = true;
+    },
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({ sessionFactory: { async create() { return { session }; } } });
+  const result = await executor.execute({
+    executionId: 'exec-run-deadline',
+    cwd: process.cwd(),
+    prompt: 'build',
+    limits: {
+      modelIdleTimeoutMs: 5000,
+      turnTimeoutMs: 5000,
+      runDeadlineAt: Date.now() - 1, // already spent
+      runTimeoutMs: 5000,
+    },
+  });
+  assert.equal(result.status, 'failed');
+  assert.match(result.errorMessage, /run-timeout/);
+  assert.equal(aborted, false); // never started a session, so nothing to abort
+  const ev = result.events.find((e) => e.type === 'executor.timeout');
+  assert.equal(ev?.data?.timeoutType, 'run-timeout');
+});
+
+test('model idle timeout emits detailed diagnostics', async () => {
+  let aborted = false;
+  const session = {
+    listener: undefined,
+    async prompt() {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      this.listener?.({ type: 'message_update', text: 'some narration' });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      // then go silent and never emit again
+      await new Promise(() => {});
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {
+      aborted = true;
+    },
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({ sessionFactory: { async create() { return { session }; } } });
+  const result = await executor.execute({
+    executionId: 'exec-diagnostics',
+    cwd: process.cwd(),
+    prompt: 'build',
+    limits: {
+      modelIdleTimeoutMs: 25,
+      turnTimeoutMs: 5000,
+    },
+  });
+  assert.equal(result.status, 'failed');
+  const ev = result.events.find((e) => e.type === 'executor.timeout');
+  assert.equal(ev?.data?.timeoutType, 'model-idle-timeout');
+  assert.ok(ev?.data?.lastActivityType === 'message_update');
+  assert.ok(typeof ev?.data?.lastActivityAt === 'number');
+  assert.deepEqual(ev?.data?.activityCounts, { message_update: 1 });
+  assert.equal(ev?.data?.graceUsed, false);
+  assert.equal(aborted, true);
+});
+
+test('bounded adaptive grace extends the model idle window once per turn', async () => {
+  // modelIdleTimeoutMs=30 with a 60ms gap would normally fire the idle
+  // watchdog. Adaptive grace (durationMs=100) should keep the turn alive once.
+  let aborted = false;
+  const session = {
+    listener: undefined,
+    async prompt() {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      this.listener?.({ type: 'message_update', text: 'thinking hard' });
+      await new Promise((resolve) => setTimeout(resolve, 50)); // exceeds idle 30ms
+      this.listener?.({ type: 'message_update', text: 'done' });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {
+      aborted = true;
+    },
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({ sessionFactory: { async create() { return { session }; } } });
+  const result = await executor.execute({
+    executionId: 'exec-grace',
+    cwd: process.cwd(),
+    prompt: 'build',
+    limits: {
+      modelIdleTimeoutMs: 30,
+      turnTimeoutMs: 2000,
+      adaptiveGrace: { enabled: true, durationMs: 100, maxExtensionsPerTurn: 1 },
+    },
+  });
+  assert.equal(result.status, 'completed');
+  assert.equal(aborted, false);
+  const timeoutEvent = result.events.find((e) => e.type === 'executor.timeout');
+  assert.equal(timeoutEvent, undefined);
 });
 
 test('configured model without provider throws a loud provider resolution error', async () => {

@@ -76,6 +76,7 @@ if (input.plannerExecutor) {
     prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text, renderSkillBundleForPrompt(plannerSkills), discoveryOutputText, interviewContext),
     model: plannerModel.model,
     tools: ["read", "grep", "find", "ls"],
+    limits: loaded.effectiveConfig.runtime.limits,
     metadata: {
       role: "planner",
       runId: run.runId,
@@ -94,6 +95,7 @@ if (input.plannerExecutor) {
       executor: input.plannerExecutor,
       model: plannerModel.model,
       runId: run.runId,
+      limits: loaded.effectiveConfig.runtime.limits,
     });
     if (llmValidation.ok) {
       plannerValidation = { ok: true };

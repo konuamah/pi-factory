@@ -2,7 +2,7 @@
 // runtime controller focuses on orchestration. Pure functions: no controller
 // state, only the planner result + optional LLM executor.
 
-import type { AgentExecutor } from "./interfaces.js";
+import type { AgentExecutor, AgentExecutionInput } from "./interfaces.js";
 
 export function sanitizePlannerOutput(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -46,6 +46,7 @@ export async function validatePlannerOutputWithLLM(input: {
   executor: AgentExecutor;
   model?: { provider?: string; model: string };
   runId?: string;
+  limits?: AgentExecutionInput["limits"];
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const result = await input.executor.execute({
     executionId: `${input.runId ?? "planner"}-validation`,
@@ -53,6 +54,7 @@ export async function validatePlannerOutputWithLLM(input: {
     prompt: buildPlannerValidationPrompt(input.plannerOutput),
     model: input.model,
     tools: [],
+    limits: input.limits,
     metadata: { role: "planner-validation", runId: input.runId },
   });
   const parsed = parsePlannerValidationResult(result.outputText);

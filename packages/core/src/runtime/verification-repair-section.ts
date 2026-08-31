@@ -52,6 +52,7 @@ verificationPlan,
 implementationChangedFiles,
 verification,
 verificationFailureClassification,
+limits: loaded.effectiveConfig.runtime.limits,
 });
 verification = environmentPrepState.verification;
 verificationFailureClassification = environmentPrepState.verificationFailureClassification;
@@ -91,6 +92,7 @@ const repairState = await runVerificationRepairLoop({
   verificationPath,
   contractResult,
   repairExecutionPaths,
+  limits: loaded.effectiveConfig.runtime.limits,
 });
 verification = repairState.verification;
 verificationFailureClassification = repairState.verificationFailureClassification;

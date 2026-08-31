@@ -4,7 +4,7 @@ import type {
   AgentExecutor,
 } from "@factory/core";
 import { builtInDefaults } from "@factory/core";
-import { parseDsmlToolCalls, detectDsmlMarkup, parseDsmlParameters, decodeDsmlText, normalizeDsmlToolName, buildDsmlToolResultPrompt, summarizeToolResult, extractToolName, extractToolArgs, toolToCapability, withAgentTurnTimeouts, isAbortError } from "./executor-helpers.js";
+import { parseDsmlToolCalls, detectDsmlMarkup, parseDsmlParameters, decodeDsmlText, normalizeDsmlToolName, buildDsmlToolResultPrompt, summarizeToolResult, extractToolName, extractToolArgs, toolToCapability, withAgentTurnTimeouts, isAbortError, type WatchdogHandle } from "./executor-helpers.js";
 import type {
   PiExecutorOptions,
   PiExecutorState,
@@ -37,9 +37,36 @@ export class PiAgentExecutor implements AgentExecutor {
     // Factory's default watchdogs, so a wedged SDK session can never hang a run.
     const defaultLimits = builtInDefaults.runtime.limits ?? {};
     const limits = {
-      modelTimeoutMs: input.limits?.modelTimeoutMs ?? defaultLimits.modelTimeoutMs,
-      totalRunTimeoutMs: input.limits?.totalRunTimeoutMs ?? defaultLimits.totalRunTimeoutMs,
+      modelIdleTimeoutMs: input.limits?.modelIdleTimeoutMs ?? input.limits?.modelTimeoutMs ?? defaultLimits.modelIdleTimeoutMs ?? defaultLimits.modelTimeoutMs,
+      turnTimeoutMs: input.limits?.turnTimeoutMs ?? input.limits?.totalRunTimeoutMs ?? defaultLimits.turnTimeoutMs ?? defaultLimits.totalRunTimeoutMs,
+      toolTimeoutMs: input.limits?.toolTimeoutMs ?? defaultLimits.toolTimeoutMs,
+      runTimeoutMs: input.limits?.runTimeoutMs ?? defaultLimits.runTimeoutMs,
+      runDeadlineAt: input.limits?.runDeadlineAt,
+      adaptiveGrace: input.limits?.adaptiveGrace ?? defaultLimits.adaptiveGrace,
     };
+
+    // True run-level deadline: if the absolute run budget is already spent
+    // before this executor even starts, fail fast rather than starting a turn.
+    if (limits.runDeadlineAt && limits.runDeadlineAt <= Date.now()) {
+      const message = `Run deadline exceeded (run-timeout)`;
+      return {
+        executionId: input.executionId,
+        status: "failed",
+        outputText: "",
+        events: [{
+          type: "executor.timeout",
+          data: {
+            reason: message,
+            timeoutType: "run-timeout",
+            limitMs: 0,
+            elapsedMs: 0,
+            runElapsedMs: Date.now() - (limits.runDeadlineAt - (limits.runTimeoutMs ?? 0)),
+            executionState: "idle",
+          },
+        }],
+        errorMessage: message,
+      };
+    }
 
     const state: PiExecutorState = {
       executionId: input.executionId,
@@ -58,9 +85,19 @@ export class PiAgentExecutor implements AgentExecutor {
     }
 
     this.activeSessions.set(input.executionId, created.session);
-    let markProgress = () => {};
+    let watchdog: WatchdogHandle = {
+      markActivity: () => {},
+      markProgress: () => {},
+      markToolStart: () => {},
+      markToolEnd: () => {},
+    };
     const unsubscribe = created.session.subscribe((event) => {
-      markProgress();
+      // Activity: any SDK event proves the stream is alive and resets the idle
+      // watchdog. Meaningful progress is tracked separately (tool starts,
+      // tool results, turn transitions) so a talkative-but-idle model cannot
+      // reset every watchdog.
+      watchdog.markActivity(event.type);
+      this.trackToolEvents(watchdog, event);
       this.captureEvent(state, event);
       this.auditToolCall(input.executionId, state, event, input.metadata);
       void this.options.onEvent?.(input.executionId, event);
@@ -70,8 +107,8 @@ export class PiAgentExecutor implements AgentExecutor {
       const promptResult = await withAgentTurnTimeouts(
         () => created.session.prompt(input.prompt),
         limits,
-        (mark) => {
-          markProgress = mark;
+        (handle) => {
+          watchdog = handle;
         },
       );
       if (promptResult.kind === "timeout") {
@@ -82,6 +119,17 @@ export class PiAgentExecutor implements AgentExecutor {
             timeoutType: promptResult.timeoutType,
             limitMs: promptResult.limitMs,
             elapsedMs: promptResult.elapsedMs,
+            turnElapsedMs: promptResult.turnElapsedMs,
+            runElapsedMs: promptResult.runElapsedMs,
+            lastActivityAt: promptResult.diagnostics.lastActivityAt,
+            lastActivityType: promptResult.diagnostics.lastActivityType,
+            lastProgressAt: promptResult.diagnostics.lastProgressAt,
+            lastProgressType: promptResult.diagnostics.lastProgressType,
+            executionState: promptResult.diagnostics.executionState,
+            activeTools: promptResult.diagnostics.activeTools,
+            activityCounts: promptResult.diagnostics.activityCounts,
+            progressCounts: promptResult.diagnostics.progressCounts,
+            graceUsed: promptResult.diagnostics.graceUsed,
           },
         });
         await created.session.abort().catch(() => {});
@@ -93,7 +141,7 @@ export class PiAgentExecutor implements AgentExecutor {
           errorMessage: promptResult.message,
         };
       }
-      const bridged = await this.bridgeDsmlToolMarkup(input.executionId, created.session, state);
+      const bridged = await this.bridgeDsmlToolMarkup(input.executionId, created.session, state, watchdog);
       if (!bridged.ok) {
         return {
           executionId: input.executionId,
@@ -197,6 +245,20 @@ export class PiAgentExecutor implements AgentExecutor {
     });
   }
 
+  private trackToolEvents(watchdog: WatchdogHandle, event: PiSessionEvent): void {
+    const data = event.data as Record<string, unknown> | undefined;
+    const assistantMessageEvent = data?.assistantMessageEvent as Record<string, unknown> | undefined;
+    const callId = (typeof data?.toolCallId === "string" ? data.toolCallId : undefined) as string | undefined;
+    if (!assistantMessageEvent) return;
+    if (event.type === "tool_execution_start") {
+      const name = typeof assistantMessageEvent.name === "string" ? assistantMessageEvent.name : "tool";
+      watchdog.markToolStart({ name, callId });
+    } else if (event.type === "tool_execution_end") {
+      const name = typeof assistantMessageEvent.name === "string" ? assistantMessageEvent.name : "tool";
+      watchdog.markToolEnd({ name, callId });
+    }
+  }
+
   private auditToolCall(executionId: string, state: PiExecutorState, event: PiSessionEvent, metadata?: Record<string, unknown>): void {
     const toolName = extractToolName(event);
     if (!toolName) {
@@ -249,7 +311,9 @@ export class PiAgentExecutor implements AgentExecutor {
     executionId: string,
     session: PiSessionLike,
     state: PiExecutorState,
+    watchdog: WatchdogHandle,
   ): Promise<{ ok: true } | { ok: false; errorMessage: string }> {
+    const callIdOf = (index: number) => `${executionId}-dsml-${index}`;
     let processedLength = 0;
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const outputText = state.outputChunks.join("");
@@ -278,8 +342,11 @@ export class PiAgentExecutor implements AgentExecutor {
       }
 
       const results: Array<{ tool: string; args: unknown; result?: unknown; error?: string }> = [];
-      for (const call of calls) {
+      for (let index = 0; index < calls.length; index += 1) {
+        const call = calls[index];
+        const callId = callIdOf(index);
         const toolName = normalizeDsmlToolName(call.name);
+        watchdog.markToolStart({ name: toolName, callId });
         state.events.push({
           type: "executor.dsml_tool_started",
           data: {
@@ -313,6 +380,8 @@ export class PiAgentExecutor implements AgentExecutor {
               error: message,
             },
           });
+        } finally {
+          watchdog.markToolEnd({ name: toolName, callId });
         }
       }
 

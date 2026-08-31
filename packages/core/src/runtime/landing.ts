@@ -86,6 +86,7 @@ export async function runLandingFlow(input: {
       candidateSha: input.candidateSha,
       candidateBranch: input.candidateBranch,
       verification: input.verification,
+      limits: input.config.runtime.limits,
     });
   } catch (error) {
     plan = buildBlockingLandingPlan(input, `Landing planner failed: ${formatError(error)}`);
@@ -117,6 +118,7 @@ export async function runLandingFlow(input: {
       // diagnoser all dirty files made it mislabel unrelated dirties as the cause.
       dirtyFiles: dirtyContext.relevant,
       verification: input.verification,
+      limits: input.config.runtime.limits,
     });
     return finishBlockedLanding(input, landingPlanArtifact, diagnosis, guardVerdict.reasons.join("; "));
   }
@@ -132,7 +134,7 @@ export async function runLandingFlow(input: {
     verificationCommands = resolveVerificationCommands(plan.verification, input.verificationPlan);
     verificationResult = await rerunLandingVerification(input.verificationPlan, verificationCommands);
     if (verificationResult.overallStatus === "failed") {
-      await attemptLandingRepair(input.controllerInput, input.goal, input.verificationPlan.cwd, verificationResult, input.repairGuidanceText, input.config.models.repair);
+      await attemptLandingRepair(input.controllerInput, input.goal, input.verificationPlan.cwd, verificationResult, input.repairGuidanceText, input.config.models.repair, input.config.runtime.limits);
       verificationResult = await rerunLandingVerification(input.verificationPlan, verificationCommands);
     }
     if (verificationResult.overallStatus !== "passed" && !input.contractCanComplete) {
@@ -143,6 +145,7 @@ export async function runLandingFlow(input: {
         reason: `Post-landing verification ${verificationResult.overallStatus}`,
         dirtyFiles: [],
         verification: verificationResult,
+        limits: input.config.runtime.limits,
       });
       landingStatus = "blocked";
       recoveryHint = diagnosis.recoveryHint;
@@ -155,6 +158,7 @@ export async function runLandingFlow(input: {
       reason: execution.reason ?? execution.outcome,
       dirtyFiles,
       verification: input.verification,
+      limits: input.config.runtime.limits,
     });
     recoveryHint = diagnosis.recoveryHint;
   }
@@ -177,6 +181,7 @@ async function diagnoseOrFallback(input: {
   reason: string;
   dirtyFiles: string[];
   verification: VerificationRunResult;
+  limits?: EffectiveFactoryConfig["runtime"]["limits"];
 }): Promise<PrototypeLandingDiagnosisArtifact> {
   if (!input.model) {
     return buildLocalLandingDiagnosis(input.reason, input.dirtyFiles, input.verification.overallStatus);
@@ -188,6 +193,7 @@ async function diagnoseOrFallback(input: {
     reason: input.reason,
     dirtyFiles: input.dirtyFiles,
     verification: input.verification,
+    limits: input.limits,
   });
 }
 
@@ -306,6 +312,7 @@ async function attemptLandingRepair(
   verificationResult: VerificationRunResult,
   repairGuidanceText?: string,
   model?: ModelSelection,
+  limits?: EffectiveFactoryConfig["runtime"]["limits"],
 ): Promise<void> {
   const repairExecutor = controllerInput.repairExecutor;
   if (!repairExecutor) return;
@@ -315,6 +322,7 @@ async function attemptLandingRepair(
     prompt: buildRepairPrompt(goal, verificationResult, repairGuidanceText, undefined, classifyLandingRepairReason(cwd, verificationResult)),
     model,
     tools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
+    limits,
     metadata: { role: "repair", stage: "landing-repair" },
   });
 }

@@ -1,6 +1,6 @@
 // File resolution planning + prompt/parse — extracted from file-resolution.ts.
 import type { FileResolutionPlan, FileResolutionEvidence, FileResolution } from "./file-resolution.js";
-import type { AgentExecutor } from "./interfaces.js";
+import type { AgentExecutor, AgentExecutionInput } from "./interfaces.js";
 export async function planFileResolution(input: {
   cwd: string;
   goal: string;
@@ -8,6 +8,7 @@ export async function planFileResolution(input: {
   executor: AgentExecutor;
   model?: { provider?: string; model: string };
   runId?: string;
+  limits?: AgentExecutionInput["limits"];
 }): Promise<FileResolutionPlan> {
   const result = await input.executor.execute({
     executionId: `${input.runId ?? "file-resolution"}-file-resolve`,
@@ -15,6 +16,7 @@ export async function planFileResolution(input: {
     prompt: buildFileResolutionPrompt(input.goal, input.evidence),
     model: input.model,
     tools: ["read", "ls"],
+    limits: input.limits,
     metadata: {
       role: "file-resolution",
       stage: "pre-worktree",

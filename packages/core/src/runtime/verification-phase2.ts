@@ -157,6 +157,7 @@ const verificationPlan = await planVerificationExecution({
   model: loaded.effectiveConfig.models.planner,
   runId: run.runId,
   allowDeterministicFallback: !input.verificationPlannerExecutor,
+  limits: loaded.effectiveConfig.runtime.limits,
 });
 await appendFactoryRunEvent(run.eventsPath, {
   timestamp: new Date().toISOString(),
@@ -214,6 +215,7 @@ const aiResult = deterministicClassification
       deterministic: deterministicClassification,
       executor: input.failureClassifierExecutor ?? input.reviewerExecutor,
       model: loaded.effectiveConfig.models.reviewer,
+      limits: loaded.effectiveConfig.runtime.limits,
     })
   : undefined;
 let verificationFailureClassification = aiResult

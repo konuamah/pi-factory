@@ -9,6 +9,37 @@ import type {
 } from "@factory/schemas";
 import { resolveWorkflowDefinition, normalizeWorkflowConfig } from "../workflows/registry.js";
 
+/**
+ * Canonicalize runtime limits, resolving deprecated aliases to their canonical
+ * names. Returns an object with only canonical keys so downstream code (and
+ * the executor) never has to reason about both spellings.
+ */
+export function normalizeExecutionLimits(limits?: {
+  turnTimeoutMs?: number;
+  modelIdleTimeoutMs?: number;
+  toolTimeoutMs?: number;
+  runTimeoutMs?: number;
+  adaptiveGrace?: { enabled?: boolean; durationMs?: number; maxExtensionsPerTurn?: number };
+  maxTurns?: number;
+  modelTimeoutMs?: number;
+  totalRunTimeoutMs?: number;
+}): {
+  turnTimeoutMs?: number;
+  modelIdleTimeoutMs?: number;
+  toolTimeoutMs?: number;
+  runTimeoutMs?: number;
+  adaptiveGrace?: { enabled?: boolean; durationMs?: number; maxExtensionsPerTurn?: number };
+  maxTurns?: number;
+} {
+  if (!limits) return {};
+  const { modelTimeoutMs, totalRunTimeoutMs, ...rest } = limits;
+  return {
+    ...rest,
+    modelIdleTimeoutMs: limits.modelIdleTimeoutMs ?? modelTimeoutMs,
+    turnTimeoutMs: limits.turnTimeoutMs ?? totalRunTimeoutMs,
+  };
+}
+
 export function mergeConfigLayers(input: {
   builtIns: FactoryBuiltInDefaults;
   global?: GlobalFactoryConfig;
@@ -60,12 +91,12 @@ export function mergeConfigLayers(input: {
         project?.runtime?.maxParallelAgents ??
         global?.runtime?.maxParallelAgents ??
         builtIns.runtime.maxParallelAgents,
-      limits: {
+      limits: normalizeExecutionLimits({
         ...builtIns.runtime.limits,
         ...global?.runtime?.limits,
         ...project?.runtime?.limits,
         ...runOverrides?.runtime?.limits,
-      },
+      }),
     },
     ui: {
       showWorkerDetails:

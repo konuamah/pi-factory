@@ -3,7 +3,7 @@ import type { Dirent } from "node:fs";
 import path from "node:path";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { AgentExecutor } from "./interfaces.js";
+import type { AgentExecutor, AgentExecutionInput } from "./interfaces.js";
 import { initializeFactorySkills, resolveFactorySkills } from "../skills/index.js";
 import { pathExists } from "./fs-utils.js";
 import { resolveVerificationCwd, readPackageScripts, readPackageScriptCommands, readPackageDependencyVersions, detectEcosystemMarkers, detectPackageManager, detectStalePackageScripts, discoverAllowedCommands, findNestedProjectRoots, readPackageJson, dedupePaths, normalizeRelative, expectedDependencyMarkers, detectDependencyMarkers, uniqueStrings, parseMajorVersion, isDependencyPresent, resolveVerificationPlanningSkill, isSetupLikeCommand } from "./verification-discovery.js";
@@ -148,6 +148,7 @@ export async function planVerificationExecution(input: {
   };
   runId?: string;
   allowDeterministicFallback?: boolean;
+  limits?: AgentExecutionInput["limits"];
 }): Promise<VerificationPlan> {
   await initializeFactorySkills(input.cwd);
   const evidence = await discoverVerificationEvidence(input.cwd, input.commands);
@@ -166,6 +167,7 @@ export async function planVerificationExecution(input: {
     prompt: buildVerificationPlannerPrompt(input.goal, evidence, input.constitutionContext),
     model: input.model,
     tools: ["read", "grep", "find", "ls"],
+    limits: input.limits,
     metadata: {
       role: "planner",
       stage: "verification-planning",

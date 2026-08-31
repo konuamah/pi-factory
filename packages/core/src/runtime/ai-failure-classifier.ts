@@ -1,4 +1,4 @@
-import type { AgentExecutor } from "./interfaces.js";
+import type { AgentExecutor, AgentExecutionInput } from "./interfaces.js";
 import type {
   CommandFailureClassification,
   FailureCategory,
@@ -83,6 +83,7 @@ export async function classifyVerificationFailuresWithAI(input: {
   deterministic: VerificationFailureClassification;
   executor?: AgentExecutor;
   model?: { provider?: string; model: string };
+  limits?: AgentExecutionInput["limits"];
 }): Promise<AiClassificationResult | undefined> {
   if (!input.executor) {
     return undefined;
@@ -99,6 +100,7 @@ export async function classifyVerificationFailuresWithAI(input: {
       prompt,
       model: input.model,
       tools: ["read", "grep", "find", "ls"],
+      limits: input.limits,
       metadata: { role: "reviewer", stage: "failure-classification" },
     });
     outputText = result.outputText;

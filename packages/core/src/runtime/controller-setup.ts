@@ -42,6 +42,16 @@ const loaded = await loadEffectiveConfig({
 const root = path.dirname(loaded.sources.projectConfigPath ?? path.join(input.cwd, ".factory", "config.yaml"));
 const projectRoot = path.dirname(root);
 
+// One absolute run deadline, established when the run starts and shared across
+// every agent turn (discovery, planning, build, repair, review, landing). A new
+// prompt must never reset this budget.
+const runtimeLimits = loaded.effectiveConfig.runtime.limits ?? {};
+loaded.effectiveConfig.runtime.limits = runtimeLimits;
+const runTimeoutMs = runtimeLimits.runTimeoutMs;
+if (runTimeoutMs && runTimeoutMs > 0) {
+  runtimeLimits.runDeadlineAt = Date.now() + runTimeoutMs;
+}
+
 // ── File resolution: handle @-referenced files before worktree creation ──
 let fileResolutionResult: Awaited<ReturnType<typeof resolveFileReferences>> | undefined;
 try {
@@ -51,6 +61,7 @@ try {
     executor: input.discoveryExecutor ?? input.plannerExecutor,
     model: input.modelOverrides?.discovery ?? input.modelOverrides?.planner,
     runId: undefined, // run not created yet
+    limits: runtimeLimits,
   });
 } catch (error) {
   if (error instanceof FileResolutionError) {

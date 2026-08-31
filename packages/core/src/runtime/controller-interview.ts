@@ -82,6 +82,7 @@ export async function runInterviewStages(input: {
       }),
       model: model.model,
       tools: ["read", "grep", "find", "ls"],
+      limits: input.config.runtime.limits,
       metadata: {
         role,
         runId: input.run.runId,

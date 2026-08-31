@@ -1,5 +1,5 @@
 import { resolveModelForRole } from "../models/index.js";
-import type { AgentExecutor } from "./interfaces.js";
+import type { AgentExecutor, AgentExecutionInput } from "./interfaces.js";
 import type {
   PrototypeCompletedTaskArtifact,
   PrototypeLandingDiagnosisArtifact,
@@ -37,6 +37,7 @@ export async function buildLandingPlan(input: {
   candidateSha?: string;
   candidateBranch?: string;
   verification: VerificationRunResult;
+  limits?: AgentExecutionInput["limits"];
 }): Promise<LandingPlan> {
   if (!input.executor) {
     throw new Error("Landing planning requires a landing or reviewer executor.");
@@ -47,6 +48,7 @@ export async function buildLandingPlan(input: {
     prompt: buildLandingPlannerPrompt(input),
     model: input.model,
     tools: ["read", "grep", "find", "ls"],
+    limits: input.limits,
     metadata: { role: "landing", stage: "landing-planning" },
   });
   const parsed = parseJsonObject(result.outputText);
@@ -63,6 +65,7 @@ export async function diagnoseLandingFailure(input: {
   reason: string;
   dirtyFiles: string[];
   verification: VerificationRunResult;
+  limits?: AgentExecutionInput["limits"];
 }): Promise<PrototypeLandingDiagnosisArtifact> {
   if (!input.executor) {
     return fallbackDiagnosis(input.reason, input.dirtyFiles, input.verification.overallStatus);
@@ -74,6 +77,7 @@ export async function diagnoseLandingFailure(input: {
       prompt: buildLandingDiagnosisPrompt(input),
       model: input.model,
       tools: ["read", "grep", "find", "ls"],
+      limits: input.limits,
       metadata: { role: "landing", stage: "landing-diagnosis" },
     });
     const parsed = parseJsonObject(result.outputText);

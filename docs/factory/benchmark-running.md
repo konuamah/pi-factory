@@ -134,6 +134,33 @@ collector (`captureEvent`), so artifacts from runs before that change carry no
 `at` and report `null` with a warning — a fresh agent trial is needed for the
 full split.
 
+### Real measured numbers (2026-08-31 trial, gpt-5.4-mini)
+
+```text
+TOTAL                 353.9s
+  HARNESS              88.7s   25.1%   <- container + Pi/Factory install
+  AGENT               257.8s
+    MODEL              97.2s   27.5%   calls=8
+    TOOLS               0.0s    0.0%   calls=11 (20 read, 2 ls)
+    FACTORY VERIFY      6.2s
+    AGENT_OTHER       154.4s          <- absorbs tool wall-time (see below)
+  HARBOR VERIFIER       1.9s
+  EVAL (verify+score)   8.2s
+```
+
+Two findings, one actionable:
+
+1. **HARNESS is 25% of runtime.** The container rebuilds Pi + Factory every
+trial (`nvm install`, `npm install -g`, bundle upload). Pre-building the
+environment image (Harbor `--install-only` / a prebuilt env image) would
+recover most of that ~89s per trial.
+2. **TOOLS durations are ~0 because the SDK emits tool start/end as markers,
+not brackets.** The actual tool work happens inside the SDK's agent loop,
+between the boundary events, so `end - start` ≈ 0 (verified: 22 events, 0
+DSML-bridge events — wrapping Factory's tool objects captures nothing in the
+normal path). `toolCallCount` is meaningful; `AGENT_OTHER` absorbs the real
+tool wall-time. This is reported honestly (0.0s + note), never faked.
+
 ## What is NOT set up yet
 
 - All five task families exist and are oracle-validated: `bombsite-01-ui-shell`

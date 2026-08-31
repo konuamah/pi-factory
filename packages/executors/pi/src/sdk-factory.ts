@@ -40,8 +40,11 @@ export function createPiSdkSessionFactory(
         : undefined;
       if (services) {
         createOptions.modelRuntime = services.modelRuntime;
+        createOptions.modelRegistry = services.modelRegistry;
+        createOptions.authStorage = services.authStorage;
         createOptions.settingsManager = services.settingsManager;
         createOptions.resourceLoader = services.resourceLoader;
+        createOptions.agentDir = services.agentDir;
       }
 
       const tools = input.tools && input.tools.length > 0 ? input.tools : undefined;
@@ -65,6 +68,8 @@ export function createPiSdkSessionFactory(
         } else {
           executableTools = createdTools;
         }
+      } else {
+        createOptions.tools = [];
       }
 
       // If caller supplies a model, respect it strictly; otherwise let Pi use
@@ -199,6 +204,13 @@ async function resolveRequestedModel(
 
   // Prefer the runtime that already has the project's provider packages registered.
   let modelRuntime: PiModelRuntime | undefined = services?.modelRuntime as PiModelRuntime | undefined;
+  const registryModel = services?.modelRegistry?.find?.(model.provider, model.model);
+  if (registryModel) {
+    return {
+      modelRuntime,
+      resolvedModel: registryModel,
+    };
+  }
   if (!modelRuntime && sdk.ModelRuntime?.create) {
     modelRuntime = await sdk.ModelRuntime.create();
   }
@@ -306,6 +318,11 @@ interface PiSdkServices {
   modelRuntime?: {
     getModel?: (provider: string, model: string) => unknown;
   };
+  modelRegistry?: {
+    find?: (provider: string, model: string) => unknown;
+    getAvailable?: () => unknown[] | Promise<unknown[]>;
+  };
+  authStorage?: unknown;
   settingsManager?: unknown;
   resourceLoader?: unknown;
   diagnostics?: Array<{ type: string; message: string }>;

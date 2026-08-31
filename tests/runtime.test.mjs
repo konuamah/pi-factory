@@ -150,6 +150,7 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
   await withTempProject(async (root) => {
     const calls = [];
     const plannerExecutor = makeExecutor('planner', calls);
+    const reviewerExecutor = makeExecutor('reviewer', calls);
     const builderExecutor = {
       async execute(input) {
         calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
@@ -163,8 +164,6 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
       },
       async cancel() {},
     };
-    const reviewerExecutor = makeExecutor('reviewer', calls);
-
     const result = await runRuntimeHarness({
       cwd: root,
       goal: 'Add a demo feature',
@@ -424,6 +423,7 @@ test('workflow plan skills are applied to built-in planner prompt with full skil
       goal: 'Add a demo feature',
       plannerExecutor,
       builderExecutor,
+      reviewerExecutor,
       requestPlanApproval: async () => ({ decision: 'approve' }),
       requestApproval: async () => true,
     });
@@ -615,6 +615,7 @@ test('interview answers are included in planner prompt after decision resolution
       goal: 'Add a demo feature',
       plannerExecutor,
       builderExecutor,
+      reviewerExecutor,
       requestPlanApproval: async () => ({ decision: 'approve' }),
       requestApproval: async () => true,
       requestDecision: async (request) => ({
@@ -989,6 +990,7 @@ test('repair prompt focuses on observed failures only', async () => {
   await withTempProject(async (root) => {
     const calls = [];
     const plannerExecutor = makeExecutor('planner', calls);
+    const reviewerExecutor = makeExecutor('reviewer', calls);
     const builderExecutor = {
       async execute(input) {
         calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
@@ -1445,6 +1447,7 @@ test('verification infers a single nested package root when the worktree root ha
       goal: 'Add a demo feature',
       plannerExecutor,
       builderExecutor,
+      reviewerExecutor,
       requestPlanApproval: async () => ({ decision: 'approve' }),
       requestApproval: async () => true,
     });
@@ -2062,12 +2065,14 @@ test('dependency preparation is delegated to the builder agent', async () => {
       },
       async cancel() {},
     };
+    const reviewerExecutor = makeExecutor('reviewer', calls);
 
     const result = await runRuntimeHarness({
       cwd: root,
       goal: 'Add a demo feature',
       plannerExecutor,
       builderExecutor,
+      reviewerExecutor,
       requestPlanApproval: async () => ({ decision: 'approve' }),
       requestApproval: async () => true,
     });
@@ -2188,12 +2193,14 @@ test('completed implementation with no file changes can recover on retry', async
       },
       async cancel() {},
     };
+    const reviewerExecutor = makeExecutor('reviewer', calls);
 
     const result = await runRuntimeHarness({
       cwd: root,
       goal: 'Add a demo feature',
       plannerExecutor,
       builderExecutor,
+      reviewerExecutor,
       requestPlanApproval: async () => ({ decision: 'approve' }),
       requestApproval: async () => true,
     });
@@ -2825,6 +2832,7 @@ test('baseline-unrelated verification failure warns and proceeds instead of fail
     const plannerExecutor = makeExecutor('planner', calls);
     const builderExecutor = makeExecutor('builder', calls);
     const repairExecutor = makeExecutor('repair', calls);
+    const reviewerExecutor = makeExecutor('reviewer', calls);
 
     // The AI failure classifier decides this is baseline-unrelated (not caused by the task).
     const failureClassifier = {
@@ -2858,6 +2866,7 @@ test('baseline-unrelated verification failure warns and proceeds instead of fail
       plannerExecutor,
       builderExecutor,
       repairExecutor,
+      reviewerExecutor,
       failureClassifierExecutor: failureClassifier,
       requestPlanApproval: async () => ({ decision: 'approve' }),
       requestApproval: async () => true,

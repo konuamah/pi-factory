@@ -67,4 +67,5 @@ export interface PiExecutorState {
   executionId: string;
   events: AgentExecutionResult["events"];
   outputChunks: string[];
+  terminalErrorMessage?: string;
 }

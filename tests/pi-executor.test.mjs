@@ -94,6 +94,79 @@ test('requested tools are passed to Pi SDK as active tool names', async () => {
   assert.deepEqual(receivedOptions.tools, ['read', 'bash', 'edit']);
 });
 
+test('no requested tools are passed to Pi SDK as an empty active tool list', async () => {
+  let receivedOptions;
+  const sdkFactory = createPiSdkSessionFactory({
+    sdkLoader: async () => ({
+      SessionManager: {
+        inMemory(cwd) {
+          return { cwd };
+        },
+      },
+      async createAgentSession(options) {
+        receivedOptions = options;
+        return { session: makeSdkSession() };
+      },
+    }),
+  });
+
+  const executor = new PiAgentExecutor({ sessionFactory: sdkFactory });
+  const result = await executor.execute({
+    executionId: 'exec-no-tools',
+    cwd: process.cwd(),
+    prompt: 'discover',
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(receivedOptions.tools, []);
+});
+
+test('project service modelRegistry resolves provider models for current Pi SDKs', async () => {
+  const resolvedModel = { provider: 'demo', id: 'model-1' };
+  const serviceModelRegistry = {
+    find(provider, model) {
+      assert.equal(provider, 'demo');
+      assert.equal(model, 'model-1');
+      return resolvedModel;
+    },
+  };
+  let receivedOptions;
+  const sdkFactory = createPiSdkSessionFactory({
+    sdkLoader: async () => ({
+      SessionManager: {
+        inMemory(cwd) {
+          return { cwd };
+        },
+      },
+      async createAgentSessionServices() {
+        return {
+          cwd: process.cwd(),
+          agentDir: process.cwd(),
+          modelRegistry: serviceModelRegistry,
+          settingsManager: {},
+          resourceLoader: {},
+        };
+      },
+      async createAgentSession(options) {
+        receivedOptions = options;
+        return { session: makeSdkSession() };
+      },
+    }),
+  });
+
+  const executor = new PiAgentExecutor({ sessionFactory: sdkFactory });
+  const result = await executor.execute({
+    executionId: 'exec-registry-model',
+    cwd: process.cwd(),
+    prompt: 'plan',
+    model: { provider: 'demo', model: 'model-1' },
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(receivedOptions.model, resolvedModel);
+  assert.equal(receivedOptions.modelRegistry, serviceModelRegistry);
+});
+
 test('Pi SDK tool objects stay executable through Factory bridge', async () => {
   const invocations = [];
   let receivedOptions;
@@ -684,4 +757,33 @@ test('recorded events carry monotonic arrival timestamps', async () => {
     assert.equal(typeof event.at, 'number');
   }
   assert.ok(stamped[1].at >= stamped[0].at, 'timestamps must be monotonic');
+});
+
+test('SDK assistant stopReason error fails execution even with empty text', async () => {
+  const session = {
+    async prompt() {
+      this.listener?.({
+        type: 'message_end',
+        data: {
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: '' }],
+            stopReason: 'error',
+            errorMessage: "Cannot read properties of undefined (reading 'includes')",
+          },
+        },
+      });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {},
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({ sessionFactory: { async create() { return { session }; } } });
+  const result = await executor.execute({ executionId: 'exec-sdk-error', cwd: process.cwd(), prompt: 'discover' });
+  assert.equal(result.status, 'failed');
+  assert.match(result.errorMessage, /Cannot read properties of undefined/);
+  assert.equal(result.outputText, '');
 });

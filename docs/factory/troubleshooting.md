@@ -54,6 +54,7 @@ Fix:
 
 - inspect `/factory logs` and the latest `.factory/runs/<run-id>/discovery-execution.json`
 - check `status`, `errorMessage`, and `outputText`
+- if the SDK assistant message ended with `stopReason: error`, trust the preserved `errorMessage` instead of treating the empty text as model silence
 - if the executor timed out, use a faster discovery model or reduce discovery scope before retrying
 - if `outputText` contains malformed JSON, Factory retries once with a strict JSON repair prompt and preserves the invalid payload as `discovery-execution-invalid.json`
 - keep `runtime.limits` in `.factory/config.yaml` aligned with the repository size and model/provider behavior

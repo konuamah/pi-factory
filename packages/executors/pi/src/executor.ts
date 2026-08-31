@@ -103,6 +103,15 @@ export class PiAgentExecutor implements AgentExecutor {
           errorMessage: bridged.errorMessage,
         };
       }
+      if (state.terminalErrorMessage) {
+        return {
+          executionId: input.executionId,
+          status: "failed",
+          outputText: state.outputChunks.join(""),
+          events: state.events,
+          errorMessage: state.terminalErrorMessage,
+        };
+      }
       const outputText = state.outputChunks.join("");
       return {
         executionId: input.executionId,
@@ -143,6 +152,10 @@ export class PiAgentExecutor implements AgentExecutor {
 
     if (event.text) {
       state.outputChunks.push(event.text);
+    }
+    const terminalError = extractTerminalErrorMessage(event);
+    if (terminalError) {
+      state.terminalErrorMessage = terminalError;
     }
   }
 
@@ -313,4 +326,17 @@ export class PiAgentExecutor implements AgentExecutor {
     });
     return { ok: false, errorMessage };
   }
+}
+
+function extractTerminalErrorMessage(event: PiSessionEvent): string | undefined {
+  const message = event.data && typeof event.data.message === "object" && event.data.message !== null
+    ? event.data.message as Record<string, unknown>
+    : undefined;
+  if (message?.stopReason !== "error") {
+    return undefined;
+  }
+  const errorMessage = message.errorMessage;
+  return typeof errorMessage === "string" && errorMessage.trim()
+    ? errorMessage
+    : "Pi SDK reported an assistant message error.";
 }

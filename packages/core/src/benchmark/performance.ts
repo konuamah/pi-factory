@@ -7,7 +7,7 @@
 //   │   ├── MODEL        assistant message_start -> message_end windows (LLM)
 //   │   ├── TOOLS        union of tool_execution_start -> end intervals (parallel!)
 //   │   ├── FACTORY VERIFY  Factory phase verification duration
-//   │   └── AGENT_OTHER  remainder (orchestration, thinking gaps)
+//   │   └── UNATTRIBUTED  remainder (incl. unmeasured tool wall-time)
 //   └── HARBOR VERIFIER  scoring duration
 //
 // MODEL measures ONLY assistant (model) messages — tool-result messages have
@@ -43,7 +43,7 @@ export interface PerformanceReport {
   modelMs: number | null;
   toolsMs: number | null;
   factoryVerificationMs: number | null;
-  agentOtherMs: number | null;
+  unattributedAgentMs: number | null;
   // After agent execution
   harborVerifierMs: number | null;
   // Convenience combined metric
@@ -93,11 +93,14 @@ export function computePerformanceReport(
     warnings.push("verification phase timestamps missing; factory verification time not measurable");
   }
 
-  const agentOtherMs = agentMs !== null && modelMs !== null && toolsMs !== null && factoryVerificationMs !== null
+  const unattributedAgentMs = agentMs !== null && modelMs !== null && toolsMs !== null && factoryVerificationMs !== null
     ? Math.max(0, agentMs - modelMs - toolsMs - factoryVerificationMs)
     : null;
-  if (agentMs !== null && modelMs !== null && toolsMs !== null && factoryVerificationMs !== null && agentOtherMs !== null && agentOtherMs < 0) {
-    warnings.push("performance intervals overlap; wall-clock buckets cannot be reconciled (agentOtherMs < 0)");
+  const rawUnattributed = agentMs !== null && modelMs !== null && toolsMs !== null && factoryVerificationMs !== null
+    ? agentMs - modelMs - toolsMs - factoryVerificationMs
+    : null;
+  if (rawUnattributed !== null && rawUnattributed < 0) {
+    warnings.push("performance intervals overlap; wall-clock buckets cannot be reconciled (unattributedAgentMs < 0)");
   }
 
   const evalMs = factoryVerificationMs !== null && harborVerifierMs !== null
@@ -117,7 +120,7 @@ export function computePerformanceReport(
     modelMs,
     toolsMs,
     factoryVerificationMs,
-    agentOtherMs,
+    unattributedAgentMs,
     harborVerifierMs,
     evalMs,
     modelCallCount,

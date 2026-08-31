@@ -81,7 +81,7 @@ test('agentOther = agentMs - model - tools - factoryVerification', () => {
   assert.equal(r.toolsMs, 10_000);
   assert.equal(r.factoryVerificationMs, 30_000);
   assert.equal(r.agentMs, 87_000);
-  assert.equal(r.agentOtherMs, 17_000);
+  assert.equal(r.unattributedAgentMs, 17_000);
   assert.equal(r.unaccountedMs, 17_000);
   assert.equal(r.warnings.some((w) => /cannot be reconciled/.test(w)), false);
 });

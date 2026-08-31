@@ -137,29 +137,49 @@ full split.
 ### Real measured numbers (2026-08-31 trial, gpt-5.4-mini)
 
 ```text
-TOTAL                 353.9s
-  HARNESS              88.7s   25.1%   <- container + Pi/Factory install
-  AGENT               257.8s
-    MODEL              97.2s   27.5%   calls=8
-    TOOLS               0.0s    0.0%   calls=11 (20 read, 2 ls)
-    FACTORY VERIFY      6.2s
-    AGENT_OTHER       154.4s          <- absorbs tool wall-time (see below)
-  HARBOR VERIFIER       1.9s
-  EVAL (verify+score)   8.2s
+TOTAL                  353.9s
+  HARNESS               88.7s   25.1%   <- container + Pi/Factory install
+  AGENT                257.8s
+    MODEL               97.2s   27.5%   8 calls
+    FACTORY VERIFY       6.2s    1.8%
+    TOOLS OBSERVED       0.0s    0.0%   11 calls (22 events: 20 read, 2 ls)
+    UNATTRIBUTED       154.4s   43.6%   <- includes unmeasured tool wall-time
+  HARBOR VERIFIER        1.9s    0.5%
 ```
 
-Two findings, one actionable:
+Reading the numbers honestly — do not over-claim:
 
-1. **HARNESS is 25% of runtime.** The container rebuilds Pi + Factory every
-trial (`nvm install`, `npm install -g`, bundle upload). Pre-building the
-environment image (Harbor `--install-only` / a prebuilt env image) would
-recover most of that ~89s per trial.
-2. **TOOLS durations are ~0 because the SDK emits tool start/end as markers,
-not brackets.** The actual tool work happens inside the SDK's agent loop,
-between the boundary events, so `end - start` ≈ 0 (verified: 22 events, 0
-DSML-bridge events — wrapping Factory's tool objects captures nothing in the
-normal path). `toolCallCount` is meaningful; `AGENT_OTHER` absorbs the real
-tool wall-time. This is reported honestly (0.0s + note), never faked.
+- **HARNESS is the easiest major bottleneck to fix.** Prebuilding the
+  environment image (Harbor `--install-only` / prebuilt env image) could
+  remove most of that ~89s without touching agent behavior — roughly a 22%
+  end-to-end improvement (354s → ~275s) from infrastructure alone.
+- **MODEL is the largest clearly measured runtime bucket** (97.2s, 27.5%, 8
+  calls — slow provider responses, not churn).
+- **UNATTRIBUTED (154.4s, 43.6%) is the biggest bucket overall but cannot be
+  explained precisely.** It includes real tool execution time plus Pi/Factory
+  orchestration. Pi's current tool events are boundary markers, not duration
+  brackets (verified: end-start ≈ 0, 22 events, 0 DSML bridge), so tool
+  wall-time lands here. Labeled `unattributedAgentMs` in the report, with the
+  note that it includes unmeasured tool wall-time — never presented as normal
+  orchestration overhead.
+
+Conclusion: **we proved harness startup and model latency are major costs, and
+another ~154s inside agent execution remains unbroken-down because Pi does not
+expose useful tool wall-clock duration.** That is a stronger claim than naming
+harness+model as the whole story.
+
+### Next optimization experiment
+
+Prebuild the Harbor image, then compare the same task ≥3 runs before/after:
+
+```text
+            median HARNESS   median TOTAL
+before      ~89s             ~354s
+after       ~10s             ~275s   (hypothetical)
+```
+
+Never compare single runs — network/provider variation makes one run noisy.
+After that, investigate what `UNATTRIBUTED` really is.
 
 ## What is NOT set up yet
 

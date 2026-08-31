@@ -6,3 +6,4 @@ node_modules/
 .worktrees/
 harbor/jobs/
 .pi-glla/
+harbor/agents/__pycache__/

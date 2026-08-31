@@ -5,13 +5,14 @@ export interface DashboardStatus {
   needsAttention?: Array<{ runId: string; kind: string; detail?: string }>;
   verificationFailures?: number;
   constitution?: { coveredAreas?: number; totalAreas?: number };
-  recentRuns?: Array<{ runId: string; goal?: string; status?: string; phase?: string }>;
+  recentRuns?: Array<{ runId: string; title?: string; goal?: string; status?: string; phase?: string }>;
 }
 
 export interface RunListItem {
   runId: string;
   status?: string;
   phase?: string;
+  title?: string;
   goal?: string;
   updatedAt?: string;
 }
@@ -31,6 +32,7 @@ export interface RunDetail {
   runDir?: string;
   status?: string;
   phase?: string;
+  title?: string;
   goal?: string;
   state?: Record<string, unknown>;
   summary?: Record<string, unknown>;

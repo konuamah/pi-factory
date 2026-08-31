@@ -1,6 +1,6 @@
-# Factory Agent Docs
+# Factory Internal Docs
 
-This folder is the knowledge library for agents operating Factory. Use it when a user wants Factory customized, repaired, explained, or made ready for a project.
+This folder is the internal engineering reference for the Factory codebase. Use it when changing Factory itself, debugging implementation behavior, or preserving source-level design history.
 
 Factory is a Pi-native project automation layer. It keeps project-local configuration, routes work through workflows, uses Pi models and skills, tracks run state, and maintains a repository constitution for agent context.
 
@@ -27,18 +27,24 @@ If `pi` is not on `PATH`:
 
 Local path installs are references, so Pi sees changes from the checkout without npm publishing. After TypeScript source changes, run `npm run build` and restart Pi; reinstall only when the package path changes or the `package.json` `pi` manifest changes.
 
-## How Agents Should Use This Library
+## Runtime Concierge Guidance
 
-Read [AGENT.md](AGENT.md) first when operating Factory from an agent or skill.
+User-facing Factory Concierge guidance lives in focused `.pi/skills/factory-*` operational skills. Concierge is the orchestrator: it selects the relevant operational skill, then uses Factory setup context, command output, config, and tool/API contracts to choose an allowed support action.
+
+Do not treat this docs folder as the primary runtime reference for Concierge. Use it as fallback only when developing Factory itself, debugging implementation behavior, or answering an explicit source-level question.
+
+## How Factory Maintainers Should Use This Library
+
+Read [AGENT.md](AGENT.md) first when changing Factory code or internal docs.
 
 1. Start with the user's request.
 2. Read only the relevant doc below.
 3. Inspect the current project state before editing.
-4. Prefer existing `/factory` commands for interactive or broad flows.
+4. Prefer existing `/factory` commands for interactive or broad flows when validating behavior.
 5. Edit Factory-owned files directly when the requested change is clear.
 6. Verify with `/factory doctor`, `/factory status`, or the relevant command.
 
-Docs are the primary operational reference layer. Use command output, setup context, config, and tool/API contracts next. Inspect `src/` only for missing docs, implementation debugging, or explicit code questions. Never use `dist/`, `node_modules/`, build output, coverage output, generated files, or transient worktrees as behavioral references.
+Operational skills are the primary Concierge runtime reference layer. Docs are the internal Factory engineering reference. Inspect `src/` only for missing docs, implementation debugging, or explicit code questions. Never use `dist/`, `node_modules/`, build output, coverage output, generated files, or transient worktrees as behavioral references.
 
 ## Start Here
 

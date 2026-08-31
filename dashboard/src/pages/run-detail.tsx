@@ -27,7 +27,8 @@ export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void
   return (
     <>
       <button className="link" onClick={goBack}>← back to runs</button>
-      <h1>{run.goal ?? run.runId}</h1>
+      <h1>{run.title ?? run.goal ?? run.runId}</h1>
+      {run.title && run.goal ? <p className="muted">{run.goal}</p> : null}
       <p>
         <StatusBadge status={run.status} /> <span className="muted">{run.runId}</span>
       </p>

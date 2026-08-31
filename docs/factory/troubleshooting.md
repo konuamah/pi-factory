@@ -1,5 +1,9 @@
 # Troubleshooting
 
+Run summaries include the full user prompt as `goal` and may include a short deterministic `title` for display. Prefer `title` in run lists, but inspect `goal` for exact intent.
+
+Planner-generated task titles should also use the compact deterministic title, not the full goal. Full goals stay in prompts and artifacts; task titles are for readable status, logs, approvals, and timeout diagnosis.
+
 Use this by symptom.
 
 ## Cannot Find `@factory/core`
@@ -86,6 +90,8 @@ Fix:
 
 - inspect `/factory logs` and the role execution artifact for `executor.timeout`
 - treat `modelTimeoutMs` as the no-progress watchdog for Pi SDK agent turns
+- if task titles contain the full prompt or pasted article, fix Factory task-title generation before blaming the target repo
+- final run output and `/factory show <run-id>` should surface the latest `task.failed` reason, builder status, and builder execution path so users see `model-timeout` instead of only `implementation-failed`
 - increase `runtime.limits.modelTimeoutMs` only when the provider regularly pauses longer than the current value while still making useful progress
 - prefer a faster model for the affected role when the watchdog repeatedly trips before any tool or text event
 

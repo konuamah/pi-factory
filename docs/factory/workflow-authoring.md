@@ -75,6 +75,8 @@ Use `task-graph` only when a step should expand into subtasks.
 
 ## Explicit Skills
 
+Agent and interview stages may specify model-routing roles: `discovery`, `planner`, `builder`, `reviewer`, `repair`, or `landing`. There is no `interviewer` role; interview stages normally use `role: planner`.
+
 Agent and interview stages may bind skills explicitly:
 
 ```yaml

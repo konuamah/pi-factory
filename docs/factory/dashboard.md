@@ -1,5 +1,7 @@
 # Dashboard
 
+Run lists should display a short deterministic `title` when present, while preserving the full user prompt as `goal` in run details and artifacts.
+
 Use this when the user asks about Factory dashboard status, startup, or configuration.
 
 ## Config

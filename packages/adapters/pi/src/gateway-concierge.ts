@@ -110,7 +110,7 @@ export async function handleConciergeRecommendationAction(
 export async function runConciergeAction(rec: FactoryConciergeRecommendation, ctx: FactoryPiCommandContext): Promise<void> {
   switch (rec.recommendedAction) {
     case "run-setup":
-      await handleSetup([], ctx);
+      await handleSetup(["--from-concierge"], ctx);
       return;
     case "run-doctor":
       await handleDoctor(ctx);
@@ -217,4 +217,3 @@ export interface StewardReviewSlide {
   kind: string;
   recommended?: unknown;
 }
-

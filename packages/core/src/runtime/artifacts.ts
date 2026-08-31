@@ -367,6 +367,7 @@ export interface PrototypeFinalMergeArtifact {
 export interface PrototypeSummaryArtifact {
   runId: string;
   goal: string;
+  title?: string;
   status: "PENDING" | "COMPLETED" | "FAILED" | "CANCELLED" | "BLOCKED";
   phase: string;
   approved: boolean;

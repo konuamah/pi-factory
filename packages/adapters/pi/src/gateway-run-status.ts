@@ -22,6 +22,7 @@ export async function handleStatus(ctx: FactoryPiCommandContext, runId?: string)
       `summary path: ${inspected.summaryPath ?? "none"}`,
       `status: ${inspected.state?.status ?? inspected.summary?.status ?? "none"}`,
       `phase: ${inspected.state?.phase ?? inspected.summary?.phase ?? "none"}`,
+      `title: ${inspected.summary?.title ?? inspected.summary?.goal ?? "none"}`,
       `goal: ${inspected.summary?.goal ?? "none"}`,
       `task count: ${inspected.summary?.taskPaths?.length ?? 0}`,
       `verification: ${inspected.summary?.verificationStatus ?? "none"}`,
@@ -59,6 +60,7 @@ export async function handleStatus(ctx: FactoryPiCommandContext, runId?: string)
     `phase: ${latestRun.state?.phase ?? latestSummary.summary?.phase ?? "none"}`,
     `updated: ${latestRun.state?.updatedAt ?? "none"}`,
     `summary path: ${latestSummary.summaryPath ?? "none"}`,
+    `title: ${latestSummary.summary?.title ?? latestSummary.summary?.goal ?? "none"}`,
     `goal: ${latestSummary.summary?.goal ?? "none"}`,
     `task count: ${latestSummary.summary?.taskPaths?.length ?? 0}`,
     `verification: ${latestSummary.summary?.verificationStatus ?? "none"}`,
@@ -67,4 +69,3 @@ export async function handleStatus(ctx: FactoryPiCommandContext, runId?: string)
 
   ctx.ui.notify("Factory status refreshed", "info");
 }
-

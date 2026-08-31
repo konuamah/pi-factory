@@ -14,6 +14,16 @@ export interface FactoryRunShowResult {
   planDecision?: "approve" | "reject" | "revise";
   planFeedback?: string;
   implementationStarted?: boolean;
+  taskFailure?: {
+    taskId?: string;
+    stage?: string;
+    title?: string;
+    reason?: string;
+    builderStatus?: string;
+    builderExecutionPath?: string;
+    workspacePath?: string;
+    workspaceBranch?: string;
+  };
   guidance?: GuidanceSummary;
   integrationFailure?: {
     reason?: string;
@@ -64,6 +74,7 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
   ]);
   const planSummary = summarizePlanEvents(events);
   const guidance = summarizeGuidanceEvents(events);
+  const taskFailure = summarizeTaskFailureEvents(events);
   const integrationFailure = summarizeIntegrationFailureEvents(events);
   const verificationContext = summarizeVerificationEvents(events);
 
@@ -79,12 +90,32 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     planDecision: planSummary.decision,
     planFeedback: planSummary.feedback,
     implementationStarted: planSummary.implementationStarted,
+    taskFailure,
     guidance,
     integrationFailure,
     verificationContext,
     decisions: await readRunDecisions(runDir),
     interviewDecisions: await readInterviewDecisions(runDir),
   };
+}
+
+function summarizeTaskFailureEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): FactoryRunShowResult["taskFailure"] {
+  for (const event of events.slice().reverse()) {
+    if (event.type !== "task.failed") {
+      continue;
+    }
+    return {
+      taskId: stringValue(event.data?.taskId),
+      stage: stringValue(event.data?.stage),
+      title: stringValue(event.data?.title),
+      reason: stringValue(event.data?.reason),
+      builderStatus: stringValue(event.data?.builderStatus),
+      builderExecutionPath: stringValue(event.data?.builderExecutionPath),
+      workspacePath: stringValue(event.data?.workspacePath),
+      workspaceBranch: stringValue(event.data?.workspaceBranch),
+    };
+  }
+  return undefined;
 }
 
 async function readInterviewDecisions(runDir: string): Promise<NonNullable<FactoryRunShowResult["interviewDecisions"]>> {
@@ -214,6 +245,10 @@ function numberValue(value: unknown): number {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function detailArray(value: unknown): Array<{ path: string; score: number; reason: string }> {

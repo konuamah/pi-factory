@@ -49,7 +49,7 @@ test('queryRuns and queryRunLogs work on a run', async () => {
     const runDir = path.join(runsDir, runId);
     await fs.mkdir(runDir, { recursive: true });
     await fs.writeFile(path.join(runDir, 'state.json'), JSON.stringify({ runId, status: 'RUNNING', phase: 'verification' }), 'utf8');
-    await fs.writeFile(path.join(runDir, 'summary.json'), JSON.stringify({ runId, goal: 'Add pagination', status: 'RUNNING' }), 'utf8');
+    await fs.writeFile(path.join(runDir, 'summary.json'), JSON.stringify({ runId, title: 'Add pagination', goal: 'Add pagination with cursor controls', status: 'RUNNING' }), 'utf8');
     await fs.writeFile(path.join(runDir, 'events.jsonl'), [
       JSON.stringify({ timestamp: new Date().toISOString(), type: 'run.created', data: { runId } }),
       JSON.stringify({ timestamp: new Date().toISOString(), type: 'verification.completed', data: { overallStatus: 'failed' } }),
@@ -59,7 +59,8 @@ test('queryRuns and queryRunLogs work on a run', async () => {
     assert.ok(runs.some((run) => run.runId === runId));
     const detail = await queryRun(root, runId);
     assert.equal(detail.status, 'RUNNING');
-    assert.equal(detail.goal, 'Add pagination');
+    assert.equal(detail.title, 'Add pagination');
+    assert.equal(detail.goal, 'Add pagination with cursor controls');
     const logs = await queryRunLogs(root, runId);
     assert.equal(logs.length, 2);
     assert.equal(logs[0].source, 'SYSTEM');

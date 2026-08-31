@@ -74,7 +74,7 @@ export async function handleLogs(ctx: FactoryPiCommandContext, runId?: string): 
 export async function handleList(ctx: FactoryPiCommandContext): Promise<void> {
   renderIntro(ctx, [
     "Factory is listing known runs for this repository.",
-    "I’ll show run ids with their status, phase, and goal.",
+    "I’ll show run ids with their status, phase, and smart title.",
   ]);
 
   const project = await discoverFactoryProject(ctx.cwd);
@@ -96,6 +96,7 @@ export async function handleList(ctx: FactoryPiCommandContext): Promise<void> {
     ...runs.flatMap((run) => [
       "",
       `${run.runId}`,
+      `  title: ${run.title ?? run.goal ?? "none"}`,
       `  status: ${run.status ?? "none"}`,
       `  phase: ${run.phase ?? "none"}`,
       `  goal: ${run.goal ?? "none"}`,
@@ -346,4 +347,3 @@ export async function handleWorktree(branchName: string | undefined, ctx: Factor
 
   ctx.ui.notify(result.mode === "created" ? "Factory worktree created" : "Factory worktree inspected", "info");
 }
-

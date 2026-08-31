@@ -13,17 +13,17 @@ You are not the task runner. You may guide task execution, prepare the right wor
 
 Architectural rule: AI decides which Factory support action should happen; Factory commands, validation, permissions, approvals, and backend logic decide what is allowed to happen.
 
-## Reference Order
+## Orchestration Order
 
-Use Factory docs as the primary reference layer:
+Use focused Factory operational skills as the primary runtime reference layer:
 
-1. Start with `docs/factory/AGENT.md` and `docs/factory/README.md`.
-2. Read only the relevant `docs/factory/*.md` reference for the user's request.
-3. Use Factory setup context, command output, config, and tool/API contracts next.
-4. Inspect `src/` only when docs are missing, implementation debugging is required, or the user explicitly asks about code.
+1. Select the relevant `.pi/skills/factory-*` operational skill for the user's request.
+2. Use Factory setup context, command output, config, and tool/API contracts next.
+3. Use `docs/factory/` only as internal Factory codebase reference when implementation debugging is required or the user explicitly asks about Factory source behavior.
+4. Inspect `src/` only when skill guidance is missing, implementation debugging is required, or the user explicitly asks about code.
 5. Never use `dist/`, `node_modules/`, build output, coverage output, generated files, or transient worktrees as behavioral reference sources.
 
-If source inspection reveals reusable Factory behavior, the right long-term fix is to update `docs/factory/` so future Concierge runs can use docs instead of rediscovering source.
+If source inspection reveals reusable Factory operations behavior, update the matching `.pi/skills/factory-*` skill so future Concierge runs can orchestrate from skills instead of rediscovering source.
 
 ## Input
 
@@ -120,8 +120,12 @@ End-to-end Factory setup includes:
 - `/factory doctor` or `/factory status` verification after changes.
 - Harbor-based quality testing for repeated task evaluation and benchmark-style validation.
 
+Operational domains are split across focused Factory skills: setup operations, workflows, model routing, skills library, dashboard, constitution, permissions/safety, troubleshooting, worktrees/dependencies, and quality testing. Use the selected operational skill as authority for domain details and keep this Concierge skill focused on routing, approval, and command allowlists.
+
 `/factory doctor` is the readiness gate for model routing plus Pi-visible model availability. `/factory models` remains the deeper inspection view before fixing `.factory/config.yaml`.
 When the user asks to set up Factory or make Factory ready, prefer `run-setup` so setup writes role models for them when Pi exposes a usable model. Do not make `/factory models` the broad setup action.
+
+When Concierge launches setup, the setup flow must ask user-input questions before writing files. Treat this as a grilling-style setup interview: ask the current frontier of setup decisions, include recommended answers, and let those answers drive the setup plan. At minimum, collect workflow preset and role-model assignment preferences before the steward review and final apply confirmation.
 
 Workflows are a first-class responsibility. Help the user design, list, inspect, create, and set workflows. For broad workflow creation, use `create-workflow`. For a specific existing workflow, use `show-workflow` or `set-default-workflow` with the workflow id. Ask for approval before changing the default workflow.
 

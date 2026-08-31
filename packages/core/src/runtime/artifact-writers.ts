@@ -2,6 +2,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { smartRunTitle } from "../runs/title.js";
 import type { PrototypePlanArtifact, PrototypeTaskArtifact, PrototypeVerificationArtifact, PrototypePlannerExecutionArtifact, PrototypeDiscoveryExecutionArtifact, PrototypeRepairExecutionArtifact, PrototypeReviewerExecutionArtifact, PrototypeBuilderExecutionArtifact, PrototypeIntegrationArtifact, PrototypeCompletedTaskArtifact, PrototypeLandingPlanArtifact, PrototypeLandingDiagnosisArtifact, PrototypeLandingAttemptArtifact, PrototypeFinalMergeArtifact, PrototypeSummaryArtifact } from "./artifacts.js";
 
 export async function writePrototypePlanArtifact(
@@ -144,7 +145,6 @@ export async function writePrototypeSummaryArtifact(
   artifact: PrototypeSummaryArtifact,
 ): Promise<string> {
   const filePath = path.join(runDir, "summary.json");
-  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  await fs.writeFile(filePath, JSON.stringify({ title: smartRunTitle(artifact.goal), ...artifact }, null, 2), "utf8");
   return filePath;
 }
-

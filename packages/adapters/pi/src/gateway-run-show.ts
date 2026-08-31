@@ -68,6 +68,7 @@ export async function handleShow(runId: string | undefined, ctx: FactoryPiComman
     "Factory show",
     `run dir: ${result.runDir}`,
     `run id: ${String(result.state?.runId ?? result.summary?.runId ?? runId)}`,
+    `title: ${String(result.summary?.title ?? result.summary?.goal ?? "none")}`,
     `goal: ${String(result.summary?.goal ?? "none")}`,
     `status: ${String(result.state?.status ?? result.summary?.status ?? "none")}`,
     `phase: ${String(result.state?.phase ?? result.summary?.phase ?? "none")}`,
@@ -80,6 +81,14 @@ export async function handleShow(runId: string | undefined, ctx: FactoryPiComman
     `task count: ${taskCount}`,
     `workflow stages: ${workflowStages}`,
     `planner execution: ${plannerStatus}`,
+    ...(result.taskFailure
+      ? [
+          `failed task: ${result.taskFailure.taskId ?? "unknown"} (${result.taskFailure.stage ?? "unknown"})`,
+          `failure reason: ${result.taskFailure.reason ?? "unknown"}`,
+          `builder status: ${result.taskFailure.builderStatus ?? "none"}`,
+          `builder execution path: ${result.taskFailure.builderExecutionPath ?? "none"}`,
+        ]
+      : []),
     `repair attempts: ${repairAttempts}`,
     `repair statuses: ${repairStatuses || "none"}`,
     `reviewer execution: ${reviewerStatus}`,
@@ -91,4 +100,3 @@ export async function handleShow(runId: string | undefined, ctx: FactoryPiComman
 
   ctx.ui.notify("Factory run loaded", "info");
 }
-

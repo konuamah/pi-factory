@@ -15,6 +15,7 @@ import {
   validateFactorySetup,
   type AgentExecutor,
 } from "@factory/core";
+import type { FactorySetupRecommendation, ModelRole, ModelSelection } from "@factory/schemas";
 import { createPiSdkSessionFactory, PiAgentExecutor } from "@factory/executor-pi";
 import { renderLines, renderIntro, clearFactoryWidget, FACTORY_WIDGET_ID } from "./gateway-render.js";
 import { mountFactoryStreamingWidget } from "./streaming-panel.js";
@@ -40,6 +41,7 @@ export async function handleSetup(rest: string[], ctx: FactoryPiCommandContext):
   ]);
 
   const force = rest.includes("--force");
+  const fromConcierge = rest.includes("--from-concierge");
   const project = await discoverFactoryProject(ctx.cwd);
   const hasExistingSetup = Boolean(project.paths.constitutionPath || project.paths.workflowPath || project.paths.projectConfigPath);
 
@@ -82,6 +84,21 @@ export async function handleSetup(rest: string[], ctx: FactoryPiCommandContext):
     ? buildDeterministicRecommendation(setupContext)
     : await recommendSetupWithPiSdk(ctx, setupContext, panel, hasExistingSetup, force, recommendViaFactorySetupSkill);
   panel.setStatus("completed");
+
+  if (fromConcierge && ctx.ui.select) {
+    renderLines(ctx, [
+      "Factory setup interview",
+      "",
+      "Using the bundled grilling skill pattern: Factory will ask the frontier setup questions now, then use those answers before writing config.",
+    ]);
+    const piStatus = await detectPiModelConfiguration(ctx.cwd);
+    const choices = await promptFactorySetupChoices(ctx.ui, piStatus);
+    recommendation!.workflow = {
+      value: { kind: "preset", preset: choices.workflowPreset, workflowId: "default-dev" },
+      reason: "Selected during the Concierge setup interview.",
+    };
+    recommendation!.models = mergeModelAssignmentsIntoRecommendation(recommendation!, choices.modelAssignments);
+  }
 
   // Step 3: Steward walk — project understanding + review of every area before writing
   // Uses buildStewardSlides from @factory/core; falls back to simple choice when no interactive UI.
@@ -182,6 +199,23 @@ export async function handleSetup(rest: string[], ctx: FactoryPiCommandContext):
   ]);
 
   ctx.ui.notify(`Factory setup complete — ${validation.readiness}`, isHealthy ? "info" : "warning");
+}
+
+function mergeModelAssignmentsIntoRecommendation(
+  recommendation: FactorySetupRecommendation,
+  modelAssignments: Partial<Record<ModelRole, ModelSelection>>,
+): FactorySetupRecommendation["models"] {
+  const merged: FactorySetupRecommendation["models"] = { ...(recommendation.models ?? {}) };
+  for (const [role, selection] of Object.entries(modelAssignments) as Array<[ModelRole, ModelSelection]>) {
+    if (!selection?.model) {
+      continue;
+    }
+    merged[role] = {
+      value: selection,
+      reason: "Selected during the Concierge setup interview.",
+    };
+  }
+  return Object.keys(merged).length ? merged : recommendation.models;
 }
 
 export async function runSetupCustomize(

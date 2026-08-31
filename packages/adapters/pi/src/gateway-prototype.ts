@@ -273,6 +273,14 @@ export async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommand
     `summary path: ${result.summaryPath}`,
     `approved: ${result.approved ? "yes" : "no"}`,
     `phases: ${result.phases.join(" -> ")}`,
+    ...(latestShown.taskFailure
+      ? [
+          `failed task: ${latestShown.taskFailure.taskId ?? "unknown"} (${latestShown.taskFailure.stage ?? "unknown"})`,
+          `failure reason: ${latestShown.taskFailure.reason ?? "unknown"}`,
+          `builder status: ${latestShown.taskFailure.builderStatus ?? "none"}`,
+          `builder execution path: ${latestShown.taskFailure.builderExecutionPath ?? "none"}`,
+        ]
+      : []),
     ...(latestShown.integrationFailure
       ? [
           `integration failure: ${latestShown.integrationFailure.reason ?? "unknown"}`,

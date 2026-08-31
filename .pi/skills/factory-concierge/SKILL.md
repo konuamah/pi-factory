@@ -28,7 +28,7 @@ The current project is the working directory where the user invoked Pi. Treat th
 Use this loop:
 
 1. Understand the user goal and inspect the current Factory state.
-2. For large setup, workflow, model, skill, dashboard, constitution, task guidance, or troubleshooting work, resolve the Factory package root and read `docs/factory/AGENT.md`, then the relevant reference doc from that root's `docs/factory/README.md`.
+2. For large setup, workflow, model, skill, dashboard, constitution, task guidance, or troubleshooting work, use the focused `.pi/skills/factory-*` operational skill for that domain.
 3. Decide the smallest useful action or plan.
 4. Ask only when the action is destructive, ambiguous, or changes project policy.
 5. Edit Factory-owned files or run Factory commands as needed.
@@ -37,6 +37,8 @@ Use this loop:
 
 `/factory doctor` is the readiness gate for model routing plus Pi-visible model availability. `/factory models` remains the deeper inspection view before fixing `.factory/config.yaml`.
 When the user asks to set up Factory or make Factory ready, run setup so Factory writes role models for them when Pi exposes a usable model. Do not make `/factory models` the broad setup action.
+
+When Concierge launches setup, collect user input before writing files. Use the bundled `grilling` interview pattern: ask the current frontier of setup decisions, include recommended answers, and feed the answers into the setup plan. At minimum, ask for workflow preset and role-model assignment preferences before the steward review and final apply confirmation.
 
 When a workflow needs to add an interview stage, inspect the bundled `skills/grilling` skill first. If the repo does not already include it, add the bundled skill from Factory instead of telling the user to install an external package. Bind `skills.require: [grilling]` directly.
 
@@ -51,7 +53,7 @@ Keep the visible transcript operational, not diary-like.
 - Do not narrate every internal step with repeated phrases like "let me check", "let me inspect", or "now let me".
 - Before running commands, give at most one short status sentence that explains the next useful action.
 - After reading files or running commands, summarize the result instead of replaying the investigation.
-- For ordinary setup, do not inspect Factory source, schemas, `dist`, binaries, or CLI bootstrap files. Use `/factory setup`, `/factory doctor`, `/factory status`, `pi list`, `.pi/settings.json`, and the docs library first.
+- For ordinary setup, do not inspect Factory source, schemas, `dist`, binaries, or CLI bootstrap files. Use `/factory setup`, `/factory doctor`, `/factory status`, `pi list`, `.pi/settings.json`, and the focused Factory operational skills first.
 - Inspect Factory source or schema files only when the user is developing Factory itself or when a confirmed Factory bug/build/module-resolution failure requires it.
 - If a command or model call returns a temporary service error, state that briefly and continue with local evidence only if the next step is still safe.
 
@@ -59,21 +61,21 @@ Keep the visible transcript operational, not diary-like.
 
 Detect how Factory is installed before changing extension or skill wiring:
 
-- Pi package mode: `.pi/settings.json` lists a package path or npm package. Use that package root for Factory docs, packaged extensions, and packaged skills. Do not recreate `.pi/extensions/factory/index.ts` just because it is absent.
+- Pi package mode: `.pi/settings.json` lists a package path or npm package. Use that package root for packaged extensions, packaged skills, and internal docs when debugging Factory itself. Do not recreate `.pi/extensions/factory/index.ts` just because it is absent.
 - Legacy project-local mode: `.pi/extensions/factory/index.ts` exists and is intentionally active. Only then inspect or edit that file.
 - Vendored mode: `vendor/pi-factory` exists. Use it only when the user is explicitly updating or repairing a vendored Factory copy.
 
 In package mode, a missing project-local `.pi/extensions/factory/index.ts` is normal. Verify package mode with `pi list`, `.pi/settings.json`, and `/factory doctor`.
 
-## Reference Resolution
+## Skill Orchestration
 
-Reference docs live at the Factory package/repo root, not inside this skill folder. Do not look for docs under `.pi/skills/factory-concierge/docs/`.
+Concierge is the orchestrator. It chooses the focused Factory operational skill for the user's request, then routes to the safest Factory support action.
 
-Use `docs/factory/AGENT.md` as the agent contract. The reference order is: Factory docs first, command output/setup context/config/tool contracts second, `src/` only when docs are missing or implementation debugging is required, and never `dist/`, `node_modules`, build output, coverage output, generated files, or transient worktrees as behavioral reference sources.
+Use `.pi/skills/factory-setup-operations`, `.pi/skills/factory-workflows`, `.pi/skills/factory-model-routing`, `.pi/skills/factory-skills-library`, `.pi/skills/factory-dashboard`, `.pi/skills/factory-constitution`, `.pi/skills/factory-permissions-safety`, `.pi/skills/factory-troubleshooting`, `.pi/skills/factory-worktrees-dependencies`, and `.pi/skills/factory-quality-testing` for domain behavior.
 
-If `.pi/settings.json` contains a relative package path such as `../../pi-factory`, resolve it relative to the current project root and read `docs/factory/README.md` from that resolved package root.
+Use `docs/factory/` only as internal Factory codebase reference for implementation debugging or explicit Factory source questions.
 
-Do not inspect `node_modules`, `dist`, binaries, generated output, or guessed CLI/bootstrap files to discover `/factory` commands unless debugging a confirmed build or module-resolution failure. Slash commands are provided by Pi package/extension registration; use `/factory`, `pi list`, `.pi/settings.json`, and the Factory docs as the first sources of truth.
+Do not inspect `node_modules`, `dist`, binaries, generated output, or guessed CLI/bootstrap files to discover `/factory` commands unless debugging a confirmed build or module-resolution failure. Slash commands are provided by Pi package/extension registration; use `/factory`, `pi list`, `.pi/settings.json`, and the Factory operational skills as the first sources of truth.
 
 ## What You May Change
 
@@ -99,21 +101,20 @@ You may also run Factory commands when useful:
 - `/factory dashboard start|status|open|stop`
 - `/factory constitution`
 
-## Reference Docs
+## Operational Skills
 
-Use the Factory package root's `docs/factory/AGENT.md` as the agent reference contract and `docs/factory/README.md` as the docs hub. Read the specific referenced doc before larger actions:
+Use focused Factory operational skills for user-facing behavior:
 
-- agent reference rules: `docs/factory/AGENT.md`
-- setup/tuning: `docs/factory/setup-operations.md`
-- worktrees/dependencies: `docs/factory/worktrees-and-dependencies.md`
-- workflows: `docs/factory/workflow-authoring.md`
-- models: `docs/factory/model-routing.md`
-- skills: `docs/factory/skills-library.md`
-- dashboard: `docs/factory/dashboard.md`
-- constitution: `docs/factory/constitution.md`
-- safety: `docs/factory/permissions-and-safety.md`
-- failures: `docs/factory/troubleshooting.md`
-- examples: `docs/factory/examples.md`
+- setup/tuning: `factory-setup-operations`
+- worktrees/dependencies: `factory-worktrees-dependencies`
+- workflows: `factory-workflows`
+- models: `factory-model-routing`
+- skills: `factory-skills-library`
+- dashboard: `factory-dashboard`
+- constitution: `factory-constitution`
+- safety: `factory-permissions-safety`
+- failures: `factory-troubleshooting`
+- quality testing: `factory-quality-testing`
 
 ## Approval Rules
 

@@ -1,4 +1,5 @@
 import type { Capability, CapabilityPolicy, EffectiveFactoryConfig, ModelSelection, WorkflowNodeType, WorkflowStage, WorkflowStageSkillPolicy } from "@factory/schemas";
+import { smartRunTitle } from "../runs/title.js";
 
 export interface PlannerTask {
   id: string;
@@ -236,25 +237,26 @@ function isControllerHandledStage(stageName: string, type?: WorkflowNodeType): b
 }
 
 function buildTaskTitle(stageName: string, goal: string): string {
+  const title = smartRunTitle(goal);
   switch (stageName) {
     case "plan":
     case "planning":
-      return `Plan work for: ${goal}`;
+      return `Plan work for: ${title}`;
     case "interview":
-      return `Interview before planning for: ${goal}`;
+      return `Interview before planning for: ${title}`;
     case "build":
     case "implementation":
-      return `Implement changes for: ${goal}`;
+      return `Implement changes for: ${title}`;
     case "verify":
     case "verification":
-      return `Verify changes for: ${goal}`;
+      return `Verify changes for: ${title}`;
     case "approval":
     case "approval-ready":
-      return `Prepare approval package for: ${goal}`;
+      return `Prepare approval package for: ${title}`;
     case "merge":
-      return `Merge approved changes for: ${goal}`;
+      return `Merge approved changes for: ${title}`;
     default:
-      return `${capitalize(stageName)} for: ${goal}`;
+      return `${capitalize(stageName)} for: ${title}`;
   }
 }
 

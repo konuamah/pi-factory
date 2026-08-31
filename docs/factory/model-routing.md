@@ -2,6 +2,8 @@
 
 Use this when models fail, defaults are unclear, or the user wants custom model behavior.
 
+Factory model-routing roles are only `discovery`, `planner`, `builder`, `reviewer`, `repair`, and `landing`. There is no `interviewer` role; interview workflow stages normally use `role: planner`.
+
 ## Sources
 
 Factory should prefer models configured in Pi before built-in defaults. Useful sources include:

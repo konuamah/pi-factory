@@ -36,13 +36,13 @@ export function Runs({ goToRun }: { goToRun: (runId: string) => void }) {
       </div>
       <table>
         <thead>
-          <tr><th>Status</th><th>Goal</th><th>Phase</th><th>Updated</th><th></th></tr>
+          <tr><th>Status</th><th>Run</th><th>Phase</th><th>Updated</th><th></th></tr>
         </thead>
         <tbody>
           {filtered.map((run) => (
             <tr key={run.runId}>
               <td><StatusBadge status={run.status} /></td>
-              <td>{run.goal ?? '—'}</td>
+              <td title={run.goal}>{run.title ?? run.goal ?? '—'}</td>
               <td>{run.phase ?? '—'}</td>
               <td className="muted">{run.updatedAt ? new Date(run.updatedAt).toLocaleTimeString() : '—'}</td>
               <td><button className="link" onClick={() => goToRun(run.runId)}>view</button></td>

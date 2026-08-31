@@ -102,7 +102,7 @@ export async function getFactoryCommandCompletions(
     ? matches.map((run) => ({
         value: `${subcommand} ${run.runId}`,
         label: run.runId,
-        description: [run.status, run.phase, run.goal].filter(Boolean).join(" • "),
+        description: [run.status, run.phase, run.title ?? run.goal].filter(Boolean).join(" • "),
       }))
     : null;
 }

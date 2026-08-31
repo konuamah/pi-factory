@@ -204,3 +204,59 @@ test('recovery pull request can be disabled without running git or gh', async ()
   });
   assert.equal(result.status, "skipped");
 });
+
+test('recovery pull request fails fast and actionable when no remote exists', async () => {
+  const root = await initRepo();
+  await git(root, ["switch", "-c", "factory/candidate"]);
+  await fs.writeFile(path.join(root, "index.html"), "<h1>Candidate</h1>\n", "utf8");
+  await git(root, ["add", "index.html"]);
+  await git(root, ["commit", "-m", "candidate"]);
+
+  const { createRecoveryPullRequest } = await import("../packages/core/dist/git/pull-request.js");
+  const result = await createRecoveryPullRequest({
+    cwd: root,
+    sourceBranch: "factory/candidate",
+    targetBranch: "main",
+    runId: "run-test",
+    goal: "Add candidate feature",
+    reason: "baseline debt",
+    candidateSha: await git(root, ["rev-parse", "HEAD"]),
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.match(result.reason, /No git remote is configured|not pushed/i);
+  assert.match(result.reason, /preserved locally/);
+});
+
+test('recovery pull request reports missing gh clearly and keeps pushed branch usable', async () => {
+  const root = await initRepo();
+  await git(root, ["switch", "-c", "factory/candidate"]);
+  await fs.writeFile(path.join(root, "index.html"), "<h1>Candidate</h1>\n", "utf8");
+  await git(root, ["add", "index.html"]);
+  await git(root, ["commit", "-m", "candidate"]);
+  const remote = await fs.mkdtemp(path.join(os.tmpdir(), "factory-landing-remote-"));
+  await git(remote, ["init", "--bare"]);
+  await git(root, ["remote", "add", "origin", remote]);
+
+  const bin = path.join(root, "git-only-bin");
+  await fs.mkdir(bin, { recursive: true });
+  const realGit = (await import("node:child_process")).execSync("command -v git").toString().trim();
+  await fs.symlink(realGit, path.join(bin, "git"));
+
+  const { createRecoveryPullRequest } = await import("../packages/core/dist/git/pull-request.js");
+  const result = await createRecoveryPullRequest({
+    cwd: root,
+    sourceBranch: "factory/candidate",
+    targetBranch: "main",
+    runId: "run-test",
+    goal: "Add candidate feature",
+    reason: "baseline debt",
+    env: { ...process.env, PATH: bin, GIT_TERMINAL_PROMPT: "0" },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.match(result.reason, /gh\) is not installed/i);
+  // The push already succeeded, so the branch is on the remote for manual merge.
+  await assert.doesNotReject(git(root, ["ls-remote", "--heads", "origin", "factory/candidate"]));
+});

@@ -33,6 +33,23 @@ gh auth status
 git remote -v
 ```
 
+## If GitHub is not configured
+
+PR recovery is a best-effort delivery path, not a hard dependency. If it cannot run, Factory says exactly what is missing and the candidate is never lost:
+
+| Situation | What the run reports | Recovery |
+| --- | --- | --- |
+| No git remote configured | `No git remote is configured...` plus the preserved local branch/SHA | `git remote add origin ...` and retry, or merge the branch manually |
+| Push rejected (credentials/permissions) | `The remote rejected the push...` | Fix credentials, then retry with the preserved branch/SHA |
+| `gh` not installed | `the GitHub CLI (gh) is not installed...` | Install gh, `gh auth login`, retry — the branch is already pushed |
+| `gh` not authenticated | `gh is not authenticated. Run 'gh auth login'...` | Authenticate and retry; the pushed branch is reusable |
+| Remote is not GitHub | `the remote is not a GitHub repository...` | Merge the pushed branch with your host's own review flow |
+| PR recovery disabled in config | `Pull request fallback is disabled by configuration.` | Land directly after fixing the blocker, or merge the candidate manually |
+
+Pushes run with `GIT_TERMINAL_PROMPT=0`, so a missing credential can never hang the run waiting for an interactive prompt.
+
+In every case the run stays `BLOCKED / merge-blocked`, the worktree and candidate branch are preserved, and `/factory resume` can retry once the blocker is fixed.
+
 ## Run artifacts
 
 `final-merge.json` contains:

@@ -53,11 +53,23 @@ export async function createRecoveryPullRequest(
   }
 
   try {
-    await execFileAsync("git", ["push", "--set-upstream", "origin", input.sourceBranch], {
-      cwd: input.cwd,
-      windowsHide: true,
-      env: input.env,
-    });
+    let pushed = false;
+    try {
+      await execFileAsync("git", ["push", "--set-upstream", "origin", input.sourceBranch], {
+        cwd: input.cwd,
+        windowsHide: true,
+        env: pushEnv(input.env),
+      });
+      pushed = true;
+    } catch (pushError) {
+      // Fail fast with an actionable reason; the candidate commit and branch
+      // remain preserved locally and blocked runs keep their worktree.
+      return {
+        ...base,
+        status: "failed",
+        reason: `Candidate branch was not pushed: ${classifyPushFailure(pushError)} The candidate${input.candidateSha ? ` commit ${input.candidateSha}` : ""} is preserved locally on branch '${input.sourceBranch}'.`,
+      };
+    }
 
     const existing = await findExistingPullRequest(input);
     if (existing) {
@@ -91,16 +103,26 @@ export async function createRecoveryPullRequest(
     ];
     if (input.draft) args.push("--draft");
 
-    const { stdout } = await execFileAsync("gh", args, {
-      cwd: input.cwd,
-      windowsHide: true,
-      env: input.env,
-    });
-    const url = stdout.trim().split(/\s+/).find((value) => /^https:\/\/github\.com\//.test(value));
-    if (!url) {
-      return { ...base, status: "failed", reason: "GitHub CLI created no detectable pull request URL." };
+    try {
+      const { stdout } = await execFileAsync("gh", args, {
+        cwd: input.cwd,
+        windowsHide: true,
+        env: input.env,
+      });
+      const url = stdout.trim().split(/\s+/).find((value) => /^https:\/\/github\.com\//.test(value));
+      if (!url) {
+        return { ...base, status: "failed", reason: "GitHub CLI created no detectable pull request URL." };
+      }
+      return { ...base, status: "created", url, reason: "Candidate branch pushed and pull request created." };
+    } catch (prError) {
+      return {
+        ...base,
+        status: "failed",
+        reason: pushed
+          ? `Candidate branch '${input.sourceBranch}' was pushed to origin, but pull request creation failed: ${classifyGhFailure(prError)}`
+          : `Pull request creation failed: ${classifyGhFailure(prError)}`,
+      };
     }
-    return { ...base, status: "created", url, reason: "Candidate branch pushed and pull request created." };
   } catch (error) {
     return {
       ...base,
@@ -108,6 +130,46 @@ export async function createRecoveryPullRequest(
       reason: `Could not publish candidate pull request: ${redactCredentialLikeText(formatError(error))}`,
     };
   }
+}
+
+/**
+ * Headless push: never hang waiting for a credential prompt. Callers may
+ * override by setting GIT_TERMINAL_PROMPT in their own env.
+ */
+function pushEnv(userEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...(userEnv ?? process.env),
+    GIT_TERMINAL_PROMPT: userEnv?.GIT_TERMINAL_PROMPT ?? "0",
+  };
+}
+
+function classifyPushFailure(error: unknown): string {
+  const raw = formatError(error);
+  if (/no configured push destination|does not appear to be a git repository|not a git repository|no such remote/i.test(raw)) {
+    return "No git remote is configured for this repository. Add one (for example 'git remote add origin ...') to enable pull request recovery, merge the candidate manually, or set git.pullRequest.enabled: false.";
+  }
+  if (/authentication|permission|denied|403|could not read from remote/i.test(raw)) {
+    return "The remote rejected the push (missing credentials or permissions).";
+  }
+  if (/fetch first|non-fast-forward/i.test(raw)) {
+    return "The remote branch diverged; fetch and reconcile before pushing.";
+  }
+  return redactCredentialLikeText(raw);
+}
+
+function classifyGhFailure(error: unknown): string {
+  const raw = formatError(error);
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === "ENOENT" || /spawn gh/i.test(raw)) {
+    return "the GitHub CLI (gh) is not installed. Install it from https://cli.github.com, run 'gh auth login', then retry, or merge the pushed branch manually.";
+  }
+  if (/gh auth login|not logged in|authentication|unauthorized|401/i.test(raw)) {
+    return "gh is not authenticated. Run 'gh auth login', then retry; the candidate branch is already pushed.";
+  }
+  if (/not a github|gitlab|bitbucket/i.test(raw)) {
+    return "the remote is not a GitHub repository, so gh cannot open a pull request there. Merge the pushed branch with your host's own review flow.";
+  }
+  return redactCredentialLikeText(raw);
 }
 
 async function findExistingPullRequest(input: RecoveryPullRequestInput): Promise<string | undefined> {

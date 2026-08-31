@@ -11,6 +11,14 @@ export interface FactoryRunShowResult {
   repairExecutions?: Record<string, unknown>[];
   reviewerExecution?: Record<string, unknown>;
   verification?: Record<string, unknown>;
+  finalMerge?: Record<string, unknown>;
+  pullRequest?: {
+    status?: string;
+    url?: string;
+    sourceBranch?: string;
+    targetBranch?: string;
+    reason?: string;
+  };
   planDecision?: "approve" | "reject" | "revise";
   planFeedback?: string;
   implementationStarted?: boolean;
@@ -62,12 +70,13 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     return {};
   }
 
-  const [state, summary, plan, plannerExecution, verification, repairExecutions, reviewerExecution, events] = await Promise.all([
+  const [state, summary, plan, plannerExecution, verification, finalMerge, repairExecutions, reviewerExecution, events] = await Promise.all([
     readJsonFile(path.join(runDir, "state.json")),
     readJsonFile(path.join(runDir, "summary.json")),
     readJsonFile(path.join(runDir, "plan.json")),
     readJsonFile(path.join(runDir, "planner-execution.json")),
     readJsonFile(path.join(runDir, "verification.json")),
+    readJsonFile(path.join(runDir, "final-merge.json")),
     readRepairExecutions(runDir),
     readJsonFile(path.join(runDir, "reviewer-execution.json")),
     readJsonlFile(path.join(runDir, "events.jsonl")),
@@ -87,6 +96,10 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     repairExecutions,
     reviewerExecution,
     verification,
+    finalMerge,
+    pullRequest: finalMerge?.pullRequest && typeof finalMerge.pullRequest === "object"
+      ? finalMerge.pullRequest as FactoryRunShowResult["pullRequest"]
+      : undefined,
     planDecision: planSummary.decision,
     planFeedback: planSummary.feedback,
     implementationStarted: planSummary.implementationStarted,

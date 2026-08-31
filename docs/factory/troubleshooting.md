@@ -172,10 +172,13 @@ phase: merge-blocked
 
 Cause:
 
-Factory planned final landing, but refused to claim completion because the
-candidate was not safely landed. This is intentional: required landing must not
-report `COMPLETED` unless `final-merge.json` is `landed` or explicitly
-`policy-skipped`.
+A direct merge did not complete safely. The landing strategy is model-selected;
+deterministic code only enforces safety invariants. A valid candidate is not
+abandoned: when GitHub PR recovery is enabled, Factory pushes the candidate
+branch and opens (or reuses) a pull request through the user's authenticated
+`gh` CLI. The run remains `BLOCKED / merge-blocked` until a human merges that
+PR, but it has a durable delivery path and is not an opaque implementation
+failure.
 
 Inspect:
 
@@ -191,7 +194,9 @@ Fix:
 - if unrelated Pi/Factory runtime files are dirty and the current checkout is already the target branch, treat them as evidence rather than a blocker
 - if verification is incomplete, the candidate still lands after human approval, but `verification.json` records a missing `automated-checks` result: add real verification commands or package scripts so the run gets automated proof instead of manual review only
 - if the candidate commit or branch is missing, inspect `completed-tasks.json` and rerun or resume from the preserved candidate workspace
-- if the landing model returns invalid JSON, fix model routing or provider behavior; Factory should block rather than mutate Git with a guessed fallback
+- if the landing model returns invalid JSON, Factory uses the safe PR recovery path rather than mutating Git with a guessed merge strategy
+- if `final-merge.json` contains `pullRequest.status: created` or `existing`, review and merge the printed `pullRequest.url`
+- if PR creation fails, fix `gh auth status`, the repository remote, or push permissions, then use the preserved candidate branch/SHA to retry; Factory never reads or stores GitHub tokens
 
 ## Next Lint Fails On Next.js 16
 

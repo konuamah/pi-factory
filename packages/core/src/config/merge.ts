@@ -127,6 +127,13 @@ export function mergeConfigLayers(input: {
         pruneWorktrees: project?.git?.cleanup?.pruneWorktrees ?? builtIns.git.cleanup.pruneWorktrees,
         pruneBranches: project?.git?.cleanup?.pruneBranches ?? builtIns.git.cleanup.pruneBranches,
       },
+      pullRequest: {
+        enabled: project?.git?.pullRequest?.enabled ?? builtIns.git.pullRequest.enabled,
+        provider: project?.git?.pullRequest?.provider ?? builtIns.git.pullRequest.provider,
+        cli: project?.git?.pullRequest?.cli ?? builtIns.git.pullRequest.cli,
+        draft: project?.git?.pullRequest?.draft ?? builtIns.git.pullRequest.draft,
+        baseBranch: project?.git?.pullRequest?.baseBranch,
+      },
     },
     repair: {
       enabled: project?.repair?.enabled ?? builtIns.repair.enabled,

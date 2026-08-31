@@ -3,7 +3,7 @@ import type {
   PrototypeLandingPlanArtifact,
 } from "./artifacts.js";
 
-export type LandingStrategy = "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "skip" | "block";
+export type LandingStrategy = "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "pull-request" | "skip" | "block";
 export type LandingRisk = "low" | "medium" | "high";
 export type LandingStatus = "landed" | "skipped" | "blocked" | "failed";
 export type LandingOutcome =
@@ -14,7 +14,10 @@ export type LandingOutcome =
   | "verification-failed"
   | "missing-candidate"
   | "unsafe-plan"
-  | "unknown";
+  | "unknown"
+  | "pull-request-created"
+  | "pull-request-existing"
+  | "pull-request-failed";
 
 export interface LandingPlan {
   strategy: LandingStrategy;
@@ -47,6 +50,13 @@ export interface LandingResult {
   landingStatus: LandingStatus;
   landingAttempts: number;
   recoveryHint?: string;
+  pullRequest?: {
+    status: "created" | "existing" | "skipped" | "failed";
+    url?: string;
+    sourceBranch: string;
+    targetBranch: string;
+    reason: string;
+  };
 }
 
 export interface DirtyLandingContext {

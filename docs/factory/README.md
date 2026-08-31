@@ -60,6 +60,7 @@ Operational skills are the primary Concierge runtime reference layer. Docs are t
 | "Refresh repo memory" | [constitution.md](constitution.md) | Use `/factory constitution` when needed |
 | "Can you do this safely?" | [permissions-and-safety.md](permissions-and-safety.md) | Apply approval and verification rules |
 | "Something broke" | [troubleshooting.md](troubleshooting.md) | Diagnose by symptom |
+| "Recover a blocked candidate" | [pull-request-recovery.md](pull-request-recovery.md) | Publish a valid candidate as a GitHub PR when direct landing cannot complete |
 | "Show examples" | [examples.md](examples.md) | Follow a worked pattern |
 | "Set up quality testing" | [quality-testing.md](quality-testing.md) | Use Harbor tasks and verifiers |
 | "Benchmark Factory orchestration" | [bombsite-benchmark-plan.md](bombsite-benchmark-plan.md) | Approved plan: Harbor + scripted interviews + six-pillar scorer |

@@ -37,6 +37,7 @@ export async function buildLandingPlan(input: {
   candidateSha?: string;
   candidateBranch?: string;
   verification: VerificationRunResult;
+  verificationFailureClassification?: unknown;
   limits?: AgentExecutionInput["limits"];
 }): Promise<LandingPlan> {
   if (!input.executor) {
@@ -101,12 +102,14 @@ function buildLandingPlannerPrompt(input: {
   candidateSha?: string;
   candidateBranch?: string;
   verification: VerificationRunResult;
+  verificationFailureClassification?: unknown;
 }): string {
   return [
     "You are the Factory landing planner.",
     "Return STRICT JSON only. No markdown.",
     "Choose what Factory should do to land the candidate safely.",
-    'Allowed strategy: "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "skip" | "block".',
+    "This is a model decision, not a deterministic verification gate. Baseline-unrelated verification debt is not a reason to abandon a valid candidate. If direct landing is unsafe or cannot complete, choose pull-request so the candidate is published for human review; use block only when no safe delivery path exists.",
+    'Allowed strategy: "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "pull-request" | "skip" | "block".',
     'Allowed risk: "low" | "medium" | "high".',
     JSON.stringify({
       strategy: "cherry-pick",
@@ -117,7 +120,7 @@ function buildLandingPlannerPrompt(input: {
       verification: ["test"],
       risk: "low",
       expectedFiles: ["src/file.ts"],
-      recoveryPlan: "optional",
+      recoveryPlan: "If direct landing is unsafe or cannot complete, use pull-request to publish the candidate; never abandon a valid candidate.",
     }, null, 2),
     "Evidence:",
     JSON.stringify({
@@ -131,6 +134,7 @@ function buildLandingPlannerPrompt(input: {
       candidateBranch: input.candidateBranch,
       completedTasks: input.completedTasks,
       verificationStatus: input.verification.overallStatus,
+      verificationFailureClassification: input.verificationFailureClassification,
       verificationCommands: input.verification.commands.map((command) => ({
         name: command.name,
         status: command.status,
@@ -174,7 +178,7 @@ function sanitizeLandingPlan(
   parsed: Record<string, unknown>,
   input: { baseBranch: string; candidateSha?: string; candidateBranch?: string; completedTasks: PrototypeCompletedTaskArtifact[] },
 ): LandingPlan {
-  const strategy = pick(parsed.strategy, ["cherry-pick", "merge", "merge-no-ff", "rebase", "skip", "block"]) ?? "block";
+  const strategy = pick(parsed.strategy, ["cherry-pick", "merge", "merge-no-ff", "rebase", "pull-request", "skip", "block"]) ?? "pull-request";
   const risk = pick(parsed.risk, ["low", "medium", "high"]) ?? "high";
   return {
     strategy,

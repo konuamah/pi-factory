@@ -77,6 +77,15 @@ export async function handleShow(runId: string | undefined, ctx: FactoryPiComman
     `plan feedback: ${result.planFeedback ?? "none"}`,
     `implementation started: ${typeof result.implementationStarted === "boolean" ? (result.implementationStarted ? "yes" : "no") : "unknown"}`,
     `verification: ${String(result.summary?.verificationStatus ?? result.verification?.overallStatus ?? "none")}`,
+    ...(result.pullRequest
+      ? [
+          `pull request: ${result.pullRequest.status ?? "unknown"}`,
+          `pull request url: ${result.pullRequest.url ?? "none"}`,
+          `pull request source: ${result.pullRequest.sourceBranch ?? "none"}`,
+          `pull request target: ${result.pullRequest.targetBranch ?? "none"}`,
+          `pull request reason: ${result.pullRequest.reason ?? "none"}`,
+        ]
+      : []),
     ...buildDecisionLines(result.decisions),
     `task count: ${taskCount}`,
     `workflow stages: ${workflowStages}`,

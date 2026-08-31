@@ -280,7 +280,7 @@ export interface PrototypeCompletedTaskArtifact {
 }
 
 export interface PrototypeLandingPlanArtifact {
-  strategy: "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "skip" | "block";
+  strategy: "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "pull-request" | "skip" | "block";
   targetBranch: string;
   candidateSha?: string;
   sourceBranch?: string;
@@ -347,7 +347,7 @@ export interface PrototypeFinalMergeArtifact {
   candidateBranch?: string;
   candidateSha?: string;
   mergeCwd: string;
-  status: "landed" | "skipped" | "blocked" | "failed";
+  status: "landed" | "skipped" | "blocked" | "failed" | "pull-request-created" | "pull-request-existing";
   outcome?:
     | "landed"
     | "policy-skipped"
@@ -356,12 +356,22 @@ export interface PrototypeFinalMergeArtifact {
     | "verification-failed"
     | "missing-candidate"
     | "unsafe-plan"
-    | "unknown";
-  strategy?: "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "skip" | "block";
+    | "unknown"
+    | "pull-request-created"
+    | "pull-request-existing"
+    | "pull-request-failed";
+  strategy?: "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "pull-request" | "skip" | "block";
   targetBranch?: string;
   sourceBranch?: string;
   recoveryHint?: string;
   reason?: string;
+  pullRequest?: {
+    status: "created" | "existing" | "skipped" | "failed";
+    url?: string;
+    sourceBranch: string;
+    targetBranch: string;
+    reason: string;
+  };
 }
 
 export interface PrototypeSummaryArtifact {
@@ -382,6 +392,13 @@ export interface PrototypeSummaryArtifact {
   landingStatus?: "landed" | "skipped" | "blocked" | "failed";
   landingAttempts?: number;
   recoveryHint?: string;
+  pullRequest?: {
+    status: "created" | "existing" | "skipped" | "failed";
+    url?: string;
+    sourceBranch: string;
+    targetBranch: string;
+    reason: string;
+  };
   repairExecutionPaths?: string[];
   reviewerExecutionPath?: string;
   verificationPath: string;

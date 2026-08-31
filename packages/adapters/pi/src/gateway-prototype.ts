@@ -245,8 +245,12 @@ export async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommand
   const finalState = await readFactoryRunStateForSummary(result.statePath);
   const finalStatus = finalState?.status ?? (result.approved ? "COMPLETED" : "FAILED");
   const finalPhase = finalState?.phase ?? "unknown";
-  const finalTitle = buildFactoryRunResultTitle(finalStatus, finalPhase);
-  const finalTone = finalStatus === "COMPLETED" ? "info" : finalStatus === "CANCELLED" ? "warning" : "error";
+  const finalTitle = latestShown.pullRequest?.status === "created" || latestShown.pullRequest?.status === "existing"
+    ? "Factory candidate published — awaiting PR review"
+    : buildFactoryRunResultTitle(finalStatus, finalPhase);
+  const finalTone = latestShown.pullRequest?.status === "created" || latestShown.pullRequest?.status === "existing"
+    ? "warning"
+    : finalStatus === "COMPLETED" ? "info" : finalStatus === "CANCELLED" ? "warning" : "error";
 
   renderLines(ctx, [
     finalTitle,
@@ -272,6 +276,13 @@ export async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommand
     `verification path: ${result.verificationPath}`,
     `summary path: ${result.summaryPath}`,
     `approved: ${result.approved ? "yes" : "no"}`,
+    ...(latestShown.pullRequest
+      ? [
+          `pull request: ${latestShown.pullRequest.status ?? "unknown"}`,
+          `pull request url: ${latestShown.pullRequest.url ?? "none"}`,
+          `pull request reason: ${latestShown.pullRequest.reason ?? "none"}`,
+        ]
+      : []),
     `phases: ${result.phases.join(" -> ")}`,
     ...(latestShown.taskFailure
       ? [

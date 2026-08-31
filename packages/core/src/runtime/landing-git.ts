@@ -65,9 +65,9 @@ export async function validateLandingPlan(input: {
   if (input.finalMergePolicy === "required" && input.plan.strategy === "skip") {
     reasons.push("Landing plan cannot skip while final merge policy is required.");
   }
-  if (input.plan.risk === "high" && input.plan.strategy !== "block") {
-    reasons.push("High-risk landing plans must block instead of executing automatically.");
-  }
+  // Risk is model-assessed evidence for the landing strategy, not a
+  // deterministic command to abandon the candidate. Safety invariants below
+  // still prevent invalid refs and unsafe checkout mutations.
   // Verification "incomplete" means no runnable commands existed, not that a
   // check failed. The human approval gate already sees verificationStatus and
   // baseline debt, and post-landing verification blocks a candidate whose
@@ -96,6 +96,9 @@ export async function executeLandingStrategy(input: {
 }): Promise<LandingExecutionResult> {
   if (input.plan.strategy === "block") {
     return { status: "blocked", outcome: "unsafe-plan", reason: input.plan.reasoning.join("; ") };
+  }
+  if (input.plan.strategy === "pull-request") {
+    return { status: "blocked", outcome: "pull-request-failed", reason: "Landing planner selected pull-request; publish the candidate through the PR recovery path." };
   }
   if (input.plan.strategy === "skip") {
     return { status: "skipped", outcome: "policy-skipped", reason: input.plan.reasoning.join("; ") };

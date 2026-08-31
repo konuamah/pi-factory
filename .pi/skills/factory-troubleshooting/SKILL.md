@@ -19,6 +19,6 @@ For model timeouts or executor watchdog aborts, explain that Factory's runtime l
 
 Final run output and `/factory show <run-id>` should show the latest `task.failed` reason, builder status, and builder execution path. If users only see `implementation-failed`, inspect events for the more specific failure reason.
 
-For merge-blocked runs, inspect landing artifacts first. Dirty files block only when they overlap landing files or prevent safely switching to the target branch. Incomplete verification does not by itself block required landing.
+For merge-blocked runs, inspect landing artifacts first. The landing strategy is model-selected; deterministic checks only enforce Git safety invariants. A valid candidate should not be abandoned: when GitHub PR recovery is enabled, Factory pushes the candidate branch and opens or reuses a PR through the user's authenticated `gh` CLI. Incomplete or baseline-unrelated verification does not by itself abandon a candidate. Inspect `final-merge.json` for `pullRequest.status`, `pullRequest.url`, and the exact recovery reason.
 
 For stale verification commands, use repository evidence to choose an adapted check rather than blindly running configured commands over generated output.

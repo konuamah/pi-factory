@@ -45,6 +45,12 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
       pruneWorktrees: true,
       pruneBranches: true,
     },
+    pullRequest: {
+      enabled: true,
+      provider: "github",
+      cli: "gh",
+      draft: false,
+    },
   },
   dashboard: {
     enabled: false,

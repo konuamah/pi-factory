@@ -148,6 +148,13 @@ export interface FactoryBuiltInDefaults {
       pruneWorktrees: boolean;
       pruneBranches: boolean;
     };
+    pullRequest: {
+      enabled: boolean;
+      provider: "github";
+      cli: "gh";
+      draft: boolean;
+      baseBranch?: string;
+    };
   };
   dashboard: {
     enabled: boolean;
@@ -240,6 +247,13 @@ export interface ProjectFactoryConfig {
       pruneWorktrees?: boolean;
       pruneBranches?: boolean;
     };
+    pullRequest?: {
+      enabled?: boolean;
+      provider?: "github";
+      cli?: "gh";
+      draft?: boolean;
+      baseBranch?: string;
+    };
   };
   repair?: {
     enabled?: boolean;
@@ -315,6 +329,13 @@ export interface EffectiveFactoryConfig {
       retainRuns: number;
       pruneWorktrees: boolean;
       pruneBranches: boolean;
+    };
+    pullRequest: {
+      enabled: boolean;
+      provider: "github";
+      cli: "gh";
+      draft: boolean;
+      baseBranch?: string;
     };
   };
   repair: {

@@ -2,6 +2,7 @@ import { appendModelLedgerEntry } from "../runs/model-ledger.js";
 import { appendFactoryRunEvent } from "../runs/store.js";
 import { buildRepairPrompt } from "./prompts.js";
 import { classifyVerificationFailure } from "./failure-classification.js";
+import { createRecoveryPullRequest, type RecoveryPullRequestResult } from "../git/pull-request.js";
 import { runVerificationCommands, type VerificationPlan, type VerificationRunResult } from "./verification.js";
 import {
   appendPrototypeLandingAttemptArtifact,
@@ -59,6 +60,7 @@ export async function runLandingFlow(input: {
   candidateBranch?: string;
   verificationPlan: VerificationPlan;
   verification: VerificationRunResult;
+  verificationFailureClassification?: unknown;
   contractCanComplete: boolean;
   controllerInput: RunFactoryControllerInput;
   repairGuidanceText?: string;
@@ -86,6 +88,7 @@ export async function runLandingFlow(input: {
       candidateSha: input.candidateSha,
       candidateBranch: input.candidateBranch,
       verification: input.verification,
+      verificationFailureClassification: input.verificationFailureClassification,
       limits: input.config.runtime.limits,
     });
   } catch (error) {
@@ -120,7 +123,9 @@ export async function runLandingFlow(input: {
       verification: input.verification,
       limits: input.config.runtime.limits,
     });
-    return finishBlockedLanding(input, landingPlanArtifact, diagnosis, guardVerdict.reasons.join("; "));
+    const recoveryReason = guardVerdict.reasons.join("; ");
+    const pullRequest = await publishBlockedCandidate(input, recoveryReason);
+    return finishBlockedLanding(input, landingPlanArtifact, diagnosis, pullRequest?.reason ?? recoveryReason, pullRequest);
   }
 
   const execution = await executeLandingStrategy({ cwd: input.mergeCwd, plan });
@@ -163,15 +168,34 @@ export async function runLandingFlow(input: {
     recoveryHint = diagnosis.recoveryHint;
   }
 
+  const pullRequest = landingStatus === "blocked"
+    ? await publishBlockedCandidate(input, recoveryHint ?? execution.reason ?? execution.outcome)
+    : undefined;
+  if (pullRequest?.status === "created" || pullRequest?.status === "existing") {
+    recoveryHint = `${pullRequest.reason} ${pullRequest.url ?? ""}`.trim();
+  } else if (pullRequest?.status === "failed") {
+    recoveryHint = `${recoveryHint ?? "Landing blocked"} PR fallback failed: ${pullRequest.reason}`;
+  }
+
   if (diagnosis) await writePrototypeLandingDiagnosisArtifact(input.runDir, 1, diagnosis);
   await appendPrototypeLandingAttemptArtifact(input.runDir, {
     attempt: 1,
     plan: landingPlanArtifact,
-    execution: { status: landingStatus, outcome: diagnosis?.kind ?? execution.outcome, reason: recoveryHint },
+    execution: {
+      status: landingStatus,
+      outcome: pullRequest?.status === "created"
+        ? "pull-request-created"
+        : pullRequest?.status === "existing"
+          ? "pull-request-existing"
+          : pullRequest?.status === "failed"
+            ? "pull-request-failed"
+            : diagnosis?.kind ?? execution.outcome,
+      reason: recoveryHint,
+    },
     verification: { overallStatus: verificationResult.overallStatus, commands: verificationCommands },
     diagnosis,
   });
-  return finishLanding(input, landingPlanArtifact, landingStatus, recoveryHint, execution.reason, diagnosis);
+  return finishLanding(input, landingPlanArtifact, landingStatus, recoveryHint, execution.reason, diagnosis, pullRequest);
 }
 
 async function diagnoseOrFallback(input: {
@@ -256,15 +280,29 @@ async function finishBlockedLanding(
   plan: PrototypeLandingPlanArtifact,
   diagnosis: PrototypeLandingDiagnosisArtifact,
   reason: string,
+  pullRequest?: RecoveryPullRequestResult,
 ): Promise<LandingResult> {
   await writePrototypeLandingDiagnosisArtifact(input.runDir, 1, diagnosis);
+  const blockedHint = pullRequest?.url
+    ? `${pullRequest.reason} ${pullRequest.url}`
+    : pullRequest?.status === "failed"
+      ? `${diagnosis.recoveryHint} PR fallback failed: ${pullRequest.reason}`
+      : diagnosis.recoveryHint;
   await appendPrototypeLandingAttemptArtifact(input.runDir, {
     attempt: 1,
     plan,
-    execution: { status: "blocked", outcome: diagnosis.kind, reason: diagnosis.recoveryHint },
+    execution: {
+      status: "blocked",
+      outcome: pullRequest?.status === "created" || pullRequest?.status === "existing"
+        ? `pull-request-${pullRequest.status}`
+        : pullRequest?.status === "failed"
+          ? "pull-request-failed"
+          : diagnosis.kind,
+      reason: blockedHint,
+    },
     diagnosis,
   });
-  return finishLanding(input, plan, "blocked", diagnosis.recoveryHint, reason, diagnosis);
+  return finishLanding(input, plan, "blocked", blockedHint, reason, diagnosis, pullRequest);
 }
 
 async function finishLanding(
@@ -274,12 +312,19 @@ async function finishLanding(
   recoveryHint: string | undefined,
   reason: string | undefined,
   diagnosis?: PrototypeLandingDiagnosisArtifact,
+  pullRequest?: RecoveryPullRequestResult,
 ): Promise<LandingResult> {
-  const outcome = landingStatus === "landed"
-    ? "landed"
-    : landingStatus === "skipped"
-      ? "policy-skipped"
-      : mapDiagnosisToOutcome(diagnosis?.kind ?? "unknown");
+  const outcome = pullRequest?.status === "created"
+    ? "pull-request-created"
+    : pullRequest?.status === "existing"
+      ? "pull-request-existing"
+      : pullRequest?.status === "failed"
+        ? "pull-request-failed"
+        : landingStatus === "landed"
+        ? "landed"
+        : landingStatus === "skipped"
+          ? "policy-skipped"
+          : mapDiagnosisToOutcome(diagnosis?.kind ?? "unknown");
   const finalMergePath = await writePrototypeFinalMergeArtifact(input.runDir, {
     mergeBaseBranch: input.config.git.baseBranch,
     candidateBranch: input.candidateBranch,
@@ -292,6 +337,7 @@ async function finishLanding(
     outcome,
     recoveryHint,
     reason,
+    pullRequest,
   });
   const completed = landingStatus === "landed" || landingStatus === "skipped";
   return {
@@ -302,7 +348,45 @@ async function finishLanding(
     landingStatus,
     landingAttempts: 1,
     recoveryHint,
+    pullRequest,
   };
+}
+
+async function publishBlockedCandidate(
+  input: Parameters<typeof runLandingFlow>[0],
+  reason: string,
+): Promise<RecoveryPullRequestResult | undefined> {
+  if (!input.candidateBranch || input.completedTasks.length === 0) {
+    return undefined;
+  }
+  const targetBranch = input.config.git.pullRequest.baseBranch ?? input.config.git.baseBranch;
+  if (input.candidateBranch === targetBranch) {
+    return {
+      status: "failed",
+      sourceBranch: input.candidateBranch,
+      targetBranch,
+      reason: "Cannot create a recovery pull request from the target branch itself; preserve the candidate commit and create a distinct source branch.",
+    };
+  }
+  const result = await createRecoveryPullRequest({
+    cwd: input.mergeCwd,
+    sourceBranch: input.candidateBranch,
+    targetBranch,
+    runId: input.runId,
+    goal: input.goal,
+    reason,
+    candidateSha: input.candidateSha ?? input.completedTasks[0]?.commitSha,
+    enabled: input.config.git.pullRequest.enabled,
+    provider: input.config.git.pullRequest.provider,
+    cli: input.config.git.pullRequest.cli,
+    draft: input.config.git.pullRequest.draft,
+  });
+  await appendFactoryRunEvent(input.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "landing.pull_request",
+    data: result as unknown as Record<string, unknown>,
+  });
+  return result;
 }
 
 async function attemptLandingRepair(

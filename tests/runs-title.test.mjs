@@ -94,21 +94,30 @@ test('showFactoryRun surfaces the latest task failure reason', async () => {
     await fs.writeFile(path.join(runDir, 'summary.json'), JSON.stringify({ runId: 'run_1', goal: 'Publish launch article' }), 'utf8');
     await fs.writeFile(
       path.join(runDir, 'events.jsonl'),
-      `${JSON.stringify({
-        type: 'task.failed',
-        data: {
-          taskId: 'task-4',
-          stage: 'build',
-          title: 'Implement changes for: launch article',
-          reason: 'Agent execution made no progress for 60s (model-timeout)',
-          builderStatus: 'failed',
-          builderExecutionPath: '/tmp/builder.json',
+      [
+        {
+          type: 'task.failed',
+          data: {
+            taskId: 'task-4',
+            stage: 'build',
+            title: 'Implement changes for: launch article',
+            reason: 'Agent execution made no progress for 60s (model-timeout)',
+            builderStatus: 'failed',
+            builderExecutionPath: '/tmp/builder.json',
+          },
         },
-      })}\n`,
+        {
+          type: 'run.failed',
+          data: {
+            reason: 'VERIFICATION_PLANNER_INVALID_JSON: Verification planner returned invalid structured JSON.',
+          },
+        },
+      ].map((event) => JSON.stringify(event)).join('\n') + '\n',
       'utf8',
     );
 
     const shown = await showFactoryRun(root, 'run_1');
+    assert.equal(shown.runFailure?.reason, 'VERIFICATION_PLANNER_INVALID_JSON: Verification planner returned invalid structured JSON.');
     assert.equal(shown.taskFailure?.taskId, 'task-4');
     assert.equal(shown.taskFailure?.reason, 'Agent execution made no progress for 60s (model-timeout)');
     assert.equal(shown.taskFailure?.builderExecutionPath, '/tmp/builder.json');

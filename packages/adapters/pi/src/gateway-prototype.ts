@@ -276,6 +276,7 @@ export async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommand
     `verification path: ${result.verificationPath}`,
     `summary path: ${result.summaryPath}`,
     `approved: ${result.approved ? "yes" : "no"}`,
+    ...(latestShown.runFailure?.reason ? [`run failure: ${latestShown.runFailure.reason}`] : []),
     ...(latestShown.pullRequest
       ? [
           `pull request: ${latestShown.pullRequest.status ?? "unknown"}`,

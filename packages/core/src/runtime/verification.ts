@@ -3,7 +3,7 @@ import type { Dirent } from "node:fs";
 import path from "node:path";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { AgentExecutor, AgentExecutionInput } from "./interfaces.js";
+import type { AgentExecutor, AgentExecutionInput, AgentExecutionResult } from "./interfaces.js";
 import { initializeFactorySkills, resolveFactorySkills } from "../skills/index.js";
 import { pathExists } from "./fs-utils.js";
 import { resolveVerificationCwd, readPackageScripts, readPackageScriptCommands, readPackageDependencyVersions, detectEcosystemMarkers, detectPackageManager, detectStalePackageScripts, discoverAllowedCommands, findNestedProjectRoots, readPackageJson, dedupePaths, normalizeRelative, expectedDependencyMarkers, detectDependencyMarkers, uniqueStrings, parseMajorVersion, isDependencyPresent, resolveVerificationPlanningSkill, isSetupLikeCommand } from "./verification-discovery.js";
@@ -130,7 +130,10 @@ export interface VerificationCwdCandidate {
 }
 
 export class VerificationPlanningError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly execution?: Pick<AgentExecutionResult, "status" | "errorMessage" | "outputText">,
+  ) {
     super(message);
     this.name = "VerificationPlanningError";
   }
@@ -176,7 +179,14 @@ export async function planVerificationExecution(input: {
   });
   const parsed = parseVerificationPlan(result.outputText);
   if (!parsed) {
-    throw new VerificationPlanningError("VERIFICATION_PLANNER_INVALID_JSON: Verification planner returned invalid structured JSON.");
+    throw new VerificationPlanningError(
+      "VERIFICATION_PLANNER_INVALID_JSON: Verification planner returned invalid structured JSON.",
+      {
+        status: result.status,
+        errorMessage: result.errorMessage,
+        outputText: result.outputText,
+      },
+    );
   }
   return sanitizeVerificationPlan(parsed, evidence, selectedSkill);
 }

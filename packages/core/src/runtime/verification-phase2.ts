@@ -3,8 +3,9 @@
 
 import { hydrateWorkspaceDependencies, DependencyHydrationError } from "./dependencies.js";
 import { buildDependencyCacheEnv } from "./dependency-cache.js";
+import fs from "node:fs/promises";
 import path from "node:path";
-import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands, type VerificationPlan, type VerificationRunResult } from "./verification.js";
+import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands, VerificationPlanningError, type VerificationPlan, type VerificationRunResult } from "./verification.js";
 import { classifyVerificationFailure, type VerificationFailureClassification } from "./failure-classification.js";
 import { classifyVerificationFailuresWithAI, type ClassificationSource } from "./ai-failure-classifier.js";
 import { gatherVerificationRequirements, initializeVerificationProviders, runVerificationEngine } from "../verification/index.js";
@@ -148,17 +149,81 @@ if (impactResult.skipped.length > 0) {
   });
 }
 const filteredVerificationCommands = impactResult.commands;
-const verificationPlan = await planVerificationExecution({
-  cwd: executionCwd,
-  goal: input.goal,
-  commands: filteredVerificationCommands,
-  constitutionContext: repairGuidance.text,
-  executor: input.verificationPlannerExecutor,
-  model: loaded.effectiveConfig.models.planner,
-  runId: run.runId,
-  allowDeterministicFallback: !input.verificationPlannerExecutor,
-  limits: loaded.effectiveConfig.runtime.limits,
-});
+let verificationPlan: VerificationPlan;
+try {
+  verificationPlan = await planVerificationExecution({
+    cwd: executionCwd,
+    goal: input.goal,
+    commands: filteredVerificationCommands,
+    constitutionContext: repairGuidance.text,
+    executor: input.verificationPlannerExecutor,
+    model: loaded.effectiveConfig.models.planner,
+    runId: run.runId,
+    allowDeterministicFallback: !input.verificationPlannerExecutor,
+    limits: loaded.effectiveConfig.runtime.limits,
+  });
+} catch (error) {
+  const reason = error instanceof Error ? error.message : String(error);
+  const executionPath = path.join(run.runDir, "verification-planner-execution.json");
+  if (error instanceof VerificationPlanningError && error.execution) {
+    await fs.writeFile(executionPath, JSON.stringify(error.execution, null, 2), "utf8");
+  }
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "verification.plan_failed",
+    data: {
+      reason,
+      verificationPlannerExecutionPath: error instanceof VerificationPlanningError && error.execution ? executionPath : undefined,
+    },
+  });
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "run.failed",
+    data: { reason },
+  });
+  const failedState = await updateFactoryRunState({
+    statePath: run.statePath,
+    patch: { status: "FAILED", phase: "verification-failed" },
+  });
+  await emitProgress(input, {
+    runId: run.runId,
+    phase: failedState.phase,
+    status: "FAILED",
+    message: reason,
+  });
+  const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+    runId: run.runId,
+    goal: input.goal,
+    status: "FAILED",
+    phase: failedState.phase,
+    approved: false,
+    planPath,
+    taskPaths,
+    discoveryExecutionPath,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    integrationPath,
+    repairExecutionPaths,
+    verificationPath: path.join(run.runDir, "verification.json"),
+    verificationStatus: "incomplete",
+  });
+
+  return buildRunFailureResult({
+    run,
+    executionCwd,
+    worktree,
+    phases,
+    planPath,
+    taskPaths,
+    discoveryExecutionPath,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    integrationPath,
+    repairExecutionPaths,
+    verificationPath: path.join(run.runDir, "verification.json"),
+    summaryPath,
+  });
+}
 await appendFactoryRunEvent(run.eventsPath, {
   timestamp: new Date().toISOString(),
   type: "verification.plan_selected",

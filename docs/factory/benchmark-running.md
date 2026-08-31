@@ -181,6 +181,31 @@ after       ~10s             ~275s   (hypothetical)
 Never compare single runs — network/provider variation makes one run noisy.
 After that, investigate what `UNATTRIBUTED` really is.
 
+## LLM judge (optional quality judgment)
+
+The deterministic 7-pillar scorer measures mechanical signals — topic coverage,
+round counts, scope. It cannot judge quality ("was that a good question?"). The
+LLM judge (`packages/core/src/benchmark/judge.ts`) is an optional additive
+signal: `scoreFactoryRun(runDir, spec, { judge: { executor, model, rubric } })`
+runs a strict-JSON prompt over the run's artifacts and returns per-pillar
+judge scores + one-line reasoning in `report.judge`.
+
+Rules:
+
+- **Never merges into the deterministic pillars** — the judge score is a
+  separate, reported field. Deterministic stays primary.
+- **Silent fallback**: if no executor is supplied, or the executor fails, or
+  the output is not parseable JSON, the judge returns `undefined` and the
+  deterministic score stands alone. No fabricated scores.
+- **Judge scores vary run to run** (LLM), so treat them as a distribution
+  across `-k N` runs, like the quality score.
+- The judge runs with the harness's configured executor (real SDK + injected
+  Pi config). A standalone invocation without that config returns empty model
+  output — wire the judge through the harness or the runbook command, not a
+  bare session.
+- The judge reads run artifacts + a generic rubric, never the hidden expected
+  answers, so it cannot leak the benchmark's ground truth.
+
 ## What is NOT set up yet
 
 - All five task families exist and are oracle-validated: `bombsite-01-ui-shell`

@@ -5,6 +5,7 @@
 
 import { readRunArtifacts, type RunArtifacts } from "../runs/artifacts-read.js";
 import { computeRunTiming } from "./timing.js";
+import { judgeRunQuality, type JudgeVerdict } from "./judge.js";
 import {
   scoreAdaptation,
   scoreExecution,
@@ -19,9 +20,26 @@ import { DEFAULT_WEIGHTS, type BenchmarkReport, type BenchmarkTaskSpec, type Pil
 export async function scoreFactoryRun(
   runDir: string,
   spec: BenchmarkTaskSpec,
-  options: { trialKind?: TrialKind } = {},
+  options: { trialKind?: TrialKind; judge?: JudgeOptions } = {},
 ): Promise<BenchmarkReport> {
-  return scoreRunArtifacts(await readRunArtifacts(runDir), spec, options);
+  const artifacts = await readRunArtifacts(runDir);
+  const report = scoreRunArtifacts(artifacts, spec, options);
+  if (options.judge) {
+    report.judge = await judgeRunQuality({
+      executor: options.judge.executor,
+      model: options.judge.model,
+      artifacts,
+      spec,
+      rubric: options.judge.rubric,
+    }) ?? undefined;
+  }
+  return report;
+}
+
+interface JudgeOptions {
+  executor: import("../runtime/interfaces.js").AgentExecutor;
+  model?: { provider?: string; model: string };
+  rubric: string;
 }
 
 export function scoreRunArtifacts(

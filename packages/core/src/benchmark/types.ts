@@ -75,6 +75,8 @@ export interface BenchmarkReport {
   timing: RunTiming;
   signals: Record<string, unknown>;
   warnings: string[];
+  /** Optional LLM-judge verdict, present only when a judge executor was supplied. */
+  judge?: import("./judge.js").JudgeVerdict;
 }
 
 export type TrialKind = "oracle" | "agent";

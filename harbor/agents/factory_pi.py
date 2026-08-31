@@ -236,6 +236,7 @@ class FactoryPiAgent(Pi):
             f"FACTORY_PI_RUNTIME_CWD=/app "
             f"FACTORY_PI_MODEL={shlex.quote(self.model_name)} "
             f"FACTORY_PI_DECISIONS_FILE={_TASK_DIR / 'interview.json'} "
+            "FACTORY_PI_JUDGE=1 "
             f"FACTORY_PI_RUNTIME_GOAL={shlex.quote(instruction)} "
             f"node {shlex.quote(str(_FACTORY_DIR / _HARNESS_ENTRY))} "
             "2>&1 | stdbuf -oL tee /logs/agent/factory-pi.txt"

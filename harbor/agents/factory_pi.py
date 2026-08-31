@@ -97,8 +97,16 @@ class FactoryPiAgent(Pi):
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
-        # Harbor installs nvm, node and the Pi SDK.
-        await super().install(environment)
+        # Install Pi only if it is not already present. The nvm + npm install
+        # is ~80s of every trial (measured agent_setup); a pre-warmed image
+        # (or a reused container) already has pi, so skip the network install.
+        check = await self.exec_as_agent(
+            environment,
+            command="set -euo pipefail; . ~/.nvm/nvm.sh 2>/dev/null || true; command -v pi >/dev/null 2>&1 && pi --version >/dev/null 2>&1; echo $?",
+        )
+        already_installed = int((check.stdout or "1").strip().splitlines()[-1] or "1") == 0
+        if not already_installed:
+            await super().install(environment)
 
         self._bundle_dir = _build_factory_bundle()
         try:

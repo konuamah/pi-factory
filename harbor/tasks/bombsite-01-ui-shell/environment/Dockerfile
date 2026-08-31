@@ -1,8 +1,20 @@
 FROM node:22-bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
+    && apt-get install -y --no-install-recommends git ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Bake nvm + node + the Pi SDK into the image so the agent's install() is a
+# fast skip (agent_setup measured ~81s per trial when it reinstalled). Matches
+# Harbor's own nvm_node_install_snippet + Pi.install so the agent's
+# "command -v pi" check finds it and skips.
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | env -u NODE_VERSION bash \
+    && export NVM_DIR="$HOME/.nvm" \
+    && . "$NVM_DIR/nvm.sh" \
+    && nvm install 22 \
+    && nvm alias default 22 \
+    && npm install -g --ignore-scripts @earendil-works/pi-coding-agent@latest \
+    && pi --version
 
 WORKDIR /app
 

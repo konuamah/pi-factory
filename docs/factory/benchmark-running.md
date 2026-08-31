@@ -199,10 +199,12 @@ Rules:
   deterministic score stands alone. No fabricated scores.
 - **Judge scores vary run to run** (LLM), so treat them as a distribution
   across `-k N` runs, like the quality score.
-- The judge runs with the harness's configured executor (real SDK + injected
-  Pi config). A standalone invocation without that config returns empty model
-  output — wire the judge through the harness or the runbook command, not a
-  bare session.
+- **Enable it in the headless run**: set `FACTORY_PI_JUDGE=1` (plus
+  `FACTORY_PI_JUDGE_RUBRIC` for a custom rubric) on the harness invocation.
+  After the run completes it scores the collected artifacts with the same
+  executor + model and writes `judge.json` next to the run dir. Runs inside
+  the harness where the SDK config is injected — a bare standalone session
+  returns empty output without that config.
 - The judge reads run artifacts + a generic rubric, never the hidden expected
   answers, so it cannot leak the benchmark's ground truth.
 

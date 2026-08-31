@@ -58,11 +58,13 @@ export async function runPiRuntimeHarness(): Promise<void> {
   const goal = process.env.FACTORY_PI_RUNTIME_GOAL ?? "Create a prototype implementation plan";
   const cwd = process.env.FACTORY_PI_RUNTIME_CWD ?? process.cwd();
   const roleModel = process.env.FACTORY_PI_MODEL?.trim();
+  let judgeModel: { provider?: string; model: string } | undefined;
   if (roleModel) {
     const separator = roleModel.indexOf("/");
     if (separator <= 0) {
       throw new Error(`FACTORY_PI_MODEL must be "provider/model", got "${roleModel}".`);
     }
+    judgeModel = { provider: roleModel.slice(0, separator), model: roleModel.slice(separator + 1) };
     await writeRoleModelsConfig(cwd, roleModel.slice(0, separator), roleModel.slice(separator + 1));
   }
   // A repo whose .factory/config.yaml declares no role models otherwise falls
@@ -112,6 +114,12 @@ export async function runPiRuntimeHarness(): Promise<void> {
   process.stdout.write(`candidateSha=${result.candidateSha ?? "none"}\n`);
   process.stdout.write(`verificationPath=${result.verificationPath}\n`);
   process.stdout.write(`summaryPath=${result.summaryPath}\n`);
+
+  // Optional LLM judge: score the finished run's artifacts with the same
+  // executor + model, and write the verdict next to the run dir.
+  if (process.env.FACTORY_PI_JUDGE === "1" && result.summaryPath) {
+    await judgeFinishedRun({ runDir: path.dirname(result.summaryPath), executor: plannerExecutor, model: judgeModel });
+  }
 }
 
 const entryArg = process.argv[1];
@@ -142,5 +150,40 @@ export async function writeRoleModelsConfig(cwd: string, provider: string, model
   const stripped = text.replace(/^models:\n(?:[ \t]+.*\n?)*/m, "");
   const merged = (stripped.trimEnd() ? stripped.trimEnd() + "\n\n" : "") + block + "\n";
   await fs.writeFile(configPath, merged, "utf8");
+}
+
+/**
+ * Score a finished run with the LLM judge and persist the verdict next to the
+ * run dir as judge.json. No-op when the judge returns undefined (no executor
+ * or unparseable output) — the deterministic score always stands.
+ */
+async function judgeFinishedRun(input: {
+  runDir: string;
+  executor: import("@factory/core").AgentExecutor;
+  model?: { provider?: string; model: string };
+}): Promise<void> {
+  const { scoreFactoryRun, readRunArtifacts } = await import("@factory/core");
+  try {
+    const artifacts = await readRunArtifacts(input.runDir);
+    const spec = {
+      id: process.env.FACTORY_PI_TASK_ID ?? "benchmark",
+      goal: process.env.FACTORY_PI_RUNTIME_GOAL ?? "",
+      interviewRequired: true,
+    };
+    const report = await scoreFactoryRun(input.runDir, spec, {
+      trialKind: "agent",
+      judge: {
+        executor: input.executor,
+        model: input.model,
+        rubric: process.env.FACTORY_PI_JUDGE_RUBRIC ?? "judge whether the interview was insightful and the build matched the decisions",
+      },
+    });
+    const judgePath = path.join(input.runDir, "judge.json");
+    await fs.writeFile(judgePath, JSON.stringify({ scores: report.scores, judge: report.judge ?? null }, null, 2), "utf8");
+    process.stdout.write(`judge=${report.judge ? "scored" : "unavailable (deterministic stands)"}\n`);
+    process.stdout.write(`judgePath=${judgePath}\n`);
+  } catch (error) {
+    process.stdout.write(`judge=error (${error instanceof Error ? error.message : String(error)})\n`);
+  }
 }
 

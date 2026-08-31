@@ -17,7 +17,7 @@
 //
 // Deterministic given its inputs; missing artifacts -> null + warning, never guessed.
 
-import type { RunEvent, RunExecutionArtifact } from "../runs/artifacts-read.js";
+import type { RunEvent, RunExecutionArtifact, RunArtifacts } from "../runs/artifacts-read.js";
 
 export interface HarborPhaseTiming {
   startedAt: number;
@@ -60,6 +60,22 @@ export interface PerformanceReport {
   modelFraction: number | null;
   toolsFraction: number | null;
   warnings: string[];
+}
+
+/**
+ * All role execution artifacts from a run, including builder (which lives in
+ * builder-execution-<taskId>.json and was previously missed by generic
+ * *-execution.json globs).
+ */
+export function executionArtifactsFrom(run: RunArtifacts): RunExecutionArtifact[] {
+  return [
+    ...(run.discoveryExecution ? [run.discoveryExecution] : []),
+    ...(run.plannerExecution ? [run.plannerExecution] : []),
+    ...(run.reviewerExecution ? [run.reviewerExecution] : []),
+    ...run.builderExecutions,
+    ...run.repairExecutions,
+    ...run.interviewExecutions.map((entry) => entry.artifact),
+  ];
 }
 
 export function computePerformanceReport(

@@ -53,6 +53,8 @@ export interface RunArtifacts {
   discoveryExecution?: RunExecutionArtifact;
   plannerExecution?: RunExecutionArtifact;
   reviewerExecution?: RunExecutionArtifact;
+  /** Builder execution artifacts (builder-execution-<taskId>.json). */
+  builderExecutions: RunExecutionArtifact[];
   repairExecutions: RunExecutionArtifact[];
   interviewExecutions: Array<{ stage: string; artifact: RunExecutionArtifact }>;
   interviewDecisions: InterviewDecisionRecord[];
@@ -110,8 +112,9 @@ export async function readRunArtifacts(runDir: string): Promise<RunArtifacts> {
     record(key, await readJsonl(runDir, file));
   }
 
-  const [repairExecutions, landingDiagnoses, interviewFiles] = await Promise.all([
+  const [repairExecutions, builderExecutions, landingDiagnoses, interviewFiles] = await Promise.all([
     readMatching<RunExecutionArtifact>(runDir, /^repair-execution-\d+\.json$/),
+    readMatching<RunExecutionArtifact>(runDir, /^builder-execution-[^/]+\.json$/),
     readMatching<PrototypeLandingDiagnosisArtifact>(runDir, /^landing-diagnosis-\d+\.json$/),
     readMatching<RunExecutionArtifact>(runDir, /-interview-execution\.json$/),
   ]);
@@ -126,6 +129,7 @@ export async function readRunArtifacts(runDir: string): Promise<RunArtifacts> {
     discoveryExecution: values.discoveryExecution as RunArtifacts["discoveryExecution"],
     plannerExecution: values.plannerExecution as RunArtifacts["plannerExecution"],
     reviewerExecution: values.reviewerExecution as RunArtifacts["reviewerExecution"],
+    builderExecutions,
     repairExecutions,
     interviewExecutions: interviewFiles.map((artifact) => ({
       stage: artifact.file.replace(/-interview-execution\.json$/, ""),

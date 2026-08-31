@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computePerformanceReport } from '../packages/core/dist/benchmark/performance.js';
+import { computePerformanceReport, executionArtifactsFrom } from '../packages/core/dist/benchmark/performance.js';
 
 const harbor = (overrides = {}) => ({
   startedAt: 1_000_000,
@@ -110,4 +110,20 @@ test('deterministic given the same inputs', () => {
   const a = report(harbor(), [], [{ events }]);
   const b = report(harbor(), [], [{ events }]);
   assert.deepEqual(a, b);
+});
+
+test('executionArtifactsFrom includes builder executions (regression)', () => {
+  // A run with a builder-execution-task-4.json must be counted, or the MODEL
+  // bucket silently undercounts by the builder's whole duration.
+  const builder = { executionId: 'b', status: 'completed', events: [
+    { type: 'message_start', at: 1000, data: { message: { role: 'assistant' } } },
+    { type: 'message_end', at: 4000, data: { message: { role: 'assistant' } } },
+  ]};
+  const run = {
+    discoveryExecution: undefined, plannerExecution: undefined, reviewerExecution: undefined,
+    builderExecutions: [builder], repairExecutions: [], interviewExecutions: [],
+  };
+  const artifacts = executionArtifactsFrom(run);
+  assert.equal(artifacts.length, 1);
+  assert.equal(artifacts[0], builder);
 });

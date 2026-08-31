@@ -29,6 +29,7 @@ import {
 import type { EffectiveFactoryConfig, ModelSelection } from "@factory/schemas";
 import type { TaskWorkspaceSelection, RunFactoryControllerInput } from "./controller.js";
 import type { LandingPlan, LandingResult } from "./landing-types.js";
+import { readGitHeadSha } from "./git-ops.js";
 
 export function buildCompletedTasks(
   workspaces: TaskWorkspaceSelection[],
@@ -128,32 +129,114 @@ export async function runLandingFlow(input: {
     return finishBlockedLanding(input, landingPlanArtifact, diagnosis, pullRequest?.reason ?? recoveryReason, pullRequest);
   }
 
+  const targetHeadBefore = await readGitHeadSha(input.mergeCwd);
+  await appendPrototypeLandingAttemptArtifact(input.runDir, {
+    attempt: 1,
+    stage: "started",
+    plan: landingPlanArtifact,
+    execution: {
+      status: "blocked",
+      outcome: "pending",
+      reason: "Landing attempt started.",
+      targetHeadBefore,
+    },
+    verification: { overallStatus: "pending", commands: [] },
+  });
+
   const execution = await executeLandingStrategy({ cwd: input.mergeCwd, plan });
+  const targetHeadAfter = execution.status === "landed" ? await readGitHeadSha(input.mergeCwd) : undefined;
   let diagnosis: PrototypeLandingDiagnosisArtifact | undefined;
   let landingStatus: LandingResult["landingStatus"] = execution.status;
   let recoveryHint = execution.reason;
   let verificationResult = input.verification;
   let verificationCommands = Object.keys(input.verificationPlan.commands);
+  let postLandingVerification: {
+    overallStatus: "pending" | "passed" | "failed" | "incomplete" | "error";
+    commands: string[];
+    reason?: string;
+    repairAttempted?: boolean;
+  } | undefined;
+  let repairAttempted = false;
 
   if (execution.status === "landed") {
     verificationCommands = resolveVerificationCommands(plan.verification, input.verificationPlan);
-    verificationResult = await rerunLandingVerification(input.verificationPlan, verificationCommands);
-    if (verificationResult.overallStatus === "failed") {
-      await attemptLandingRepair(input.controllerInput, input.goal, input.verificationPlan.cwd, verificationResult, input.repairGuidanceText, input.config.models.repair, input.config.runtime.limits);
+    postLandingVerification = { overallStatus: "pending", commands: verificationCommands };
+    await appendFactoryRunEvent(input.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "landing.applied",
+      data: {
+        strategy: plan.strategy,
+        candidateSha: plan.candidateSha,
+        sourceBranch: plan.sourceBranch,
+        targetBranch: plan.targetBranch,
+        targetHeadBefore,
+        targetHeadAfter,
+      },
+    });
+    await writePrototypeFinalMergeArtifact(input.runDir, {
+      mergeBaseBranch: input.config.git.baseBranch,
+      candidateBranch: input.candidateBranch,
+      candidateSha: input.candidateSha,
+      mergeCwd: input.mergeCwd,
+      targetBranch: plan.targetBranch,
+      sourceBranch: plan.sourceBranch,
+      strategy: plan.strategy,
+      status: "landed",
+      outcome: "landed",
+      reason: execution.reason,
+      targetHeadBefore,
+      targetHeadAfter,
+      postLandingVerification: {
+        status: postLandingVerification.overallStatus,
+        commands: postLandingVerification.commands,
+        reason: postLandingVerification.reason,
+        repairAttempted: postLandingVerification.repairAttempted,
+      },
+    });
+    await appendPrototypeLandingAttemptArtifact(input.runDir, {
+      attempt: 1,
+      stage: "applied",
+      plan: landingPlanArtifact,
+      execution: {
+        status: "landed",
+        outcome: execution.outcome,
+        reason: execution.reason,
+        targetHeadBefore,
+        targetHeadAfter,
+      },
+      verification: {
+        overallStatus: postLandingVerification.overallStatus,
+        commands: postLandingVerification.commands,
+        reason: postLandingVerification.reason,
+        repairAttempted: postLandingVerification.repairAttempted,
+      },
+    });
+    try {
       verificationResult = await rerunLandingVerification(input.verificationPlan, verificationCommands);
-    }
-    if (verificationResult.overallStatus !== "passed" && !input.contractCanComplete) {
-      diagnosis = await diagnoseOrFallback({
-        executor,
-        model: modelSelection?.model,
-        plan,
-        reason: `Post-landing verification ${verificationResult.overallStatus}`,
-        dirtyFiles: [],
-        verification: verificationResult,
-        limits: input.config.runtime.limits,
+      postLandingVerification = { overallStatus: verificationResult.overallStatus, commands: verificationCommands, repairAttempted };
+      if (verificationResult.overallStatus === "failed") {
+        repairAttempted = true;
+        await attemptLandingRepair(input.controllerInput, input.goal, input.verificationPlan.cwd, verificationResult, input.repairGuidanceText, input.config.models.repair, input.config.runtime.limits);
+        verificationResult = await rerunLandingVerification(input.verificationPlan, verificationCommands);
+        postLandingVerification = { overallStatus: verificationResult.overallStatus, commands: verificationCommands, repairAttempted };
+      }
+    } catch (error) {
+      postLandingVerification = {
+        overallStatus: "error",
+        commands: verificationCommands,
+        reason: `Post-landing verification failed to complete: ${formatError(error)}`,
+        repairAttempted,
+      };
+      await appendFactoryRunEvent(input.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "landing.post_verification_failed",
+        data: {
+          reason: postLandingVerification.reason,
+          commands: verificationCommands,
+          targetBranch: plan.targetBranch,
+          targetHeadAfter,
+        },
       });
-      landingStatus = "blocked";
-      recoveryHint = diagnosis.recoveryHint;
     }
   } else if (execution.status !== "skipped") {
     diagnosis = await diagnoseOrFallback({
@@ -172,6 +255,7 @@ export async function runLandingFlow(input: {
     ? await publishBlockedCandidate(input, recoveryHint ?? execution.reason ?? execution.outcome)
     : undefined;
   if (pullRequest?.status === "created" || pullRequest?.status === "existing") {
+    landingStatus = "pull-request";
     recoveryHint = `${pullRequest.reason} ${pullRequest.url ?? ""}`.trim();
   } else if (pullRequest?.status === "failed") {
     recoveryHint = `${recoveryHint ?? "Landing blocked"} PR fallback failed: ${pullRequest.reason}`;
@@ -180,6 +264,7 @@ export async function runLandingFlow(input: {
   if (diagnosis) await writePrototypeLandingDiagnosisArtifact(input.runDir, 1, diagnosis);
   await appendPrototypeLandingAttemptArtifact(input.runDir, {
     attempt: 1,
+    stage: "finalized",
     plan: landingPlanArtifact,
     execution: {
       status: landingStatus,
@@ -191,11 +276,24 @@ export async function runLandingFlow(input: {
             ? "pull-request-failed"
             : diagnosis?.kind ?? execution.outcome,
       reason: recoveryHint,
+      targetHeadBefore,
+      targetHeadAfter,
     },
-    verification: { overallStatus: verificationResult.overallStatus, commands: verificationCommands },
+    verification: postLandingVerification ?? { overallStatus: verificationResult.overallStatus, commands: verificationCommands, repairAttempted },
     diagnosis,
   });
-  return finishLanding(input, landingPlanArtifact, landingStatus, recoveryHint, execution.reason, diagnosis, pullRequest);
+  return finishLanding(input, landingPlanArtifact, landingStatus, recoveryHint, execution.reason, diagnosis, pullRequest, {
+    targetHeadBefore,
+    targetHeadAfter,
+    postLandingVerification: postLandingVerification
+      ? {
+          status: postLandingVerification.overallStatus,
+          commands: postLandingVerification.commands,
+          reason: postLandingVerification.reason,
+          repairAttempted: postLandingVerification.repairAttempted,
+        }
+      : { status: verificationResult.overallStatus, commands: verificationCommands, repairAttempted },
+  });
 }
 
 async function diagnoseOrFallback(input: {
@@ -302,7 +400,10 @@ async function finishBlockedLanding(
     },
     diagnosis,
   });
-  return finishLanding(input, plan, "blocked", blockedHint, reason, diagnosis, pullRequest);
+  const finalStatus = pullRequest?.status === "created" || pullRequest?.status === "existing"
+    ? "pull-request"
+    : "blocked";
+  return finishLanding(input, plan, finalStatus, blockedHint, reason, diagnosis, pullRequest);
 }
 
 async function finishLanding(
@@ -313,6 +414,16 @@ async function finishLanding(
   reason: string | undefined,
   diagnosis?: PrototypeLandingDiagnosisArtifact,
   pullRequest?: RecoveryPullRequestResult,
+  landingEvidence?: {
+    targetHeadBefore?: string;
+    targetHeadAfter?: string;
+    postLandingVerification?: {
+      status: "pending" | "passed" | "failed" | "incomplete" | "error";
+      commands: string[];
+      reason?: string;
+      repairAttempted?: boolean;
+    };
+  },
 ): Promise<LandingResult> {
   const outcome = pullRequest?.status === "created"
     ? "pull-request-created"
@@ -333,17 +444,26 @@ async function finishLanding(
     targetBranch: plan.targetBranch,
     sourceBranch: plan.sourceBranch,
     strategy: plan.strategy,
-    status: landingStatus,
+    status: pullRequest?.status === "created"
+      ? "pull-request-created"
+      : pullRequest?.status === "existing"
+        ? "pull-request-existing"
+        : landingStatus === "pull-request"
+          ? "blocked"
+          : landingStatus,
     outcome,
     recoveryHint,
     reason,
     pullRequest,
+    targetHeadBefore: landingEvidence?.targetHeadBefore,
+    targetHeadAfter: landingEvidence?.targetHeadAfter,
+    postLandingVerification: landingEvidence?.postLandingVerification,
   });
-  const completed = landingStatus === "landed" || landingStatus === "skipped";
+  const completed = landingStatus === "landed" || landingStatus === "skipped" || landingStatus === "pull-request";
   return {
     finalMergePath,
     status: completed ? "COMPLETED" : "BLOCKED",
-    phase: completed ? "complete" : "merge-blocked",
+    phase: landingStatus === "pull-request" ? "pull-request-opened" : completed ? "complete" : "merge-blocked",
     approved: completed,
     landingStatus,
     landingAttempts: 1,

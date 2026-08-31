@@ -5,7 +5,7 @@ import type {
 
 export type LandingStrategy = "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "pull-request" | "skip" | "block";
 export type LandingRisk = "low" | "medium" | "high";
-export type LandingStatus = "landed" | "skipped" | "blocked" | "failed";
+export type LandingStatus = "landed" | "skipped" | "blocked" | "failed" | "pull-request";
 export type LandingOutcome =
   | "landed"
   | "policy-skipped"
@@ -45,7 +45,7 @@ export interface LandingExecutionResult {
 export interface LandingResult {
   finalMergePath: string;
   status: "COMPLETED" | "BLOCKED";
-  phase: "complete" | "merge-blocked";
+  phase: "complete" | "merge-blocked" | "pull-request-opened";
   approved: boolean;
   landingStatus: LandingStatus;
   landingAttempts: number;

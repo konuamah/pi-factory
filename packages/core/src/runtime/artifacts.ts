@@ -329,15 +329,20 @@ export interface PrototypeLandingDiagnosisArtifact {
 
 export interface PrototypeLandingAttemptArtifact {
   attempt: number;
+  stage?: "started" | "applied" | "finalized";
   plan: PrototypeLandingPlanArtifact;
   execution: {
-    status: "landed" | "blocked" | "failed" | "skipped";
+    status: "landed" | "blocked" | "failed" | "skipped" | "pull-request";
     outcome: string;
     reason?: string;
+    targetHeadBefore?: string;
+    targetHeadAfter?: string;
   };
   verification?: {
-    overallStatus: "passed" | "failed" | "incomplete";
+    overallStatus: "pending" | "passed" | "failed" | "incomplete" | "error";
     commands: string[];
+    reason?: string;
+    repairAttempted?: boolean;
   };
   diagnosis?: PrototypeLandingDiagnosisArtifact;
 }
@@ -348,6 +353,8 @@ export interface PrototypeFinalMergeArtifact {
   candidateSha?: string;
   mergeCwd: string;
   status: "landed" | "skipped" | "blocked" | "failed" | "pull-request-created" | "pull-request-existing";
+  targetHeadBefore?: string;
+  targetHeadAfter?: string;
   outcome?:
     | "landed"
     | "policy-skipped"
@@ -372,6 +379,12 @@ export interface PrototypeFinalMergeArtifact {
     targetBranch: string;
     reason: string;
   };
+  postLandingVerification?: {
+    status: "pending" | "passed" | "failed" | "incomplete" | "error";
+    commands: string[];
+    reason?: string;
+    repairAttempted?: boolean;
+  };
 }
 
 export interface PrototypeSummaryArtifact {
@@ -389,7 +402,7 @@ export interface PrototypeSummaryArtifact {
   builderExecutionPaths?: string[];
   integrationPath?: string;
   finalMergePath?: string;
-  landingStatus?: "landed" | "skipped" | "blocked" | "failed";
+  landingStatus?: "landed" | "skipped" | "blocked" | "failed" | "pull-request";
   landingAttempts?: number;
   recoveryHint?: string;
   pullRequest?: {

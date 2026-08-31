@@ -185,8 +185,8 @@ Inspect:
 - `completed-tasks.json` for the normalized candidate commit, source branch, workspace mode, and changed files
 - `landing-plan.json` for the AI-selected strategy, reasoning, expected files, verification, risk, and guard verdict
 - `landing-diagnosis-<attempt>.json` for the failure class and recovery hint
-- `landing-attempts.jsonl` for each attempted plan/execution/verification cycle
-- `final-merge.json` for the stable landing status and outcome
+- `landing-attempts.jsonl` for each attempted plan/execution/verification cycle (`stage: started|applied|finalized`)
+- `final-merge.json` for the stable landing status and outcome, including `targetHeadAfter` and `postLandingVerification`
 
 Fix:
 
@@ -196,6 +196,7 @@ Fix:
 - if the candidate commit or branch is missing, inspect `completed-tasks.json` and rerun or resume from the preserved candidate workspace
 - if the landing model returns invalid JSON, Factory uses the safe PR recovery path rather than mutating Git with a guessed merge strategy
 - if `final-merge.json` contains `pullRequest.status: created` or `existing`, review and merge the printed `pullRequest.url`
+- if a run stopped after `landing.plan_selected`, check whether `final-merge.json` already says `status: landed`; if so, the Git landing finished and the remaining issue is post-landing verification/finalization bookkeeping, not delivery
 - if PR creation fails, fix `gh auth status`, the repository remote, or push permissions, then use the preserved candidate branch/SHA to retry; Factory never reads or stores GitHub tokens
 
 ## Next Lint Fails On Next.js 16

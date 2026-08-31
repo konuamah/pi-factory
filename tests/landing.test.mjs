@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
-import { buildCompletedTasks } from "../packages/core/dist/runtime/landing.js";
+import { buildCompletedTasks, runLandingFlow } from "../packages/core/dist/runtime/landing.js";
 import { classifyDirtyFiles, executeLandingStrategy, validateLandingPlan } from "../packages/core/dist/runtime/landing-git.js";
 
 const execFileAsync = promisify(execFile);
@@ -227,6 +227,183 @@ test('recovery pull request fails fast and actionable when no remote exists', as
   assert.equal(result.status, "failed");
   assert.match(result.reason, /No git remote is configured|not pushed/i);
   assert.match(result.reason, /preserved locally/);
+});
+
+test('landing finalizes after direct cherry-pick even when post-landing verification fails', async () => {
+  const root = await initRepo();
+  await git(root, ["switch", "-c", "factory/task-1"]);
+  await fs.writeFile(path.join(root, "index.html"), "<h1>Candidate</h1>\n", "utf8");
+  await git(root, ["add", "index.html"]);
+  await git(root, ["commit", "-m", "candidate"]);
+  const candidateSha = await git(root, ["rev-parse", "HEAD"]);
+  await git(root, ["switch", "main"]);
+
+  const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "factory-run-landing-"));
+  const eventsPath = path.join(runDir, "events.jsonl");
+  await fs.writeFile(eventsPath, "", "utf8");
+  const landingExecutor = {
+    async execute() {
+      return {
+        status: "completed",
+        outputText: JSON.stringify({
+          strategy: "cherry-pick",
+          targetBranch: "main",
+          candidateSha,
+          sourceBranch: "factory/task-1",
+          reasoning: ["safe single commit"],
+          verification: ["lint"],
+          risk: "low",
+          expectedFiles: ["index.html"],
+          recoveryPlan: "Open a PR if direct landing fails.",
+        }),
+        events: [],
+      };
+    },
+  };
+
+  const result = await runLandingFlow({
+    runDir,
+    runId: "run-test",
+    eventsPath,
+    goal: "Add candidate feature",
+    mergeCwd: root,
+    taskType: "general",
+    config: {
+      git: { baseBranch: "main", pullRequest: { enabled: true, provider: "github", cli: "gh", draft: false } },
+      approval: { finalMerge: "required" },
+      runtime: { limits: {} },
+      models: { repair: undefined, landing: { provider: "openai-codex", model: "gpt-test" }, reviewer: { provider: "openai-codex", model: "gpt-test" } },
+    },
+    completedTasks: [{
+      taskId: "task-1",
+      targetBranch: "main",
+      sourceBranch: "factory/task-1",
+      commitSha: candidateSha,
+      changedFiles: ["index.html"],
+      workspaceMode: "created",
+      worktreePath: root,
+    }],
+    candidateSha,
+    candidateBranch: "factory/task-1",
+    verificationPlan: {
+      cwd: root,
+      cwdResolution: "default-root",
+      commands: { lint: `node -e "process.exit(1)"` },
+      selectionSource: "deterministic",
+      skill: { id: "test", version: "1.0.0", mode: "verification", selectionReasons: [] },
+      evidence: { rootCwd: root, configuredCommands: {}, allowedCommands: [], rootScripts: [], candidateCwds: [], commandDecisions: [] },
+    },
+    verification: { cwd: root, cwdResolution: "default-root", commands: [], overallStatus: "passed" },
+    verificationFailureClassification: undefined,
+    contractCanComplete: true,
+    controllerInput: { cwd: root, goal: "Add candidate feature", landingExecutor },
+    repairGuidanceText: undefined,
+  });
+
+  assert.equal(result.status, "COMPLETED");
+  assert.equal(result.phase, "complete");
+  assert.equal(result.landingStatus, "landed");
+  const finalMerge = JSON.parse(await fs.readFile(path.join(runDir, "final-merge.json"), "utf8"));
+  assert.equal(finalMerge.status, "landed");
+  assert.equal(finalMerge.postLandingVerification.status, "failed");
+  const attempts = (await fs.readFile(path.join(runDir, "landing-attempts.jsonl"), "utf8")).trim().split(/\n+/).map((line) => JSON.parse(line));
+  assert.equal(attempts[0].stage, "started");
+  assert.ok(attempts.some((entry) => entry.stage === "applied"));
+  assert.ok(attempts.some((entry) => entry.stage === "finalized"));
+});
+
+test('successful PR recovery completes the run instead of leaving landing blocked', async () => {
+  const root = await initRepo();
+  await git(root, ["switch", "-c", "factory/candidate"]);
+  await fs.writeFile(path.join(root, "index.html"), "<h1>Candidate</h1>\n", "utf8");
+  await git(root, ["add", "index.html"]);
+  await git(root, ["commit", "-m", "candidate"]);
+  const candidateSha = await git(root, ["rev-parse", "HEAD"]);
+  const remote = await fs.mkdtemp(path.join(os.tmpdir(), "factory-landing-remote-"));
+  await git(remote, ["init", "--bare"]);
+  await git(root, ["remote", "add", "origin", remote]);
+  await git(root, ["switch", "main"]);
+  await fs.writeFile(path.join(root, "index.html"), "<h1>User draft</h1>\n", "utf8");
+
+  const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "factory-run-landing-"));
+  const eventsPath = path.join(runDir, "events.jsonl");
+  await fs.writeFile(eventsPath, "", "utf8");
+  const bin = path.join(root, "fake-bin");
+  await fs.mkdir(bin, { recursive: true });
+  await fs.writeFile(path.join(bin, "gh"), `#!/bin/sh\ncase "$1 $2" in\n  "pr list") exit 0 ;;\n  "pr create") printf '%s\\n' 'https://github.com/example/repo/pull/99'; exit 0 ;;\n  *) exit 1 ;;\nesac\n`, "utf8");
+  await fs.chmod(path.join(bin, "gh"), 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath}`;
+  const landingExecutor = {
+    async execute() {
+      return {
+        status: "completed",
+        outputText: JSON.stringify({
+          strategy: "cherry-pick",
+          targetBranch: "main",
+          candidateSha,
+          sourceBranch: "factory/candidate",
+          reasoning: ["try direct landing first"],
+          verification: ["lint"],
+          risk: "low",
+          expectedFiles: ["index.html"],
+          recoveryPlan: "Open a PR if direct landing fails.",
+        }),
+        events: [],
+      };
+    },
+  };
+
+  try {
+    const result = await runLandingFlow({
+      runDir,
+      runId: "run-pr",
+      eventsPath,
+      goal: "Add candidate feature",
+      mergeCwd: root,
+      taskType: "general",
+      config: {
+        git: { baseBranch: "main", pullRequest: { enabled: true, provider: "github", cli: "gh", draft: false } },
+        approval: { finalMerge: "required" },
+        runtime: { limits: {} },
+        models: { repair: undefined, landing: { provider: "openai-codex", model: "gpt-test" }, reviewer: { provider: "openai-codex", model: "gpt-test" } },
+      },
+      completedTasks: [{
+        taskId: "task-1",
+        targetBranch: "main",
+        sourceBranch: "factory/candidate",
+        commitSha: candidateSha,
+        changedFiles: ["index.html"],
+        workspaceMode: "created",
+        worktreePath: root,
+      }],
+      candidateSha,
+      candidateBranch: "factory/candidate",
+      verificationPlan: {
+        cwd: root,
+        cwdResolution: "default-root",
+        commands: { lint: `node -e "process.exit(0)"` },
+        selectionSource: "deterministic",
+        skill: { id: "test", version: "1.0.0", mode: "verification", selectionReasons: [] },
+        evidence: { rootCwd: root, configuredCommands: {}, allowedCommands: [], rootScripts: [], candidateCwds: [], commandDecisions: [] },
+      },
+      verification: { cwd: root, cwdResolution: "default-root", commands: [], overallStatus: "failed" },
+      verificationFailureClassification: undefined,
+      contractCanComplete: true,
+      controllerInput: { cwd: root, goal: "Add candidate feature", landingExecutor },
+      repairGuidanceText: undefined,
+    });
+
+    assert.equal(result.status, "COMPLETED");
+    assert.equal(result.phase, "pull-request-opened");
+    assert.equal(result.landingStatus, "pull-request");
+    assert.equal(result.pullRequest?.url, "https://github.com/example/repo/pull/99");
+    const finalMerge = JSON.parse(await fs.readFile(path.join(runDir, "final-merge.json"), "utf8"));
+    assert.equal(finalMerge.status, "pull-request-created");
+    assert.equal(finalMerge.outcome, "pull-request-created");
+  } finally {
+    process.env.PATH = previousPath;
+  }
 });
 
 test('recovery pull request reports missing gh clearly and keeps pushed branch usable', async () => {

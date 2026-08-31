@@ -77,6 +77,16 @@ export async function handleShow(runId: string | undefined, ctx: FactoryPiComman
     `plan feedback: ${result.planFeedback ?? "none"}`,
     `implementation started: ${typeof result.implementationStarted === "boolean" ? (result.implementationStarted ? "yes" : "no") : "unknown"}`,
     `verification: ${String(result.summary?.verificationStatus ?? result.verification?.overallStatus ?? "none")}`,
+    `final merge status: ${result.finalMergeStatus ?? "none"}`,
+    `final merge outcome: ${result.finalMergeOutcome ?? "none"}`,
+    ...(result.postLandingVerification
+      ? [
+          `post-landing verification: ${result.postLandingVerification.status ?? "unknown"}`,
+          `post-landing commands: ${result.postLandingVerification.commands?.join(", ") || "none"}`,
+          `post-landing reason: ${result.postLandingVerification.reason ?? "none"}`,
+        ]
+      : []),
+    ...(result.runFailure?.reason ? [`run failure: ${result.runFailure.reason}`] : []),
     ...(result.pullRequest
       ? [
           `pull request: ${result.pullRequest.status ?? "unknown"}`,

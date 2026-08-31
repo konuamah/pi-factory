@@ -12,6 +12,14 @@ export interface FactoryRunShowResult {
   reviewerExecution?: Record<string, unknown>;
   verification?: Record<string, unknown>;
   finalMerge?: Record<string, unknown>;
+  finalMergeStatus?: string;
+  finalMergeOutcome?: string;
+  postLandingVerification?: {
+    status?: string;
+    commands?: string[];
+    reason?: string;
+    repairAttempted?: boolean;
+  };
   pullRequest?: {
     status?: string;
     url?: string;
@@ -22,6 +30,9 @@ export interface FactoryRunShowResult {
   planDecision?: "approve" | "reject" | "revise";
   planFeedback?: string;
   implementationStarted?: boolean;
+  runFailure?: {
+    reason?: string;
+  };
   taskFailure?: {
     taskId?: string;
     stage?: string;
@@ -82,6 +93,7 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     readJsonlFile(path.join(runDir, "events.jsonl")),
   ]);
   const planSummary = summarizePlanEvents(events);
+  const runFailure = summarizeRunFailureEvents(events);
   const guidance = summarizeGuidanceEvents(events);
   const taskFailure = summarizeTaskFailureEvents(events);
   const integrationFailure = summarizeIntegrationFailureEvents(events);
@@ -97,12 +109,23 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     reviewerExecution,
     verification,
     finalMerge,
+    finalMergeStatus: stringValue(finalMerge?.status),
+    finalMergeOutcome: stringValue(finalMerge?.outcome),
+    postLandingVerification: finalMerge?.postLandingVerification && typeof finalMerge.postLandingVerification === "object"
+      ? {
+          status: stringValue((finalMerge.postLandingVerification as Record<string, unknown>).status),
+          commands: stringArray((finalMerge.postLandingVerification as Record<string, unknown>).commands),
+          reason: stringValue((finalMerge.postLandingVerification as Record<string, unknown>).reason),
+          repairAttempted: booleanValue((finalMerge.postLandingVerification as Record<string, unknown>).repairAttempted),
+        }
+      : undefined,
     pullRequest: finalMerge?.pullRequest && typeof finalMerge.pullRequest === "object"
       ? finalMerge.pullRequest as FactoryRunShowResult["pullRequest"]
       : undefined,
     planDecision: planSummary.decision,
     planFeedback: planSummary.feedback,
     implementationStarted: planSummary.implementationStarted,
+    runFailure,
     taskFailure,
     guidance,
     integrationFailure,
@@ -110,6 +133,16 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     decisions: await readRunDecisions(runDir),
     interviewDecisions: await readInterviewDecisions(runDir),
   };
+}
+
+function summarizeRunFailureEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): FactoryRunShowResult["runFailure"] {
+  for (const event of events.slice().reverse()) {
+    if (event.type !== "run.failed") {
+      continue;
+    }
+    return { reason: stringValue(event.data?.reason) };
+  }
+  return undefined;
 }
 
 function summarizeTaskFailureEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): FactoryRunShowResult["taskFailure"] {
@@ -254,6 +287,10 @@ function summarizeVerificationEvents(events: Array<{ type?: string; data?: Recor
 
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function stringArray(value: unknown): string[] {

@@ -140,6 +140,8 @@ const plan = buildPlanArtifact({
   },
 });
 attachDiscoveryFileHintsToBuildTasks(plan.tasks, discoveryFileHints);
+// Planner contract target files are attached to build tasks inside
+// buildPlanArtifact so every caller (runtime, resume, harness) gets them.
 const planPath = await writePrototypePlanArtifact(run.runDir, plan);
 const taskPaths = await writePrototypeTaskArtifacts(
   run.runDir,

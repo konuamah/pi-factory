@@ -116,3 +116,69 @@ test('showFactoryRun surfaces the latest task failure reason', async () => {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('implementation contract extracts target files from planner prose sections', () => {
+  const planText = [
+    '### 1. PLANNING DECISIONS',
+    'Some narrative here.',
+    '',
+    '**New files Builder must create:**',
+    '- `src/data/books/beyond-breach.json` - canonical content source',
+    '- `src/app/books/beyond-breach/page.tsx` - standalone landing page',
+    '',
+    '**Existing files Builder must modify:**',
+    '- `src/app/sitemap.ts` - add /books routes',
+    '',
+    'WAITING_FOR_APPROVAL',
+  ].join('\n');
+  const plan = buildPlanArtifact({
+    goal: 'Publish the Beyond Breach book page',
+    config: {
+      git: { baseBranch: 'main' },
+      approval: { finalMerge: 'required' },
+      repair: { maxAttempts: 3 },
+      resolvedWorkflow: {
+        stages: [
+          { name: 'plan', dependsOn: [], type: 'agent', role: 'planner' },
+          { name: 'build', dependsOn: ['plan'], type: 'agent', role: 'builder' },
+        ],
+      },
+    },
+    planText,
+  });
+
+  const targetFiles = plan.implementationContract?.targetFiles ?? [];
+  assert.ok(targetFiles.includes('src/data/books/beyond-breach.json'), 'new files extracted');
+  assert.ok(targetFiles.includes('src/app/books/beyond-breach/page.tsx'), 'landing page extracted');
+  assert.ok(targetFiles.includes('src/app/sitemap.ts'), 'modified files extracted');
+});
+
+test('build tasks receive planner contract target files as file hints', () => {
+  const planText = [
+    '**New files Builder must create:**',
+    '- `src/data/books/beyond-breach.json` - canonical content source',
+    '- `src/app/books/page.tsx` - series index',
+    '',
+    'WAITING_FOR_APPROVAL',
+  ].join('\n');
+  const plan = buildPlanArtifact({
+    goal: 'Publish the Beyond Breach book page',
+    config: {
+      git: { baseBranch: 'main' },
+      approval: { finalMerge: 'required' },
+      repair: { maxAttempts: 3 },
+      resolvedWorkflow: {
+        stages: [
+          { name: 'plan', dependsOn: [], type: 'agent', role: 'planner' },
+          { name: 'build', dependsOn: ['plan'], type: 'agent', role: 'builder' },
+        ],
+      },
+    },
+    planText,
+  });
+  const buildTask = plan.tasks.find((t) => t.stage === 'build' || t.role === 'builder');
+  assert.ok(buildTask, 'build task exists');
+  const hints = buildTask.context?.fileHints ?? [];
+  assert.ok(hints.includes('src/data/books/beyond-breach.json'), 'target files reach builder context');
+  assert.ok(hints.includes('src/app/books/page.tsx'), 'series index reaches builder context');
+});

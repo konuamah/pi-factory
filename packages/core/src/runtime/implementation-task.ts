@@ -231,15 +231,15 @@ export async function runImplementationTask(input: {
         provider: nodeModel.model.provider,
         modelSource: nodeModel.source,
       });
-      const executeBuilder = async (attempt: "initial" | "no-change-retry", previousResult?: AgentExecutionResult): Promise<{
+      const executeBuilder = async (attempt: "initial" | "no-change-retry" | "transient-error-retry", previousResult?: AgentExecutionResult): Promise<{
         result: AgentExecutionResult;
         executionPath: string;
         committedChange: WorkspaceCommitResult;
       }> => {
         const executionId = attempt === "initial"
           ? `${input.runId}-${nodeRole}-${input.task.id}`
-          : `${input.runId}-${nodeRole}-${input.task.id}-no-change-retry`;
-        const prompt = attempt === "initial"
+          : `${input.runId}-${nodeRole}-${input.task.id}-${attempt}`;
+        const prompt = attempt === "initial" || attempt === "transient-error-retry"
           ? buildCompiledPrompt(input.goal, compiled, workspace.path)
           : buildNoChangeRetryPrompt(input.goal, compiled, previousResult, workspace.path);
         const result = await executor.execute({
@@ -264,7 +264,7 @@ export async function runImplementationTask(input: {
         });
 
         const executionPath = await writePrototypeBuilderExecutionArtifact(input.runDir, {
-          taskId: attempt === "initial" ? input.task.id : `${input.task.id}-no-change-retry`,
+          taskId: attempt === "initial" ? input.task.id : `${input.task.id}-${attempt}`,
           workspacePath: workspace.path,
           workspaceBranch: workspace.branch,
           ...result,
@@ -297,6 +297,27 @@ export async function runImplementationTask(input: {
       };
 
       let builderAttempt = await executeBuilder("initial");
+
+      // Transient provider/SDK failures (server_error, missing tool results,
+      // dropped stream) are not builder mistakes: retry once with the same
+      // prompt so one flaky provider response does not fail the whole run.
+      const TRANSIENT_ERROR_PATTERN = /server_error|server error|tool results are missing|temporarily unavailable|rate.?limit|overloaded|ECONNRESET|ECONNREFUSED|socket hang up|ETIMEDOUT/i;
+      if (builderAttempt.result.status === "failed" && TRANSIENT_ERROR_PATTERN.test(builderAttempt.result.errorMessage ?? "")) {
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.transient_error_retrying",
+          data: {
+            taskId: input.task.id,
+            stage: input.task.stage,
+            title: input.task.title,
+            builderExecutionPath: builderAttempt.executionPath,
+            workspacePath: workspace.path,
+            workspaceBranch: workspace.branch,
+            reason: `builder executor hit a transient provider error; retrying once: ${builderAttempt.result.errorMessage}`,
+          },
+        });
+        builderAttempt = await executeBuilder("transient-error-retry");
+      }
 
       if (builderAttempt.result.status === "completed" && !builderAttempt.committedChange.committed) {
         await appendFactoryRunEvent(input.eventsPath, {

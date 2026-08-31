@@ -1,5 +1,6 @@
 import type { Capability, CapabilityPolicy, EffectiveFactoryConfig, ModelSelection, WorkflowNodeType, WorkflowStage, WorkflowStageSkillPolicy } from "@factory/schemas";
 import { smartRunTitle } from "../runs/title.js";
+import { isBuildStage, uniqueStrings } from "./task-utils.js";
 
 export interface PlannerTask {
   id: string;
@@ -72,7 +73,7 @@ export function buildPlanArtifact(input: {
 }): PlannerArtifact {
   const workflowStages = normalizeWorkflowStages(input.config.resolvedWorkflow?.stages ?? []);
 
-  const tasks = workflowStages.map((stage, index) => {
+  const tasks: PlannerTask[] = workflowStages.map((stage, index) => {
     const controllerHandled = isControllerHandledStage(stage.name, stage.type);
     return {
       id: `task-${index + 1}`,
@@ -88,17 +89,37 @@ export function buildPlanArtifact(input: {
       taskType: stage.taskType,
       model: stage.model,
       skills: stage.skills,
+      context: undefined,
       controllerHandled: controllerHandled || undefined,
       artifactRefs: controllerHandled ? input.artifactRefs : undefined,
     };
   });
+
+  const implementationContract = extractImplementationContract(input.planText, input.discoveryText);
+
+  // Planner intent must reach Builder as explicit file targets: when discovery
+  // is a net-new surface (implementationSurface: missing), discovery hints are
+  // empty and Builder would otherwise rediscover the whole implementation
+  // surface from scratch.
+  const contractTargetFiles = implementationContract?.targetFiles ?? [];
+  if (contractTargetFiles.length > 0) {
+    for (const task of tasks) {
+      if (!isBuildStage(task.stage) && task.role !== "builder") {
+        continue;
+      }
+      task.context = {
+        ...task.context,
+        fileHints: uniqueStrings([...(task.context?.fileHints ?? []), ...contractTargetFiles]),
+      };
+    }
+  }
 
   return {
     goal: input.goal,
     summary: buildSummary(input.goal, input.config, workflowStages),
     discoveryText: input.discoveryText,
     planText: input.planText,
-    implementationContract: extractImplementationContract(input.planText, input.discoveryText),
+    implementationContract,
     workflowStages,
     tasks,
   };
@@ -112,7 +133,14 @@ export function extractImplementationContract(
   planText?: string,
   discoveryText?: string,
 ): ImplementationContract | undefined {
-  const targetFiles = extractFileList(planText, "target files") ?? extractFileList(discoveryText, "target files");
+  const targetFiles = extractFileList(planText, "target files")
+    ?? extractFileList(planText, "new files builder must create")
+    ?? extractFileList(planText, "existing files builder must modify")
+    ?? extractFileList(discoveryText, "target files")
+    ?? (() => {
+      const inline = extractInlineFilePaths(planText);
+      return inline.length > 0 ? inline : undefined;
+    })();
   const nonGoals = extractBulletSection(planText, "non-goals", "non goals", "out of scope");
   const blockers = extractBulletSection(planText, "blockers", "blocked");
   const risks = extractRisks(planText);
@@ -146,6 +174,25 @@ function extractFileList(text: string | undefined, section: string): string[] | 
     }
   }
   return files.length > 0 ? files : undefined;
+}
+
+/**
+ * File paths mentioned inline in prose, e.g. "Create `src/data/books/book.json`
+ * - ..." or "Edit `src/app/sitemap.ts` to ...". Planner prose often names target
+ * files without a dedicated "Target files" section, so this catches paths
+ * anywhere in the text as a fallback for contract extraction.
+ */
+export function extractInlineFilePaths(text: string | undefined): string[] {
+  if (!text) return [];
+  const paths = new Set<string>();
+  const pathPattern = /`?([\w@][\w./-]*\/)*(src|public|app|packages|docs|lib|tests?|scripts)[\w./-]*\.[\w]{1,8}`?/g;
+  for (const match of text.matchAll(pathPattern)) {
+    const cleaned = match[0].replace(/^`|`$/g, "");
+    if (cleaned.length > 3 && cleaned.length < 200) {
+      paths.add(cleaned);
+    }
+  }
+  return [...paths];
 }
 
 function extractBulletSection(text: string | undefined, ...sectionNames: string[]): string[] | undefined {

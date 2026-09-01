@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { filesReferToSamePath } from "./failure-classification.js";
 import { isTransientFactoryPath } from "./git-ops.js";
+import { nonGoalViolations } from "./scope-check.js";
 import type { PrototypeCompletedTaskArtifact, PrototypeLandingDiagnosisArtifact } from "./artifacts.js";
 import type {
   DirtyLandingContext,
@@ -50,8 +51,13 @@ export async function validateLandingPlan(input: {
   finalMergePolicy: "required" | "not-required";
   completedTasks: PrototypeCompletedTaskArtifact[];
   verificationStatus: string;
+  /** Plan-declared non-goal file paths; candidate changes must not touch them. */
+  nonGoals?: string[];
+  /** True when scope.landing is "block": a violation blocks the merge. */
+  scopeGuardBlocking?: boolean;
 }): Promise<LandingGuardVerdict> {
   const reasons: string[] = [];
+  const notes: string[] = [];
   const currentBranch = await readCurrentBranch(input.mergeCwd);
   if (input.completedTasks.length === 0) {
     reasons.push("No completed task commit with non-transient changed files is available to land.");
@@ -87,7 +93,22 @@ export async function validateLandingPlan(input: {
   if (input.plan.sourceBranch && !await gitRefExists(input.mergeCwd, input.plan.sourceBranch)) {
     reasons.push(`Source branch does not exist: ${input.plan.sourceBranch}`);
   }
-  return { ok: reasons.length === 0, reasons };
+  // Scope guard: plan-declared non-goals vs the committed change set. Warn
+  // (notes) by default; block (reasons) when scope.landing is "block".
+  const nonGoals = input.nonGoals ?? [];
+  if (nonGoals.length > 0) {
+    const changedFiles = input.completedTasks.flatMap((task) => task.changedFiles ?? []);
+    const scopeViolations = nonGoalViolations(changedFiles, nonGoals);
+    if (scopeViolations.length > 0) {
+      const message = `Candidate changes files declared as non-goals: ${scopeViolations.map((violation) => violation.file).join(", ")}`;
+      if (input.scopeGuardBlocking) {
+        reasons.push(message);
+      } else {
+        notes.push(message);
+      }
+    }
+  }
+  return { ok: reasons.length === 0, reasons, ...(notes.length > 0 ? { notes } : {}) };
 }
 
 export async function executeLandingStrategy(input: {

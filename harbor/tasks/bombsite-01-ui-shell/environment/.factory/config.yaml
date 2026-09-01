@@ -16,3 +16,11 @@ runtime:
 
 approval:
   finalMerge: required
+
+# Scope handoff: plan-declared non-goal files are checked in verification
+# (SCOPE requirement) and at the landing guard. Defaults are warn (non-blocking)
+# so the benchmark measures detection accuracy before any trial fails on it.
+# Flip to "block" to prove enforcement once detection is trusted.
+scope:
+  verification: warn
+  landing: warn

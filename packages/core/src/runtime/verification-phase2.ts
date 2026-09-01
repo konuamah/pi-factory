@@ -15,6 +15,7 @@ import { appendFactoryRunEvent, updateFactoryRunState, createFactoryRun } from "
 import { appendRepoLearning } from "../learnings/store.js";
 import { emitProgress, movePhase, wait, requestHumanDecision, loadConstitutionConflicts } from "./phase-plumbing.js";
 import { uniqueStrings, taskWorkspacesChangedFiles } from "./task-utils.js";
+import { loadPlanContract } from "./scope-check.js";
 import { renderSkillBundleForPrompt } from "./prompts.js";
 import { attemptEnvironmentPreparation, runVerificationRepairLoop, buildRunFailureResult } from "./controller-helpers.js";
 import { loadEffectiveConfig } from "../config/loader.js";
@@ -345,6 +346,10 @@ await emitProgress(input, {
 });
 
 // Contract-based verification: gather requirements from all sources and run the engine.
+// The plan's implementationContract (non-goal file paths) becomes a SCOPE
+// requirement: changed files must not touch plan-declared non-goals. Blocking
+// is driven by config scope.verification (default "warn" -> non-blocking).
+const planContract = await loadPlanContract(planPath);
 const contractPlan = gatherVerificationRequirements({
   goal: input.goal,
   taskType: runTaskType.id,
@@ -355,6 +360,9 @@ const contractPlan = gatherVerificationRequirements({
   workflowId: loaded.effectiveConfig.resolvedWorkflowId,
   commands: verificationPlan.commands,
   constitutionConflicts: await loadConstitutionConflicts(projectRoot),
+  nonGoals: planContract?.nonGoals,
+  changedFiles: implementationChangedFiles,
+  scopeCheckBlocking: loaded.effectiveConfig.scope?.verification === "block",
 });
 initializeVerificationProviders({
   executor: input.reviewerExecutor,

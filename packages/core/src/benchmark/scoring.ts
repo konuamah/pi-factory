@@ -124,10 +124,59 @@ export function scoreHandoff(artifacts: RunArtifacts, spec: BenchmarkTaskSpec): 
     components.interviewToPlan = clamp(carried / distinctive.length);
   }
 
-  // plan -> builder: were plan tasks actually executed?
+  // plan -> builder: were the plan's build-stage tasks actually executed?
+  // The plan artifact's task statuses are never updated after planning (build
+  // /verify/review/approval stay "pending" even on success) — execution lives
+  // in completed-tasks.json, so measure execution, not plan status. A plan
+  // task is "carried" when a completed task with the same id exists.
   const tasks = plan.tasks ?? [];
-  const done = tasks.filter((task) => task.status === "done").length;
-  components.planToBuilder = tasks.length === 0 ? 0 : clamp(done / tasks.length);
+  const executedTaskIds = new Set(artifacts.completedTasks.map((task) => task.taskId));
+  const buildTasks = tasks.filter((task) => task.stage === "build" || task.type === "builder" || task.role === "builder");
+  const executedBuild = buildTasks.length > 0
+    ? clamp(buildTasks.filter((task) => executedTaskIds.has(task.id)).length / buildTasks.length)
+    : tasks.length === 0
+      ? 0
+      : artifacts.completedTasks.length > 0 ? 1 : 0;
+  components.planToBuilder = tasks.length === 0 ? 0 : executedBuild;
+  if (buildTasks.length > 0 && executedBuild < 1 && artifacts.completedTasks.length === 0) {
+    warnings.push("plan declared build tasks but no completed task records execution");
+  }
+
+  // landing scope: did the landing plan ship files the task marked as
+  // forbidden (interview/plan non-goals), and did it ship exactly what was
+  // built? Both are null when there is no landing evidence, never coerced to 0.
+  const landingPlan = artifacts.landingPlan;
+  const landingExpected = landingPlan?.expectedFiles ?? [];
+  if (!landingPlan) {
+    components.nonGoalsSurviveToLanding = null;
+    components.landingMatchesBuild = null;
+    warnings.push("landing-plan.json missing; landing scope not measurable");
+  } else {
+    const forbidden = (spec.forbiddenFiles ?? []).map((file) => file.replace(/\\/g, "/"));
+    if (forbidden.length === 0) {
+      components.nonGoalsSurviveToLanding = null;
+      warnings.push("no forbiddenFiles in the task spec; non-goal survival not measurable");
+    } else {
+      const forbiddenHits = landingExpected.filter((file) =>
+        forbidden.some((forbiddenFile) => file === forbiddenFile || file.startsWith(`${forbiddenFile}/`)),
+      );
+      components.nonGoalsSurviveToLanding = forbiddenHits.length === 0 ? 1 : 0;
+      if (forbiddenHits.length) {
+        warnings.push(`landing planned files outside forbidden set: ${forbiddenHits.join(", ")}`);
+      }
+    }
+    const builtFiles = new Set(artifacts.completedTasks.flatMap((task) => task.changedFiles ?? []).map((file) => file.replace(/\\/g, "/")));
+    if (landingExpected.length === 0 || builtFiles.size === 0) {
+      components.landingMatchesBuild = null;
+      warnings.push("no landing expectedFiles or no built files; landing-build match not measurable");
+    } else {
+      const outside = landingExpected.filter((file) => !builtFiles.has(file));
+      components.landingMatchesBuild = outside.length === 0 ? 1 : 0;
+      if (outside.length) {
+        warnings.push(`landing planned files not in the built set: ${outside.join(", ")}`);
+      }
+    }
+  }
 
   // verification context completeness — contract PASS on zero requirements is
   // explicitly NOT treated as evidence.
@@ -147,15 +196,26 @@ export function scoreHandoff(artifacts: RunArtifacts, spec: BenchmarkTaskSpec): 
   const approvalSeen = artifacts.events.some((event) => event.type === "approval.required");
   components.approvalClarity = approvalSeen ? 1 : artifacts.summary?.status === "COMPLETED" ? 0 : null;
 
-  // reviewer/controller disagreement
+  // reviewer/controller disagreement — judge the verdict's CONCLUSION, not
+  // mid-transcript mentions of "block"/"fail" (e.g. "the form block",
+  // "would fail if"). The reviewer writes a prose verdict + tool-call
+  // transcript; the final stance is where "ready" vs "needs work" lives.
   const reviewerText = (artifacts.reviewerExecution?.outputText ?? "").toLowerCase();
-  const negative = /\bnot ready\b|\bblock(ed)?\b|\bfail(ed)?\b|\bmust fix\b/.test(reviewerText);
+  const reviewerConclusion = reviewerText.slice(-600);
+  // Positive markers must not fire when negated ("not ready for approval",
+  // "cannot approve"). The (?<!\bnot ) lookbehind guards the main forms.
+  const reviewerPositive = /(?<!\bnot )(?<!\bcannot )(?<!\bcan't )(?<!\bcan not )\b(ready for approval|looks? ready|accepted|all checks? pass|no issues?|satisfies (all|every|the)|good to merge|ship it|no problems?|approve)\b/.test(reviewerConclusion);
+  const reviewerNegative = /\b(not ready|must fix|cannot approve|can't approve|blocked pending|needs (work|changes|fixes|rework)|reject|do not merge|does not (look )?ready|fails? (the )?(checks?|review|verification)|not satisfied|unacceptable)\b/.test(reviewerConclusion);
   const controllerPositive = artifacts.summary?.status === "COMPLETED";
   if (!artifacts.reviewerExecution) {
     components.reviewerAgreement = null;
   } else {
-    components.reviewerAgreement = negative && controllerPositive ? 0 : 1;
-    if (negative && controllerPositive) {
+    // A reviewer that explicitly blocks while the controller completed is a
+    // disagreement. A reviewer that concludes positively agrees. When the
+    // conclusion is ambiguous (neither explicit marker), treat as agreement.
+    const disagreement = reviewerNegative && !reviewerPositive && controllerPositive;
+    components.reviewerAgreement = disagreement ? 0 : 1;
+    if (disagreement) {
       warnings.push("reviewer reported a problem while the controller reported COMPLETED");
     }
   }

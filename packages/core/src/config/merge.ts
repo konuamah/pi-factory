@@ -149,6 +149,16 @@ export function mergeConfigLayers(input: {
         project?.approval?.finalMerge ??
         builtIns.approval.finalMerge,
     },
+    scope: {
+      verification:
+        runOverrides?.scope?.verification ??
+        project?.scope?.verification ??
+        builtIns.scope.verification,
+      landing:
+        runOverrides?.scope?.landing ??
+        project?.scope?.landing ??
+        builtIns.scope.landing,
+    },
     dashboard: {
       enabled: project?.dashboard?.enabled ?? global?.dashboard?.enabled ?? builtIns.dashboard.enabled,
       port: project?.dashboard?.port ?? global?.dashboard?.port ?? builtIns.dashboard.port,

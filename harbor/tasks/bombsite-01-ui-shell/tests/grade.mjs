@@ -119,6 +119,42 @@ const passed = checks.filter((item) => item.ok).length;
 const allPassed = total > 0 && passed === total;
 const failed = checks.filter((item) => !item.ok);
 
+// --- Scope-handoff diagnostics (never gate task_success) ---
+// The agent leaves .factory/runs/<id>/ artifacts; Harbor collects them.
+// If present, report whether the plan declared non-goals and the landing
+// respected them. Diagnostic only — the oracle path produces no run dir.
+const scopeDiag = { present: false, checks: {} };
+const runsDir = path.join(APP, ".factory", "runs");
+let latestRunDir = null;
+if (fs.existsSync(runsDir)) {
+  const dirs = fs.readdirSync(runsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(runsDir, entry.name))
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  if (dirs.length > 0) latestRunDir = dirs[0];
+}
+if (latestRunDir) {
+  scopeDiag.present = true;
+  const readRun = (file) => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(latestRunDir, file), "utf8"));
+    } catch {
+      return null;
+    }
+  };
+  const plan = readRun("plan.json");
+  const landing = readRun("landing-plan.json");
+  const nonGoals = plan?.implementationContract?.nonGoals ?? [];
+  scopeDiag.checks = {
+    planDeclaresNonGoals: nonGoals.length > 0,
+    planNonGoals: nonGoals.slice(0, 10),
+    landingExpectedFiles: landing?.expectedFiles ?? [],
+    landingNonGoalHits: (landing?.expectedFiles ?? []).filter((file) =>
+      nonGoals.some((nonGoal) => file === nonGoal || file.startsWith(`${nonGoal}/`)),
+    ),
+  };
+}
+
 fs.mkdirSync(OUT, { recursive: true });
 const reward = { task_success: allPassed ? 1.0 : 0.0 };
 fs.writeFileSync(path.join(OUT, "reward.json"), `${JSON.stringify(reward)}\n`);
@@ -132,7 +168,8 @@ fs.writeFileSync(
       checksTotal: total,
       partialCredit: total ? Number((passed / total).toFixed(4)) : 0,
       failed: failed.map((item) => ({ name: item.name, detail: item.detail })),
-      note: "oracle validates task + verifier only; six-pillar Factory scoring applies to agent trials",
+      scopeHandoff: scopeDiag,
+      note: "oracle validates task + verifier only; six-pillar Factory scoring applies to agent trials; scopeHandoff is diagnostic and never gates task_success",
     },
     null,
     2,

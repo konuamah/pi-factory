@@ -72,6 +72,16 @@ Scripted interview answers have no entry for decision "Interview: grill" (source
 
 The approved design for scoring Factory behavior (interview rounds, stage handoffs, verification adaptation, landing, scope) with Harbor driving real Pi + Factory runs lives in [bombsite-benchmark-plan.md](bombsite-benchmark-plan.md). Key rules there: Harbor Oracle validates that a task is solvable and that the verifier detects it, while real agent trials populate benchmark statistics, and the scorer is a read-only core export consumed by both paths.
 
+### Scope handoff (non-goal files)
+
+Plan-declared non-goal files are checked in verification (`SCOPE` contract requirement),
+at approval (`scopeWarnings` rendered to the human), and at the landing guard
+(non-blocking `notes` by default). Enforcement is config-driven:
+`scope.verification` / `scope.landing` (`"warn"` default, `"block"` to enforce).
+The shared helper lives in `packages/core/src/runtime/scope-check.ts`; the scorer
+signals are `nonGoalsSurviveToLanding` and `landingMatchesBuild` in `scoreHandoff`.
+See [benchmark-running.md](benchmark-running.md) for the full flow.
+
 ## Windows note
 
 On this machine, `harbor init` created the task files successfully but then crashed while printing a Unicode checkmark under a `cp1252` console. Use the wrapped command:

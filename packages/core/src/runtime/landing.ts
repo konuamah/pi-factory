@@ -28,6 +28,7 @@ import {
 } from "./landing-git.js";
 import type { EffectiveFactoryConfig, ModelSelection } from "@factory/schemas";
 import type { TaskWorkspaceSelection, RunFactoryControllerInput } from "./controller.js";
+import type { PlanContract } from "./scope-check.js";
 import type { LandingPlan, LandingResult } from "./landing-types.js";
 import { readGitHeadSha } from "./git-ops.js";
 
@@ -65,6 +66,8 @@ export async function runLandingFlow(input: {
   contractCanComplete: boolean;
   controllerInput: RunFactoryControllerInput;
   repairGuidanceText?: string;
+  /** Plan-declared non-goal file paths; candidate changes must not touch them. */
+  planContract?: PlanContract;
 }): Promise<LandingResult> {
   await writePrototypeCompletedTasksArtifact(input.runDir, input.completedTasks);
   const dirtyFiles = await readDirtyFiles(input.mergeCwd);
@@ -103,6 +106,8 @@ export async function runLandingFlow(input: {
     finalMergePolicy: input.config.approval.finalMerge,
     completedTasks: input.completedTasks,
     verificationStatus: input.verification.overallStatus,
+    nonGoals: input.planContract?.nonGoals,
+    scopeGuardBlocking: input.config.scope?.landing === "block",
   });
   const landingPlanArtifact: PrototypeLandingPlanArtifact = { ...plan, guardVerdict };
   await writePrototypeLandingPlanArtifact(input.runDir, landingPlanArtifact);

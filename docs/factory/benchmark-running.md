@@ -84,6 +84,44 @@ A correct agent trial produces:
 - `verification.json` → `overallStatus: "passed"`
 - `scoreFactoryRun` overall ≈ 0.9+ (the reference trial scored 0.965)
 
+## Scope handoff: non-goal files (verification + approval + landing)
+
+Plan-declared non-goal files (from `plan.json` → `implementationContract.nonGoals`)
+are checked at three points, all driven by the shared helper in
+`packages/core/src/runtime/scope-check.ts` (`nonGoalViolations` + `loadPlanContract`):
+
+1. **Verification** (`verification-phase2.ts`): the plan contract adds a `SCOPE`
+   requirement (source `PLAN`) to the contract engine. A changed file hitting a
+   non-goal produces a `FAIL` result in `verification.json`. Blocking is driven
+   by config `scope.verification` (`"warn"` default → non-blocking evidence only;
+   `"block"` → fails verification and can trigger repair).
+2. **Approval** (`requestApproval`): `scopeWarnings` list changed files that hit
+   non-goals; the Pi gateway renders them before the approve/reject confirm, and
+   an `approval.scope_warning` event is recorded. Warn-only — the human decides.
+3. **Landing guard** (`validateLandingPlan`): the committed change set is checked
+   against non-goals. `"warn"` (default) adds a non-blocking `note` to
+   `LandingGuardVerdict`; `"block"` adds a reason → blocks the merge → PR recovery.
+
+The flags live in `factory.yaml` / `.factory/config.yaml`:
+
+```yaml
+scope:
+  verification: warn   # or "block"
+  landing: warn        # or "block"
+```
+
+Defaults are `"warn"`/`"warn"` so the benchmark measures detection accuracy
+before any trial fails on it. The bombsite-01 harness config sets both explicitly
+(see `harbor/tasks/bombsite-01-ui-shell/environment/.factory/config.yaml`).
+
+The benchmark scorer measures the handoff with `nonGoalsSurviveToLanding`
+(landing `expectedFiles` vs task `forbiddenFiles`) and `landingMatchesBuild`
+(landing `expectedFiles` vs the actually-built files) in `scoreHandoff`.
+
+The verifier (`grade.mjs`) also reports a diagnostic `scopeHandoff` block in
+`metrics.json` when collected run artifacts are present (never gates
+`task_success`).
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

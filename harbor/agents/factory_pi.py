@@ -145,21 +145,47 @@ class FactoryPiAgent(Pi):
 
         # Pi discovers providers/extensions from its own config dir. openai-codex
         # is a Pi built-in provider (its OAuth token travels in auth.json), so no
-        # extension package needs copying here. Write a generated settings.json
-        # rather than copying the host's: the host list includes
-        # pi-goal-list-loop-audit, whose orchestrator would drive the container's
-        # Pi and contaminate the run being measured.
+        # extension package needs copying here. commandcode is NOT a built-in: it
+        # needs the pi-commandcode-provider package in the container's Pi npm
+        # store AND listed in settings.json packages, or the SDK cannot resolve
+        # commandcode models (verified live: ModelProviderResolutionError).
+        # Write a generated settings.json rather than copying the host's: the
+        # host list includes pi-goal-list-loop-audit, whose orchestrator would
+        # drive the container's Pi and contaminate the run being measured.
         staging = Path(tempfile.mkdtemp(prefix="factory-pi-config-"))
         pi_dir = _pi_agent_dir()
         try:
             shutil.copy2(pi_dir / "auth.json", staging / "auth.json")
             provider, _, model_id = self.model_name.partition("/")
+            packages = []
+            if provider == "commandcode":
+                # Copy the provider package into the Pi npm store so the SDK can
+                # load it without a network install inside the container.
+                npm_store = staging / "npm"
+                modules = npm_store / "node_modules"
+                modules.mkdir(parents=True)
+                src = pi_dir / "npm" / "node_modules" / _COMMANDCODE_PACKAGE
+                if not src.is_dir():
+                    raise ValueError(
+                        f"{_COMMANDCODE_PACKAGE} not found under {pi_dir / 'npm' / 'node_modules'}; "
+                        "Pi needs it to resolve commandcode models.",
+                    )
+                shutil.copytree(src, modules / _COMMANDCODE_PACKAGE)
+                (npm_store / "package.json").write_text(
+                    json.dumps({
+                        "name": "pi-extensions",
+                        "private": True,
+                        "dependencies": {_COMMANDCODE_PACKAGE: "latest"},
+                    }, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                packages.append(f"npm:{_COMMANDCODE_PACKAGE}")
             (staging / "settings.json").write_text(
                 json.dumps(
                     {
                         "defaultProvider": provider,
                         "defaultModel": model_id,
-                        "packages": [],
+                        "packages": packages,
                     },
                     indent=2,
                 )

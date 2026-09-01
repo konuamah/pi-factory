@@ -151,6 +151,10 @@ export interface FactoryBuiltInDefaults {
   approval: {
     finalMerge: "required" | "not-required";
   };
+  scope: {
+    verification: "warn" | "block";
+    landing: "warn" | "block";
+  };
   git: {
     cleanup: {
       retainRuns: number;
@@ -275,6 +279,12 @@ export interface ProjectFactoryConfig {
   approval?: {
     finalMerge?: "required" | "not-required";
   };
+  scope?: {
+    /** Whether a plan non-goal violation fails verification ("block") or only warns ("warn"). */
+    verification?: "warn" | "block";
+    /** Whether a landing scope violation blocks the merge ("block") or only notes it ("warn"). */
+    landing?: "warn" | "block";
+  };
   models?: Partial<Record<ModelRole, ModelSelection>> & {
     provider?: string;
     roles?: Partial<Record<ModelRole, ModelSelection>>;
@@ -302,6 +312,10 @@ export interface RunOverrides {
   };
   approval?: {
     finalMerge?: "required" | "not-required";
+  };
+  scope?: {
+    verification?: "warn" | "block";
+    landing?: "warn" | "block";
   };
 }
 
@@ -357,6 +371,10 @@ export interface EffectiveFactoryConfig {
   };
   approval: {
     finalMerge: "required" | "not-required";
+  };
+  scope: {
+    verification: "warn" | "block";
+    landing: "warn" | "block";
   };
   dashboard: {
     enabled: boolean;

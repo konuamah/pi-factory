@@ -437,3 +437,85 @@ test('recovery pull request reports missing gh clearly and keeps pushed branch u
   // The push already succeeded, so the branch is on the remote for manual merge.
   await assert.doesNotReject(git(root, ["ls-remote", "--heads", "origin", "factory/candidate"]));
 });
+
+// Sets up a real candidate branch + commit so the guard's pre-existing ref
+// checks pass; the scope check is then the only thing under test.
+async function scopeGuardRepo(changedFiles) {
+  const root = await initRepo();
+  await git(root, ["switch", "-c", "factory/candidate"]);
+  await fs.writeFile(path.join(root, "index.html"), "<h1>Candidate</h1>\n", "utf8");
+  await fs.writeFile(path.join(root, "contact-form.html"), "<form></form>\n", "utf8");
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "candidate" ]);
+  const candidateSha = await git(root, ["rev-parse", "HEAD"]);
+  await git(root, ["switch", "main"]);
+  const plan = {
+    strategy: "merge",
+    targetBranch: "main",
+    candidateSha,
+    sourceBranch: "factory/candidate",
+    reasoning: ["land"],
+    verification: ["test"],
+    risk: "low",
+    expectedFiles: changedFiles,
+  };
+  const completedTasks = [{
+    taskId: "task-1",
+    targetBranch: "main",
+    sourceBranch: "factory/candidate",
+    commitSha: candidateSha,
+    changedFiles,
+    workspaceMode: "created",
+    worktreePath: root,
+  }];
+  return { root, plan, completedTasks };
+}
+
+test('landing guard: scope violation warns (notes) by default, ok stays true', async () => {
+  const { root, plan, completedTasks } = await scopeGuardRepo(["contact-form.html"]);
+  const verdict = await validateLandingPlan({
+    mergeCwd: root,
+    plan,
+    dirtyRelevantFiles: [],
+    dirtyUnrelatedFiles: [],
+    finalMergePolicy: "required",
+    completedTasks,
+    verificationStatus: "passed",
+    nonGoals: ["contact-form.html"],
+    scopeGuardBlocking: false,
+  });
+  assert.equal(verdict.ok, true, "warn mode must not block");
+  assert.ok(verdict.notes && verdict.notes.some((note) => /non-goals/.test(note)), `expected scope note, got ${JSON.stringify(verdict.notes)}`);
+});
+
+test('landing guard: scope violation blocks (reasons) when scopeGuardBlocking is true', async () => {
+  const { root, plan, completedTasks } = await scopeGuardRepo(["contact-form.html"]);
+  const verdict = await validateLandingPlan({
+    mergeCwd: root,
+    plan,
+    dirtyRelevantFiles: [],
+    dirtyUnrelatedFiles: [],
+    finalMergePolicy: "required",
+    completedTasks,
+    verificationStatus: "passed",
+    nonGoals: ["contact-form.html"],
+    scopeGuardBlocking: true,
+  });
+  assert.equal(verdict.ok, false, "block mode must set ok false");
+  assert.ok(verdict.reasons.some((reason) => /non-goals/.test(reason)), `expected block reason, got ${JSON.stringify(verdict.reasons)}`);
+});
+
+test('landing guard: no non-goals means no scope note/reason', async () => {
+  const { root, plan, completedTasks } = await scopeGuardRepo(["index.html"]);
+  const verdict = await validateLandingPlan({
+    mergeCwd: root,
+    plan,
+    dirtyRelevantFiles: [],
+    dirtyUnrelatedFiles: [],
+    finalMergePolicy: "required",
+    completedTasks,
+    verificationStatus: "passed",
+  });
+  assert.equal(verdict.ok, true);
+  assert.equal(verdict.notes, undefined);
+});

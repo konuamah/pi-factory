@@ -3243,3 +3243,80 @@ test('final approval receives baseline debt when verification failed baseline-un
     assert.equal(approvalInput.contractComplete, true);
   });
 });
+
+test('approval gate surfaces scopeWarnings when changed files hit plan non-goals', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(path.join(root, '.factory', 'config.yaml'), [
+      'project:',
+      '  baseBranch: main',
+      'commands:',
+      '  lint: node -e ""',
+      '  test: node -e ""',
+      'runtime:',
+      '  limits:',
+      '    runTimeoutMs: 120000',
+      'git:',
+      '  allowWorktrees: false',
+      'repair:',
+      '  enabled: false',
+      'approval:',
+      '  finalMerge: required',
+    ].join('\n'), 'utf8');
+
+    const calls = [];
+    const plannerExecutor = {
+      async execute(input) {
+        calls.push({ label: input.metadata?.role ?? 'planner', prompt: input.prompt });
+        if (input.metadata?.role === 'discovery') {
+          return {
+            executionId: input.executionId,
+            status: 'completed',
+            outputText: JSON.stringify({
+              status: 'complete',
+              files: ['src/index.ts'],
+              evidence: [{ status: 'confirmed', file: 'src/index.ts', finding: 'src/index.ts exists.' }],
+              unknowns: [],
+            }),
+            events: [],
+          };
+        }
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: [
+            'Feature Plan',
+            '- Update the target document for clarity',
+            'Non-goals:',
+            '- protected-file.txt',
+            'WAITING_FOR_APPROVAL',
+          ].join('\n'),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const builderExecutor = {
+      async execute(input) {
+        await fs.writeFile(path.join(input.cwd, 'protected-file.txt'), 'changed\n', 'utf8');
+        return { executionId: input.executionId, status: 'completed', outputText: 'builder completed', events: [] };
+      },
+      async cancel() {},
+    };
+
+    let capturedScopeWarnings;
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async ({ scopeWarnings }) => {
+        capturedScopeWarnings = scopeWarnings;
+        return true;
+      },
+    });
+
+    assert.ok(capturedScopeWarnings, `expected scopeWarnings, got ${JSON.stringify(capturedScopeWarnings)}`);
+    assert.ok(capturedScopeWarnings.some((warning) => warning.file === 'protected-file.txt'));
+  });
+});

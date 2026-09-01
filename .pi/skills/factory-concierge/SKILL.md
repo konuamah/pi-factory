@@ -115,6 +115,7 @@ Use focused Factory operational skills for user-facing behavior:
 - safety: `factory-permissions-safety`
 - failures: `factory-troubleshooting`
 - quality testing: `factory-quality-testing`
+- scope handoff (non-goal files in verification/approval/landing): see `docs/factory/benchmark-running.md` "Scope handoff" — flags `scope.verification` / `scope.landing` (`"warn"` default, `"block"` to enforce)
 
 ## Approval Rules
 

@@ -141,7 +141,7 @@ export function extractImplementationContract(
       const inline = extractInlineFilePaths(planText);
       return inline.length > 0 ? inline : undefined;
     })();
-  const nonGoals = extractBulletSection(planText, "non-goals", "non goals", "out of scope");
+  const nonGoals = extractBulletSection(planText, "non-goals", "non goals");
   const blockers = extractBulletSection(planText, "blockers", "blocked");
   const risks = extractRisks(planText);
   const verificationChecks = extractVerificationChecks(planText);
@@ -160,17 +160,33 @@ export function extractImplementationContract(
 
 function extractFileList(text: string | undefined, section: string): string[] | undefined {
   if (!text) return undefined;
-  const lower = text.toLowerCase();
-  const sectionIndex = lower.indexOf(section);
+  // The section heading must be its own line (optionally numbered / markdown
+  // headed), not a phrase inside prose — "the target files are ..." in a
+  // sentence must never be treated as the section.
+  const lines = text.split(/\r?\n/);
+  let sectionIndex = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim().replace(/^#{1,6}\s*/, "");
+    const idx = line.toLowerCase().indexOf(section);
+    if (idx < 0) continue;
+    if (idx === 0 || /^\d+\.\s*/.test(line.slice(0, idx))) {
+      sectionIndex = i;
+      break;
+    }
+  }
   if (sectionIndex < 0) return undefined;
-  const after = text.slice(sectionIndex + section.length).slice(0, 600);
-  const lines = after.split(/\r?\n/);
+  const after = lines.slice(sectionIndex + 1);
   const files: string[] = [];
-  for (const line of lines) {
-    const cleaned = line.replace(/^[-*]\s*/, "").trim();
-    if (!cleaned || /^[a-z ]*$/.test(cleaned)) break;
-    if (/\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|sql|json|ya?ml|md)$/i.test(cleaned)) {
-      files.push(cleaned.replace(/^`|`$/g, ""));
+  for (const rawLine of after) {
+    const line = rawLine.trim();
+    // Skip blank lines; stop only at the next section heading or a non-file
+    // line — a heading may be followed by a blank line before its bullets.
+    if (!line) continue;
+    if (/^#{1,6}\s/.test(line) || /^\d+\.\s+[A-Z]/.test(line)) break;
+    const cleaned = line.replace(/^[-*]\s*/, "").trim().replace(/^`|`$/g, "");
+    if (/^[a-z ]*$/.test(cleaned)) break;
+    if (/\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|sql|json|ya?ml|md|html|css|scss)$/i.test(cleaned)) {
+      files.push(cleaned);
     }
   }
   return files.length > 0 ? files : undefined;
@@ -185,10 +201,13 @@ function extractFileList(text: string | undefined, section: string): string[] | 
 export function extractInlineFilePaths(text: string | undefined): string[] {
   if (!text) return [];
   const paths = new Set<string>();
-  const pathPattern = /`?([\w@][\w./-]*\/)*(src|public|app|packages|docs|lib|tests?|scripts)[\w./-]*\.[\w]{1,8}`?/g;
+  // Root-level files (index.html, script.js) have no directory prefix; prefixed
+  // paths (src/app/x.ts, tests/verify-page.mjs) do. Match a file path (with
+  // optional backtick quoting) ending in a known source extension.
+  const pathPattern = /`?[\w@][\w./-]*\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|sql|json|ya?ml|md|html|css|scss)`?/gi;
   for (const match of text.matchAll(pathPattern)) {
     const cleaned = match[0].replace(/^`|`$/g, "");
-    if (cleaned.length > 3 && cleaned.length < 200) {
+    if (cleaned.length > 3 && cleaned.length < 200 && !cleaned.includes("://")) {
       paths.add(cleaned);
     }
   }
@@ -198,19 +217,30 @@ export function extractInlineFilePaths(text: string | undefined): string[] {
 function extractBulletSection(text: string | undefined, ...sectionNames: string[]): string[] | undefined {
   if (!text) return undefined;
   const lower = text.toLowerCase();
-  let start = -1;
-  for (const name of sectionNames) {
-    const idx = lower.indexOf(name);
-    if (idx >= 0) { start = idx; break; }
+  const lines = lower.split(/\r?\n/);
+  let startLine = -1;
+  // A section heading must be its own line (optionally numbered / markdown
+  // headed), not a phrase inside prose — "out of scope now" in a sentence
+  // must never be treated as a "Non-goals" heading.
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim().replace(/^#{1,6}\s*/, "");
+    const match = sectionNames.some((name) => {
+      const idx = line.toLowerCase().indexOf(name);
+      if (idx < 0) return false;
+      return idx === 0 || /^\d+\.\s*/.test(line.slice(0, idx));
+    });
+    if (match) { startLine = i; break; }
   }
-  if (start < 0) return undefined;
-  const after = text.slice(start).split(/\r?\n/);
+  if (startLine < 0) return undefined;
+  const after = text.split(/\r?\n/).slice(startLine + 1);
   const items: string[] = [];
-  for (const line of after.slice(1)) {
+  for (const line of after) {
     const cleaned = line.trim();
     if (!cleaned) continue;
+    // Stop at the next section heading (numbered or markdown headed).
+    if (/^#{1,6}\s/.test(cleaned) || /^\d+\.\s+[A-Z]/.test(cleaned)) break;
     if (cleaned.startsWith("-") || cleaned.startsWith("*")) {
-      items.push(cleaned.replace(/^[-*]\s*/, "").trim());
+      items.push(cleaned.replace(/^[-*]\s*/, "").trim().replace(/^`|`$/g, ""));
     } else if (items.length > 0) {
       break;
     }

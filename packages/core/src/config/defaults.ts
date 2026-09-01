@@ -39,6 +39,10 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
   approval: {
     finalMerge: "required",
   },
+  scope: {
+    verification: "warn",
+    landing: "warn",
+  },
   git: {
     cleanup: {
       retainRuns: 10,

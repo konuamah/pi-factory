@@ -119,6 +119,7 @@ End-to-end Factory setup includes:
 - constitution stub/generation/refresh guidance.
 - `/factory doctor` or `/factory status` verification after changes.
 - Harbor-based quality testing for repeated task evaluation and benchmark-style validation.
+- Scope handoff (non-goal files in verification/approval/landing): `scope.verification` / `scope.landing` config flags (`"warn"` default, `"block"` to enforce) — see `docs/factory/benchmark-running.md` "Scope handoff".
 
 Operational domains are split across focused Factory skills: setup operations, workflows, model routing, skills library, dashboard, constitution, permissions/safety, troubleshooting, worktrees/dependencies, and quality testing. Use the selected operational skill as authority for domain details and keep this Concierge skill focused on routing, approval, and command allowlists.
 

@@ -11,6 +11,7 @@ import { emitProgress, movePhase, wait } from "./phase-plumbing.js";
 import { readGitHeadSha } from "./git-ops.js";
 import { buildRunFailureResult } from "./controller-helpers.js";
 import { runLandingFlow } from "./landing.js";
+import { nonGoalViolations, loadPlanContract } from "./scope-check.js";
 import type { RunFactoryControllerInput, RunFactoryControllerResult } from "./controller.js";
 import type { VerificationRunResult } from "./verification.js";
 import type { VerificationFailureClassification } from "./failure-classification.js";
@@ -227,6 +228,25 @@ const baselineDebt = (verificationFailureClassification?.perCommand ?? [])
     suggestedAction: c.suggestedAction,
     ...(c.implicatedFiles?.length ? { implicatedFiles: c.implicatedFiles } : {}),
   }));
+const planContract = await loadPlanContract(planPath);
+const scopeWarnings = await (async (): Promise<Array<{ file: string; nonGoal: string }> | undefined> => {
+  const nonGoals = planContract?.nonGoals ?? [];
+  if (nonGoals.length === 0) {
+    return undefined;
+  }
+  const changedFiles = completedTasks.flatMap((task) => task.changedFiles ?? []);
+  const violations = nonGoalViolations(changedFiles, nonGoals);
+  return violations.length > 0
+    ? violations.map((violation) => ({ file: violation.file, nonGoal: violation.nonGoal }))
+    : undefined;
+})();
+if (scopeWarnings?.length) {
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "approval.scope_warning",
+    data: { goal: input.goal, scopeWarnings },
+  });
+}
 const approved = (await input.requestApproval?.({
   runId: run.runId,
   goal: input.goal,
@@ -234,6 +254,7 @@ const approved = (await input.requestApproval?.({
   baselineDebt: baselineDebt.length > 0 ? baselineDebt : undefined,
   contractComplete: contractResult.canComplete,
   verificationStatus: verification.overallStatus,
+  scopeWarnings,
 })) ?? true;
 await appendFactoryRunEvent(run.eventsPath, {
   timestamp: new Date().toISOString(),
@@ -311,6 +332,7 @@ const landingResult = await runLandingFlow({
   contractCanComplete: contractResult.canComplete,
   controllerInput: input,
   repairGuidanceText: reviewerGuidance.text,
+  planContract,
 });
 finalMergePath = landingResult.finalMergePath;
 

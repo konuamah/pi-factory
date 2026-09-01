@@ -383,3 +383,116 @@ test('scorer reports unmeasurable pillars as null and never crashes on partial r
   assert.ok(scored.warnings.some((warning) => /artifact missing: plan/.test(warning)));
   assert.equal(scored.scores.executionQuality === null, false);
 });
+
+test('handoff: nonGoalsSurviveToLanding and landingMatchesBuild are 1 on a good run', async () => {
+  const runDir = await writeRunDir();
+  const scored = await scoreFactoryRun(runDir, { ...baseSpec, forbiddenFiles: ['components/Sidebar.tsx'] });
+  assert.equal(scored.pillars.handoffQuality.components.nonGoalsSurviveToLanding, 1);
+  assert.equal(scored.pillars.handoffQuality.components.landingMatchesBuild, 1);
+});
+
+test('handoff: landing shipping a forbidden file scores 0 with warning', async () => {
+  const runDir = await writeRunDir({
+    raw: {
+      'landing-plan.json': JSON.stringify({
+        strategy: 'merge', targetBranch: 'main', reasoning: [], verification: ['test'], risk: 'low',
+        expectedFiles: ['components/Navbar.tsx', 'components/Sidebar.tsx'],
+        guardVerdict: { ok: true, reasons: [] },
+      }),
+    },
+  });
+  const scored = await scoreFactoryRun(runDir, { ...baseSpec, forbiddenFiles: ['components/Sidebar.tsx'] });
+  assert.equal(scored.pillars.handoffQuality.components.nonGoalsSurviveToLanding, 0);
+  assert.ok(scored.pillars.handoffQuality.warnings.some((warning) => /outside forbidden set/.test(warning)));
+});
+
+test('handoff: landing shipping an unbuilt file scores 0 for landingMatchesBuild', async () => {
+  const runDir = await writeRunDir({
+    raw: {
+      'landing-plan.json': JSON.stringify({
+        strategy: 'merge', targetBranch: 'main', reasoning: [], verification: ['test'], risk: 'low',
+        expectedFiles: ['components/Navbar.tsx', 'components/Unbuilt.tsx'],
+        guardVerdict: { ok: true, reasons: [] },
+      }),
+    },
+  });
+  const scored = await scoreFactoryRun(runDir, baseSpec);
+  assert.equal(scored.pillars.handoffQuality.components.landingMatchesBuild, 0);
+  assert.ok(scored.pillars.handoffQuality.warnings.some((warning) => /not in the built set/.test(warning)));
+});
+
+test('handoff: missing landing plan makes both signals null, not 0', async () => {
+  const runDir = await writeRunDir({ omit: ['landing-plan.json'] });
+  const scored = await scoreFactoryRun(runDir, { ...baseSpec, forbiddenFiles: ['components/Sidebar.tsx'] });
+  assert.equal(scored.pillars.handoffQuality.components.nonGoalsSurviveToLanding, null);
+  assert.equal(scored.pillars.handoffQuality.components.landingMatchesBuild, null);
+});
+
+test('handoff: no forbiddenFiles in spec makes nonGoalsSurviveToLanding null', async () => {
+  const runDir = await writeRunDir();
+  const scored = await scoreFactoryRun(runDir, baseSpec);
+  assert.equal(scored.pillars.handoffQuality.components.nonGoalsSurviveToLanding, null);
+  assert.equal(scored.pillars.handoffQuality.components.landingMatchesBuild, 1);
+});
+
+test('planToBuilder measures build execution, not stale plan status', async () => {
+  // Plan build task stays "pending" (Factory never updates plan.json statuses)
+  // but completed-tasks proves execution -> signal must be 1, not 0.
+  const runDir = await writeRunDir({
+    plan: { tasks: [
+      { id: 'task-1', title: 'discover', stage: 'discover', status: 'done', dependsOn: [] },
+      { id: 'task-2', title: 'plan', stage: 'plan', status: 'done', dependsOn: ['task-1'] },
+      { id: 'task-3', title: 'build', stage: 'build', status: 'pending', dependsOn: ['task-2'] },
+      { id: 'task-4', title: 'verify', stage: 'verify', status: 'pending', dependsOn: ['task-3'] },
+    ] },
+    raw: {
+      'completed-tasks.json': JSON.stringify([{ taskId: 'task-3', targetBranch: 'main', sourceBranch: 'factory/x', commitSha: 'abc', changedFiles: ['components/Navbar.tsx'], workspaceMode: 'in-place' }]),
+    },
+  });
+  const scored = await scoreFactoryRun(runDir, baseSpec);
+  assert.equal(scored.pillars.handoffQuality.components.planToBuilder, 1, 'build task executed despite pending plan status');
+});
+
+test('planToBuilder is 0 when plan build task has no completed-task record', async () => {
+  const runDir = await writeRunDir({
+    plan: { tasks: [{ id: 'task-9', title: 'build', stage: 'build', status: 'pending', dependsOn: [] }] },
+    raw: { 'completed-tasks.json': JSON.stringify([]) },
+  });
+  const scored = await scoreFactoryRun(runDir, baseSpec);
+  assert.equal(scored.pillars.handoffQuality.components.planToBuilder, 0);
+  assert.ok(scored.pillars.handoffQuality.warnings.some((warning) => /no completed task/.test(warning)));
+});
+
+test('reviewerAgreement ignores benign "block"/"fail" mentions and reads the conclusion', async () => {
+  // Transcript says "the form block" and "would fail if" mid-review, but the
+  // conclusion is positive -> agreement (1), not disagreement (0).
+  const runDir = await writeRunDir({
+    raw: {
+      'reviewer-execution.json': JSON.stringify({
+        executionId: 'r', status: 'completed',
+        outputText: 'Let me check the form block and nav wording. The tests would fail if the ids changed. '
+          + 'I verified the candidate satisfies every constraint, stays within scope, '
+          + 'keeps both repo checks green, and is ready for approval.',
+        events: [],
+      }),
+    },
+  });
+  const scored = await scoreFactoryRun(runDir, baseSpec);
+  assert.equal(scored.pillars.handoffQuality.components.reviewerAgreement, 1);
+  assert.ok(!scored.pillars.handoffQuality.warnings.some((warning) => /reviewer reported/.test(warning)), 'no false disagreement warning');
+});
+
+test('reviewerAgreement is 0 when the conclusion explicitly blocks while controller completed', async () => {
+  const runDir = await writeRunDir({
+    raw: {
+      'reviewer-execution.json': JSON.stringify({
+        executionId: 'r', status: 'completed',
+        outputText: 'The candidate changes files outside scope. This is not ready for approval; must fix the scope drift first.',
+        events: [],
+      }),
+    },
+  });
+  const scored = await scoreFactoryRun(runDir, baseSpec);
+  assert.equal(scored.pillars.handoffQuality.components.reviewerAgreement, 0);
+  assert.ok(scored.pillars.handoffQuality.warnings.some((warning) => /reviewer reported/.test(warning)));
+});

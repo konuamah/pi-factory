@@ -34,6 +34,8 @@ export interface LandingPlan {
 export interface LandingGuardVerdict {
   ok: boolean;
   reasons: string[];
+  /** Non-blocking warnings surfaced to the human; do not affect `ok`. */
+  notes?: string[];
 }
 
 export interface LandingExecutionResult {

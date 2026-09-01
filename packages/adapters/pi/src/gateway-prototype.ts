@@ -203,7 +203,19 @@ export async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommand
       );
       return decision;
     },
-    requestApproval: async ({ runId, goal, baselineDebt, contractComplete, verificationStatus }) => {
+    requestApproval: async ({ runId, goal, baselineDebt, contractComplete, verificationStatus, scopeWarnings }) => {
+      // Surface plan-declared non-goal violations so the human decides.
+      const scopeLines = (scopeWarnings ?? []).map((warning) => `  ${warning.file} (declared non-goal: ${warning.nonGoal})`);
+      if (scopeLines.length > 0) {
+        renderLines(ctx, [
+          "Factory approval — scope warning",
+          "The candidate changes files the plan declared as non-goals:",
+          "",
+          ...scopeLines,
+          "",
+          "Approving proceeds with these changes despite the non-goal declaration.",
+        ]);
+      }
       // Surface baseline repository debt before asking for final approval.
       const debtLines = (baselineDebt ?? []).map((debt) => [
         `  failed command: ${debt.commandName}`,
@@ -226,10 +238,9 @@ export async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommand
       if (!ctx.ui.confirm) {
         return true;
       }
-      return ctx.ui.confirm(
-        debtLines.length > 0 ? "Approve candidate despite baseline debt?" : "Approve Factory candidate?",
-        `Approve prototype run ${runId} for goal: ${goal}${debtLines.length > 0 ? "\n\nBaseline debt shown above is NOT resolved by this run." : ""}`,
-      );
+      const confirmPrompt = debtLines.length > 0 ? "Approve candidate despite baseline debt?" : scopeLines.length > 0 ? "Approve candidate despite scope warnings?" : "Approve Factory candidate?";
+      const confirmBody = `Approve prototype run ${runId} for goal: ${goal}${debtLines.length > 0 ? "\n\nBaseline debt shown above is NOT resolved by this run." : ""}${scopeLines.length > 0 ? "\n\nScope warnings shown above are NOT resolved by approving." : ""}`;
+      return ctx.ui.confirm(confirmPrompt, confirmBody);
     },
     requestDependencyRemediation: async (candidate) => {
       if (!ctx.ui.confirm) return false;

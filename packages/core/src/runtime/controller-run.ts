@@ -153,7 +153,12 @@ export async function runFactoryControllerInner(
   planPath = planningPhase.planPath;
   taskPaths = planningPhase.taskPaths;
   plan = planningPhase.plan;
-  const planApprovalResult = await runPlanApprovalPhase({
+  // Plan approval with a bounded revise loop: a human "revise" re-runs
+  // planning with the feedback, then re-approves (max 2 replans). Reject or
+  // a missing handler ends the run; approve continues.
+  const MAX_REPLANS = 2;
+  let replan = 0;
+  let planApprovalResult = await runPlanApprovalPhase({
     run,
     input,
     loaded,
@@ -171,7 +176,98 @@ export async function runFactoryControllerInner(
     discoveryOutputText,
     integrationPath,
   });
+  while (planApprovalResult && "decision" in planApprovalResult && replan < MAX_REPLANS) {
+    replan += 1;
+    // Re-run planning with the revise feedback appended to the interview context.
+    const revisedContext = [interviewContext ?? "", "Plan revision requested:", planApprovalResult.feedback ?? "(no feedback given)"].filter(Boolean).join("\n\n");
+    const revisedPlanning = await runPlanningPhase({
+      run,
+      input,
+      loaded,
+      executionCwd,
+      worktree,
+      delayMs,
+      runTaskType,
+      repoSkillSignals,
+      plannerGuidanceText: plannerGuidance.text ?? "",
+      plannerSkills,
+      discoveryOutputText,
+      interviewContext: revisedContext,
+      discoveryFileHints,
+      discoveryExecutionPath,
+      interviewExecutionPath: interviewExecutionPath ?? "",
+    });
+    plannerExecutionPath = revisedPlanning.plannerExecutionPath;
+    plannerOutputText = revisedPlanning.plannerOutputText;
+    planPath = revisedPlanning.planPath;
+    taskPaths = revisedPlanning.taskPaths;
+    plan = revisedPlanning.plan;
+    planApprovalResult = await runPlanApprovalPhase({
+      run,
+      input,
+      loaded,
+      executionCwd,
+      worktree,
+      phases,
+      delayMs,
+      plan,
+      planPath,
+      taskPaths,
+      discoveryExecutionPath,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      repairExecutionPaths,
+      discoveryOutputText,
+      integrationPath,
+    });
+  }
   if (planApprovalResult) {
+    // If we exhausted the replan bound with a revise still pending, end the run
+    // paused with a proper failure result (the revise feedback was recorded in
+    // events); the run is resumable for a later replan.
+    if ("decision" in planApprovalResult) {
+      await updateFactoryRunState({
+        statePath: run.statePath,
+        patch: { status: "PENDING", phase: "plan-revision-requested" },
+      });
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "run.paused",
+        data: { reason: "plan revisions still pending after replan limit", phase: "plan-revision-requested" },
+      });
+      const pausedSummaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+        runId: run.runId,
+        goal: input.goal,
+        status: "PENDING",
+        phase: "plan-revision-requested",
+        approved: false,
+        planPath,
+        taskPaths,
+        discoveryExecutionPath,
+        plannerExecutionPath,
+        builderExecutionPaths,
+        integrationPath,
+        repairExecutionPaths,
+        verificationPath: path.join(run.runDir, "verification.json"),
+        verificationStatus: "incomplete",
+        recoveryHint: "Plan revisions still pending after replan limit",
+      });
+      return buildRunFailureResult({
+        run,
+        executionCwd,
+        worktree,
+        phases,
+        planPath,
+        taskPaths,
+        discoveryExecutionPath,
+        plannerExecutionPath,
+        builderExecutionPaths,
+        integrationPath,
+        repairExecutionPaths,
+        verificationPath: path.join(run.runDir, "verification.json"),
+        summaryPath: pausedSummaryPath,
+      });
+    }
     return planApprovalResult;
   }
   let implementationRun: Awaited<ReturnType<typeof runImplementationTasks>>;

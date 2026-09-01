@@ -52,6 +52,22 @@ export async function runPlanningPhase(state: PlanningPhaseState): Promise<{
   let plannerOutputText: string | undefined;
 
 await movePhase(run.statePath, run.eventsPath, run.runId, input, "planning", "Building plan");
+if (!input.plannerExecutor) {
+  // No planner executor: fail loud instead of proceeding with a silently
+  // degraded plan (workflow-stage tasks with no planner content). The
+  // "Planning failed:" prefix is re-thrown by the controller catch to
+  // preserve the fail-loud contract.
+  await updateFactoryRunState({
+    statePath: run.statePath,
+    patch: { status: "FAILED", phase: "planning-failed" },
+  });
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "run.failed",
+    data: { reason: "No planner executor configured; cannot build a plan", phase: "planning-failed" },
+  });
+  throw new Error("Planning failed: no planner executor configured; cannot build a plan");
+}
 if (input.plannerExecutor) {
   const plannerModel = resolveModelForRole({
     role: "planner",

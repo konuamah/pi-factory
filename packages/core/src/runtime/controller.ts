@@ -206,7 +206,18 @@ async function shouldPreserveRunIsolation(runDir: string): Promise<boolean> {
   const state = await readOptionalJson(path.join(runDir, "state.json"));
   const status = stringValue(summary?.status) ?? stringValue(state?.status);
   const phase = stringValue(summary?.phase) ?? stringValue(state?.phase);
-  return status === "BLOCKED" || phase === "merge-blocked" || phase === "git-state-blocked";
+  if (status === "BLOCKED" || phase === "merge-blocked" || phase === "git-state-blocked") {
+    return true;
+  }
+  // Preserve FAILED runs' isolation when git.cleanup.preserveFailedRuns is set
+  // (opt-in debugging; the config snapshot lives in the run dir).
+  if (status === "FAILED") {
+    const config = await readOptionalJson(path.join(runDir, "effective-config.json"));
+    const preserve = (config?.git as { cleanup?: { preserveFailedRuns?: boolean } } | undefined)
+      ?.cleanup?.preserveFailedRuns;
+    return preserve === true;
+  }
+  return false;
 }
 
 async function readOptionalJson(filePath: string): Promise<Record<string, unknown> | undefined> {

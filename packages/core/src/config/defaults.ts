@@ -48,6 +48,7 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
       retainRuns: 10,
       pruneWorktrees: true,
       pruneBranches: true,
+      preserveFailedRuns: false,
     },
     pullRequest: {
       enabled: true,

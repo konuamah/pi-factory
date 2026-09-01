@@ -126,6 +126,7 @@ export function mergeConfigLayers(input: {
         retainRuns: project?.git?.cleanup?.retainRuns ?? builtIns.git.cleanup.retainRuns,
         pruneWorktrees: project?.git?.cleanup?.pruneWorktrees ?? builtIns.git.cleanup.pruneWorktrees,
         pruneBranches: project?.git?.cleanup?.pruneBranches ?? builtIns.git.cleanup.pruneBranches,
+        preserveFailedRuns: project?.git?.cleanup?.preserveFailedRuns ?? builtIns.git.cleanup.preserveFailedRuns,
       },
       pullRequest: {
         enabled: project?.git?.pullRequest?.enabled ?? builtIns.git.pullRequest.enabled,

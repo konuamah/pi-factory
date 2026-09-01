@@ -247,7 +247,63 @@ if (scopeWarnings?.length) {
     data: { goal: input.goal, scopeWarnings },
   });
 }
-const approved = (await input.requestApproval?.({
+if (!input.requestApproval) {
+  // No final-approval handler configured: fail loud instead of silently
+  // approving the merge (a real deployment must not auto-approve).
+  const unavailableState = await updateFactoryRunState({
+    statePath: run.statePath,
+    patch: { status: "FAILED", phase: "approval-unavailable" },
+  });
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "run.failed",
+    data: { reason: "No final approval handler configured; refusing to auto-approve", phase: "approval-unavailable" },
+  });
+  await emitProgress(input, {
+    runId: run.runId,
+    phase: "approval-unavailable",
+    status: "FAILED",
+    message: "No final approval handler configured; refusing to auto-approve",
+  });
+  const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+    runId: run.runId,
+    goal: input.goal,
+    status: "FAILED",
+    phase: "approval-unavailable",
+    approved: false,
+    candidateSha,
+    planPath,
+    taskPaths,
+    discoveryExecutionPath,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    integrationPath,
+    finalMergePath,
+    repairExecutionPaths,
+    reviewerExecutionPath,
+    verificationPath,
+    verificationStatus: verification.overallStatus,
+    recoveryHint: "No final approval handler configured; refusing to auto-approve",
+  });
+  return buildRunFailureResult({
+    run,
+    executionCwd,
+    worktree,
+    phases,
+    planPath,
+    taskPaths,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    integrationPath,
+    finalMergePath,
+    candidateSha,
+    repairExecutionPaths,
+    reviewerExecutionPath,
+    verificationPath,
+    summaryPath,
+  });
+}
+const approved = await input.requestApproval({
   runId: run.runId,
   goal: input.goal,
   candidateSha,
@@ -255,7 +311,7 @@ const approved = (await input.requestApproval?.({
   contractComplete: contractResult.canComplete,
   verificationStatus: verification.overallStatus,
   scopeWarnings,
-})) ?? true;
+});
 await appendFactoryRunEvent(run.eventsPath, {
   timestamp: new Date().toISOString(),
   type: approved ? "approval.approved" : "approval.rejected",

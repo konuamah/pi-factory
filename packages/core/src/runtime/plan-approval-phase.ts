@@ -29,7 +29,7 @@ export interface PlanApprovalPhaseState {
   integrationPath: string | undefined;
 }
 
-export async function runPlanApprovalPhase(state: PlanApprovalPhaseState): Promise<RunFactoryControllerResult | undefined> {
+export async function runPlanApprovalPhase(state: PlanApprovalPhaseState): Promise<RunFactoryControllerResult | { decision: "revise"; feedback?: string } | undefined> {
   const {
     run, input, loaded, executionCwd, worktree, phases, delayMs, plan, planPath, taskPaths,
     discoveryExecutionPath, plannerExecutionPath, builderExecutionPaths, repairExecutionPaths, discoveryOutputText, integrationPath,
@@ -52,7 +52,59 @@ await emitProgress(input, {
   message: "Waiting for human plan approval",
 });
 
-const planApproval = (await input.requestPlanApproval?.({
+if (!input.requestPlanApproval) {
+  // No approval handler configured: fail loud instead of silently approving
+  // the plan (a real deployment must not auto-approve without a gate).
+  const unavailableState = await updateFactoryRunState({
+    statePath: run.statePath,
+    patch: { status: "FAILED", phase: "plan-approval-unavailable" },
+  });
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "run.failed",
+    data: { reason: "No plan approval handler configured; refusing to auto-approve", phase: "plan-approval-unavailable" },
+  });
+  await emitProgress(input, {
+    runId: run.runId,
+    phase: "plan-approval-unavailable",
+    status: "FAILED",
+    message: "No plan approval handler configured; refusing to auto-approve",
+  });
+  const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+    runId: run.runId,
+    goal: input.goal,
+    status: "FAILED",
+    phase: "plan-approval-unavailable",
+    approved: false,
+    planPath,
+    taskPaths,
+    discoveryExecutionPath,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    integrationPath,
+    repairExecutionPaths,
+    verificationPath: path.join(run.runDir, "verification.json"),
+    verificationStatus: "incomplete",
+    recoveryHint: "No plan approval handler configured; refusing to auto-approve",
+  });
+  return buildRunFailureResult({
+    run,
+    executionCwd,
+    worktree,
+    phases,
+    planPath,
+    taskPaths,
+    discoveryExecutionPath,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    integrationPath,
+    repairExecutionPaths,
+    verificationPath: path.join(run.runDir, "verification.json"),
+    summaryPath,
+  });
+}
+
+const planApproval = await input.requestPlanApproval({
   runId: run.runId,
   goal: input.goal,
   planPath,
@@ -62,7 +114,7 @@ const planApproval = (await input.requestPlanApproval?.({
   discoveryText: discoveryOutputText,
   planText: plan.planText,
   tasks: plan.tasks,
-})) ?? { decision: "approve" as const };
+});
 await appendFactoryRunEvent(run.eventsPath, {
   timestamp: new Date().toISOString(),
   type:
@@ -76,9 +128,14 @@ await appendFactoryRunEvent(run.eventsPath, {
 
 if (planApproval.decision !== "approve") {
   const rejected = planApproval.decision === "reject";
-  const nextPhase = rejected ? "plan-approval-rejected" : "plan-revision-requested";
-  const nextStatus = rejected ? "CANCELLED" : "PENDING";
-  const nextMessage = rejected ? "Run stopped: plan approval rejected" : "Run paused: plan revisions requested";
+  if (!rejected) {
+    // Revise: return the feedback so the caller can re-run planning with it
+    // (bounded loop). The run is not over — it continues to a replan.
+    return { decision: "revise" as const, feedback: planApproval.feedback };
+  }
+  const nextPhase = "plan-approval-rejected";
+  const nextStatus = "CANCELLED";
+  const nextMessage = "Run stopped: plan approval rejected";
   const stoppedState = await updateFactoryRunState({
     statePath: run.statePath,
     patch: { status: nextStatus, phase: nextPhase },
@@ -86,7 +143,7 @@ if (planApproval.decision !== "approve") {
   await emitProgress(input, {
     runId: run.runId,
     phase: nextPhase,
-    status: rejected ? "CANCELLED" : "PENDING",
+    status: nextStatus,
     message: nextMessage,
   });
   const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {

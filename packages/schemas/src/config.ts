@@ -160,6 +160,7 @@ export interface FactoryBuiltInDefaults {
       retainRuns: number;
       pruneWorktrees: boolean;
       pruneBranches: boolean;
+      preserveFailedRuns: boolean;
     };
     pullRequest: {
       enabled: boolean;
@@ -259,6 +260,7 @@ export interface ProjectFactoryConfig {
       retainRuns?: number;
       pruneWorktrees?: boolean;
       pruneBranches?: boolean;
+      preserveFailedRuns?: boolean;
     };
     pullRequest?: {
       enabled?: boolean;
@@ -352,6 +354,7 @@ export interface EffectiveFactoryConfig {
       retainRuns: number;
       pruneWorktrees: boolean;
       pruneBranches: boolean;
+      preserveFailedRuns: boolean;
     };
     pullRequest: {
       enabled: boolean;

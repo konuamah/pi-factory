@@ -6,6 +6,24 @@ Planner-generated task titles should also use the compact deterministic title, n
 
 Use this by symptom.
 
+## Missing Approval Handler Auto-Approves
+
+Symptom: no `requestPlanApproval` / `requestApproval` handler is configured and the run silently approves the plan or merge.
+
+Fix: missing approval handlers now fail loud instead of auto-approving — the run ends `FAILED` with phase `plan-approval-unavailable` / `approval-unavailable` and a `run.failed` event. The Pi gateway always passes both handlers; this is a guard for API/harness callers that omit them.
+
+## Missing Planner Executor Produces Empty Plan
+
+Symptom: no `plannerExecutor` is configured and the run proceeds with a silently degraded plan (workflow-stage tasks, no plan content).
+
+Fix: a missing planner executor now fails loud — the run ends `FAILED` with phase `planning-failed` and a `run.failed` event instead of proceeding with an empty plan.
+
+## Plan Revise Does Not Replan
+
+Symptom: a human "revise" decision pauses the run without producing a revised plan.
+
+Fix: revise now triggers a bounded replan loop (max 2 replans) — the planner re-runs with the revise feedback appended to its context, then re-approves. After the bound, the run pauses `PENDING`/`plan-revision-requested` (resumable).
+
 ## Executor Crashes Leave Run Stuck At RUNNING
 
 Symptom: an LLM/SDK call throws (network error, provider crash, timeout) during discovery, planning, review, or build, and the run previously stayed at RUNNING with no summary.
@@ -17,6 +35,8 @@ Fix: executor throws are now converted into a `FAILED` run record. Look in `.fac
 - `events.jsonl` → a `run.failed` event with the reason
 
 The failure is best-effort: whatever phase artifacts existed before the throw (discovery/planner/builder paths) are included in the summary. Transient provider errors returned as `status: "failed"` are still retried by the builder; only uncaught throws hit this path.
+
+FAILED runs have their worktree + branch pruned by default (debugging relies on artifacts). To keep a FAILED run's git isolation for live debugging, set `git.cleanup.preserveFailedRuns: true` in `.factory/config.yaml` (default `false`).
 
 ## Setup Fails Before A Run Record Exists
 

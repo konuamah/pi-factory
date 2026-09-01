@@ -6,6 +6,18 @@ Planner-generated task titles should also use the compact deterministic title, n
 
 Use this by symptom.
 
+## Executor Crashes Leave Run Stuck At RUNNING
+
+Symptom: an LLM/SDK call throws (network error, provider crash, timeout) during discovery, planning, review, or build, and the run previously stayed at RUNNING with no summary.
+
+Fix: executor throws are now converted into a `FAILED` run record. Look in `.factory/runs/<id>/` for:
+
+- `state.json` → `status: "FAILED"`
+- `summary.json` → `status: "FAILED"`, `recoveryHint` holds the throw message (e.g. `SDK crash: ECONNRESET`, `planner model timeout`)
+- `events.jsonl` → a `run.failed` event with the reason
+
+The failure is best-effort: whatever phase artifacts existed before the throw (discovery/planner/builder paths) are included in the summary. Transient provider errors returned as `status: "failed"` are still retried by the builder; only uncaught throws hit this path.
+
 ## Setup Fails Before A Run Record Exists
 
 Symptom: config load, worktree creation, or run creation fails and the user previously saw a raw stack trace with no run artifact.

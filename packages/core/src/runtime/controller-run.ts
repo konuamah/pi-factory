@@ -36,7 +36,7 @@ import { buildContractArtifact, failureSignature, resolveRunTaskTypeWithPaths, g
 import { sanitizePlannerOutput, validatePlannerOutput, validatePlannerOutputWithLLM } from "./planner-validate.js";
 import { normalizeDiscoveryFileHints, attachDiscoveryFileHintsToBuildTasks } from "./controller.js";
 import type { RunFactoryControllerInput, RunFactoryControllerResult, InterviewDecisionRecord, FactoryRunProgressEvent, TaskWorkspaceSelection, PlanApprovalResult } from "./controller.js";
-import { runVerificationRepairLoop, attemptEnvironmentPreparation, failBuiltInSkillPolicy, buildRunFailureResult } from "./controller-helpers.js";
+import { runVerificationRepairLoop, attemptEnvironmentPreparation, failBuiltInSkillPolicy, buildRunFailureResult, buildPhaseFailureResult } from "./controller-helpers.js";
 import { runInterviewStages, buildDiscoveryPrompt, buildPlannerPrompt } from "./controller-interview.js";
 import type { AgentExecutor, AgentExecutionResult } from "./interfaces.js";
 import type { EffectiveFactoryConfig, ModelRole, ModelSelection, WorkflowStage, CapabilityPolicy } from "@factory/schemas";
@@ -97,6 +97,12 @@ export async function runFactoryControllerInner(
   let builderSkills: SkillBundleSelection;
   let repairSkills: SkillBundleSelection;
   let reviewerSkills: SkillBundleSelection;
+  let plan: PlannerArtifact | undefined;
+  let planPath: string | undefined;
+  let taskPaths: string[] | undefined;
+  let reviewerExecutionPath: string | undefined;
+  let verificationPath: string | undefined;
+  try {
   const discoveryPhase = await runDiscoveryPhase({
     run,
     input,
@@ -125,9 +131,6 @@ export async function runFactoryControllerInner(
   builderSkills = discoveryPhase.builderSkills;
   repairSkills = discoveryPhase.repairSkills;
   reviewerSkills = discoveryPhase.reviewerSkills;
-  let plan: PlannerArtifact;
-  let planPath: string;
-  let taskPaths: string[];
   const planningPhase = await runPlanningPhase({
     run,
     input,
@@ -290,4 +293,35 @@ export async function runFactoryControllerInner(
     completedTasks,
   });
   return finalResult;
+  } catch (error) {
+    // An executor/SDK throw (discovery, planner, reviewer, builder, integration
+    // repair) would otherwise propagate raw, leaving the run stuck at RUNNING
+    // with no summary. Convert it into a FAILED run record instead.
+    // Controller validation errors ("Discovery failed: ...", "Planning failed:
+    // ...", "Interview failed: ...") already set FAILED state + throw to fail
+    // loud — preserve that contract and re-throw them unchanged.
+    const reason = error instanceof Error ? error.message : String(error);
+    if (/^(Discovery|Planning|Interview|Verification) failed:/.test(reason)) {
+      throw error;
+    }
+    return buildPhaseFailureResult({
+      run,
+      input,
+      reason,
+      phase: "run-failed",
+      executionCwd,
+      worktree,
+      planPath,
+      taskPaths,
+      discoveryExecutionPath,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      reviewerExecutionPath,
+      verificationPath,
+      finalMergePath,
+      candidateSha,
+    });
+  }
 }

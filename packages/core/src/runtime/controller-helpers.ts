@@ -11,7 +11,7 @@ import { classifyVerificationFailuresWithAI, type ClassificationSource } from ".
 import { buildRepairPrompt, buildEnvironmentPrepPrompt, renderSkillBundleForPrompt } from "./prompts.js";
 import { gitChangedFiles } from "./verification-planning.js";
 import { uniqueStrings } from "./task-utils.js";
-import { writePrototypeRepairExecutionArtifact, writePrototypeVerificationArtifact, writePrototypeReviewerExecutionArtifact } from "./artifacts.js";
+import { writePrototypeRepairExecutionArtifact, writePrototypeVerificationArtifact, writePrototypeReviewerExecutionArtifact, writePrototypeSummaryArtifact } from "./artifacts.js";
 import { buildContractArtifact, failureSignature } from "./verification-planning.js";
 import { emitProgress, requestHumanDecision } from "./phase-plumbing.js";
 import { movePhase } from "./phase-plumbing.js";
@@ -326,6 +326,88 @@ export function buildRunFailureResult(context: RunFailureResultContext): RunFact
   };
 }
 
+/**
+ * Convert an uncaught phase/executor throw into a FAILED run record.
+ * Marks state FAILED, writes a run.failed event + FAILED summary, and returns
+ * a failure result — so a raw executor/SDK crash never leaves the run stuck
+ * at RUNNING with no artifact. Best-effort: includes whatever phase paths are
+ * available at throw time.
+ */
+export async function buildPhaseFailureResult(input: {
+  run: Awaited<ReturnType<typeof createFactoryRun>>;
+  input: RunFactoryControllerInput;
+  reason: string;
+  phase: string;
+  executionCwd: string;
+  worktree: RunFactoryControllerResult["worktree"];
+  planPath?: string;
+  taskPaths?: string[];
+  discoveryExecutionPath?: string;
+  plannerExecutionPath?: string;
+  builderExecutionPaths?: string[];
+  integrationPath?: string;
+  repairExecutionPaths?: string[];
+  reviewerExecutionPath?: string;
+  verificationPath?: string;
+  finalMergePath?: string;
+  candidateSha?: string;
+}): Promise<RunFactoryControllerResult> {
+  const currentState = await readRunState(input.run.statePath);
+  // If the phase already recorded a FAILED state (e.g. discovery/planner set
+  // phase "discovery-failed" then threw), preserve that phase — don't clobber
+  // it with the generic "run-failed".
+  const alreadyFailed = currentState?.status === "FAILED";
+  const failedState = alreadyFailed
+    ? { status: "FAILED" as const, phase: currentState.phase ?? input.phase }
+    : await updateFactoryRunState({
+        statePath: input.run.statePath,
+        patch: { status: "FAILED", phase: input.phase },
+      });
+  await appendFactoryRunEvent(input.run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "run.failed",
+    data: { reason: input.reason, phase: input.phase },
+  });
+  const summaryPath = await writePrototypeSummaryArtifact(input.run.runDir, {
+    runId: input.run.runId,
+    goal: input.input.goal,
+    status: "FAILED",
+    phase: failedState.phase,
+    approved: false,
+    planPath: input.planPath ?? path.join(input.run.runDir, "plan.json"),
+    taskPaths: input.taskPaths ?? [],
+    discoveryExecutionPath: input.discoveryExecutionPath,
+    plannerExecutionPath: input.plannerExecutionPath,
+    builderExecutionPaths: input.builderExecutionPaths ?? [],
+    integrationPath: input.integrationPath,
+    finalMergePath: input.finalMergePath,
+    candidateSha: input.candidateSha,
+    repairExecutionPaths: input.repairExecutionPaths ?? [],
+    reviewerExecutionPath: input.reviewerExecutionPath,
+    verificationPath: input.verificationPath ?? path.join(input.run.runDir, "verification.json"),
+    verificationStatus: "incomplete",
+    recoveryHint: input.reason,
+  });
+  return buildRunFailureResult({
+    run: input.run,
+    executionCwd: input.executionCwd,
+    worktree: input.worktree,
+    phases: [],
+    planPath: input.planPath ?? path.join(input.run.runDir, "plan.json"),
+    taskPaths: input.taskPaths ?? [],
+    discoveryExecutionPath: input.discoveryExecutionPath,
+    plannerExecutionPath: input.plannerExecutionPath,
+    builderExecutionPaths: input.builderExecutionPaths ?? [],
+    integrationPath: input.integrationPath,
+    repairExecutionPaths: input.repairExecutionPaths ?? [],
+    reviewerExecutionPath: input.reviewerExecutionPath,
+    verificationPath: input.verificationPath ?? path.join(input.run.runDir, "verification.json"),
+    summaryPath,
+    candidateSha: input.candidateSha,
+    finalMergePath: input.finalMergePath,
+  });
+}
+
 export async function failBuiltInSkillPolicy(input: {
   run: { runId: string; statePath: string; eventsPath: string };
   input: RunFactoryControllerInput;
@@ -351,4 +433,13 @@ export async function failBuiltInSkillPolicy(input: {
     status: "FAILED",
     message: `Missing required workflow skill(s): ${input.missingRequired.join(", ")}`,
   });
+}
+
+async function readRunState(statePath: string): Promise<{ status?: string; phase?: string } | undefined> {
+  try {
+    const value = JSON.parse(await fs.readFile(statePath, "utf8"));
+    return typeof value === "object" && value !== null ? value as { status?: string; phase?: string } : undefined;
+  } catch {
+    return undefined;
+  }
 }

@@ -1,4 +1,5 @@
 import type { FactorySetupContext, FactorySetupRecommendation } from "@factory/schemas";
+import { CURRENT_BRANCH_SENTINEL } from "@factory/schemas";
 
 const KNOWN_ROLES = ["discovery", "planner", "builder", "reviewer", "repair"] as const;
 const KNOWN_PRESETS = new Set(["balanced", "fast", "safe"]);
@@ -145,6 +146,7 @@ function validateNumericRanges(rec: FactorySetupRecommendation): void {
   }
   if (rec.git?.baseBranch) {
     assert(rec.git.baseBranch.value.trim(), `baseBranch must not be empty`);
+    if (rec.git.baseBranch.value === CURRENT_BRANCH_SENTINEL) return;
     assert(!/[^\w./-]/.test(rec.git.baseBranch.value), `baseBranch contains illegal characters`);
   }
   if (rec.dependencies?.hydrate) {

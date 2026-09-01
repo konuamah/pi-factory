@@ -66,7 +66,7 @@ export async function runFactoryDoctor(cwd: string): Promise<FactoryDoctorResult
     checks.push({
       name: "config-load",
       ok: true,
-      detail: `baseBranch=${loaded.effectiveConfig.git.baseBranch}`,
+      detail: `baseBranch=${loaded.effectiveConfig.git.baseBranch}${loaded.baseBranchSource === "current" ? " (resolved from @current)" : ""}`,
     });
 
     const configuredCommands = Object.entries(loaded.effectiveConfig.commands)

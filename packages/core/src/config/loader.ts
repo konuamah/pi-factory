@@ -13,6 +13,8 @@ import { builtInDefaults } from "./defaults.js";
 import { mergeConfigLayers } from "./merge.js";
 import { validateEffectiveConfig } from "./validate.js";
 import { discoverFactoryProject } from "../project/discovery.js";
+import { readCurrentGitBranch } from "../git/branch.js";
+import { CURRENT_BRANCH_SENTINEL } from "@factory/schemas";
 
 export interface LoadedFactoryConfig {
   effectiveConfig: EffectiveFactoryConfig;
@@ -21,6 +23,8 @@ export interface LoadedFactoryConfig {
     projectConfigPath?: string;
     workflowPath?: string;
   };
+  /** True when any baseBranch field used the `@current` sentinel this load. */
+  baseBranchSource?: "current" | "explicit";
 }
 
 export async function loadEffectiveConfig(input: {
@@ -48,6 +52,11 @@ export async function loadEffectiveConfig(input: {
   if (!path.isAbsolute(mergedConfig.dependencies.cacheRoot)) {
     mergedConfig.dependencies.cacheRoot = path.resolve(projectRoot, mergedConfig.dependencies.cacheRoot);
   }
+  const hadSentinel =
+    mergedConfig.git.baseBranch === CURRENT_BRANCH_SENTINEL ||
+    mergedConfig.project.baseBranch === CURRENT_BRANCH_SENTINEL ||
+    mergedConfig.git.pullRequest.baseBranch === CURRENT_BRANCH_SENTINEL;
+  await resolveCurrentBranchSentinels(mergedConfig, projectRoot);
   const effectiveConfig = validateEffectiveConfig(mergedConfig, { projectRoot });
 
   return {
@@ -57,7 +66,49 @@ export async function loadEffectiveConfig(input: {
       projectConfigPath: project.paths.projectConfigPath,
       workflowPath: project.paths.workflowPath,
     },
+    baseBranchSource: hadSentinel ? "current" : "explicit",
   };
+}
+
+/**
+ * Resolve `git.baseBranch` / `project.baseBranch` / `git.pullRequest.baseBranch`
+ * when set to the `@current` sentinel: use the branch checked out in the
+ * project root. Resolved once per load, before validation, so the effective
+ * config (and the per-run effective-config.json snapshot) always holds a
+ * concrete branch name. Fails loud on detached HEAD / non-git so a run never
+ * silently targets the wrong branch.
+ */
+async function resolveCurrentBranchSentinels(
+  config: EffectiveFactoryConfig,
+  projectRoot: string,
+): Promise<void> {
+  const fields: Array<{ path: string; value?: string }> = [
+    { path: "git.baseBranch", value: config.git.baseBranch },
+    { path: "project.baseBranch", value: config.project.baseBranch },
+    { path: "git.pullRequest.baseBranch", value: config.git.pullRequest.baseBranch },
+  ];
+  const sentinelFields = fields.filter((field) => field.value === CURRENT_BRANCH_SENTINEL);
+  if (sentinelFields.length === 0) {
+    return;
+  }
+
+  const current = await readCurrentGitBranch(projectRoot);
+  if (!current) {
+    throw new Error(
+      `baseBranch: ${CURRENT_BRANCH_SENTINEL} could not be resolved (detached HEAD or not a git repository at ${projectRoot}). ` +
+        `Fields: ${sentinelFields.map((field) => field.path).join(", ")}. Check out a branch or set an explicit baseBranch.`,
+    );
+  }
+
+  for (const field of sentinelFields) {
+    if (field.path === "git.baseBranch") {
+      config.git.baseBranch = current;
+    } else if (field.path === "project.baseBranch") {
+      config.project.baseBranch = current;
+    } else {
+      config.git.pullRequest.baseBranch = current;
+    }
+  }
 }
 
 async function readJsonLike<T>(filePath: string): Promise<T | undefined> {

@@ -110,12 +110,21 @@ export async function gitChangedFiles(cwd: string): Promise<string[]> {
 
 export async function getChangedFilesFromBase(cwd: string, branch: string | undefined): Promise<string[]> {
   const baseBranch = branch || "main";
-  try {
-    const { stdout } = await execFileAsync("git", ["diff", "--name-only", `origin/${baseBranch}`, "HEAD"], { cwd, windowsHide: true });
-    return stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  } catch {
-    return [];
+  // Prefer the remote tracking ref; fall back to the local branch so a
+  // local-only branch (e.g. resolved from the @current sentinel) still gets
+  // impact-filtered verification instead of silently disabling it.
+  for (const base of [`origin/${baseBranch}`, baseBranch]) {
+    try {
+      const { stdout } = await execFileAsync("git", ["diff", "--name-only", base, "HEAD"], { cwd, windowsHide: true });
+      const files = stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      if (files.length > 0 || base === baseBranch) {
+        return files;
+      }
+    } catch {
+      // Try the next base ref.
+    }
   }
+  return [];
 }
 
 export interface ImpactResult {

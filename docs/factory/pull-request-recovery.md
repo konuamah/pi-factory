@@ -24,6 +24,8 @@ git:
     draft: false
 ```
 
+`baseBranch` may be set to the `@current` sentinel (quoted) to target the checked-out branch; see `worktrees-and-dependencies.md`.
+
 Factory delegates authentication to the user's `gh` installation. It does not read, store, or print GitHub tokens.
 
 Check authentication before running a task:

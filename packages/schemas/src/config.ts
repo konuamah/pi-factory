@@ -1,5 +1,14 @@
 export type ModelRole = "discovery" | "planner" | "builder" | "reviewer" | "repair" | "landing";
 
+/**
+ * Sentinel value for git/project baseBranch config: resolve to the branch
+ * checked out in the project root at run start instead of a hard-coded name.
+ * Resolved by the config loader (packages/core/src/config/loader.ts); must
+ * never survive into the effective config. See docs/factory/ configuration
+ * reference.
+ */
+export const CURRENT_BRANCH_SENTINEL = "@current";
+
 export interface ExecutionLimits {
   /**
    * Hard ceiling for one agent turn (model + tool activity combined).

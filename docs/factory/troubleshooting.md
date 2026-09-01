@@ -6,6 +6,18 @@ Planner-generated task titles should also use the compact deterministic title, n
 
 Use this by symptom.
 
+## Setup Fails Before A Run Record Exists
+
+Symptom: config load, worktree creation, or run creation fails and the user previously saw a raw stack trace with no run artifact.
+
+Fix: early setup failures now produce a `FAILED` run record instead of a raw throw. Look in `.factory/runs/<id>/` for:
+
+- `state.json` → `status: "FAILED"`, `phase: "setup-failed"`
+- `summary.json` → `status: "FAILED"`, `recoveryHint` holds the actual reason (e.g. `git.baseBranch is required`)
+- `events.jsonl` → a `run.failed` event with the reason
+
+If the config itself is invalid (e.g. missing `baseBranch`, negative `retainRuns`), fix `.factory/config.yaml` and retry. A partially-created worktree is removed best-effort; `run.cleanup_skipped` may be recorded if isolation is preserved.
+
 ## Cannot Find `@factory/core`
 
 The vendored Factory copy likely lacks workspace links or dependencies. Preserve `vendor/pi-factory/node_modules` during source sync, or run install inside the vendored Factory when necessary.

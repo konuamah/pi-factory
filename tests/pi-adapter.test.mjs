@@ -308,7 +308,10 @@ test('interview uses Pi editor when available, one editor per question', async (
   assert.equal(decision.optionId, 'answered');
   assert.equal(prompts.length, 2);
   assert.match(prompts[0].title, /Question 1 of 2/);
+  assert.match(prompts[0].title, /Which search behavior should govern/);
+  assert.match(prompts[0].title, /Answer:/);
   assert.match(prompts[1].title, /Question 2 of 2/);
+  assert.match(prompts[1].title, /Which clients should this cover/);
   assert.equal(prompts[0].prefill, '');
   assert.match(decision.feedback, /Q1: .*search behavior/);
   assert.match(decision.feedback, /A1: editor text answer/);

@@ -49,8 +49,10 @@ async function askOneQuestion(
   const title = `${request.title} — Question ${index} of ${total}`;
 
   // Prefer Pi's full editor when the host exposes it (interactive TUI/RPC).
+  // The editor only displays its title above the input, so include the current
+  // question there and keep the editable answer buffer empty.
   if (ui.editor) {
-    return ui.editor(title, "");
+    return ui.editor(`${title}\n\n${question}\n\nAnswer:`, "");
   }
 
   // Fall back to a custom overlay for hosts without an editor (tests, stubs).

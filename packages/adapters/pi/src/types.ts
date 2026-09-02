@@ -21,6 +21,7 @@ export interface FactoryPiUi {
     options: string[],
   ): Promise<string | undefined>;
   input?(title: string, placeholder?: string): Promise<string | undefined>;
+  editor?(title: string, prefill?: string): Promise<string | undefined>;
   custom?<T>(
     factory: (
       tui: { requestRender(): void },

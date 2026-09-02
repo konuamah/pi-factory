@@ -286,6 +286,20 @@ Manual start:
 
 Pi-facing skills should be conversational. Internal runner skills may use JSON contracts, but project `.pi/skills` should not tell the model to return JSON unless the user expects machine-readable output.
 
+## Reviewer Re-Scans The Repository For A Tiny Change
+
+Symptom:
+
+A one-file change still spends minutes in final review, or the reviewer reads unrelated docs/config files.
+
+Fix:
+
+- final review now builds a scoped review surface from `completed-tasks.json`, the candidate git diff, direct imports/dependencies, `plan.json` `implementationContract`, and `verification.json`
+- trivial low-risk changes skip the LLM reviewer entirely and write a deterministic `reviewer-execution.json`; look for the `review.deterministic` event
+- non-trivial final review keeps the LLM reviewer, but the prompt names the authoritative changed files/imports and the final review tool list is reduced to `read`
+- if deterministic review did **not** run, inspect `events.jsonl` for why the change was not trivial enough in practice: multiple changed files, truncated diff, high-risk files, incomplete verification, or non-goal violations
+- if the final review still looks too broad, inspect `reviewer-execution.json` for the supplied `Review surface (authoritative):` packet before changing model/runtime settings
+
 ## Run Completes With Baseline Repository Debt
 
 Factory can complete a run while pre-existing verification failures remain. This is expected:

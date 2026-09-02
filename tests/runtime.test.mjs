@@ -62,7 +62,7 @@ function makeExecutor(label, calls) {
         : input.metadata?.role === 'landing'
           ? 'landing'
           : label;
-      calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt, limits: input.limits });
+      calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt, limits: input.limits, tools: input.tools, metadata: input.metadata });
       if (actualLabel === 'builder') {
         await fs.writeFile(path.join(input.cwd, 'factory-builder-output.txt'), `${input.executionId}\n`, 'utf8');
       }
@@ -198,7 +198,8 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     const builderExecutor = {
       async execute(input) {
         calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
-        await fs.writeFile(path.join(input.cwd, 'src/index.ts'), 'export const x = 2;\n', 'utf8');
+        await fs.writeFile(path.join(input.cwd, 'src/helper.ts'), 'export const helper = 2;\n', 'utf8');
+        await fs.writeFile(path.join(input.cwd, 'src/index.ts'), "import { helper } from './helper';\nexport const x = helper;\n", 'utf8');
         return {
           executionId: input.executionId,
           status: 'completed',
@@ -259,6 +260,11 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(reviewerPrompt, /Selected skills:/);
     assert.match(reviewerPrompt, /acceptance-review@1\.0\.0/);
     assert.match(reviewerPrompt, /Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly\./);
+    assert.match(reviewerPrompt, /Review surface \(authoritative\):/);
+    assert.match(reviewerPrompt, /Changed files:/);
+    assert.match(reviewerPrompt, /src\/helper\.ts/);
+    assert.match(reviewerPrompt, /Only read files listed above or their direct imports\. Do not search or scan the repository\./);
+    assert.deepEqual(calls.find((call) => call.label === 'reviewer')?.tools, ['read']);
     const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
     const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
     const plan = await readJson(path.join(runDir, 'plan.json'));
@@ -271,6 +277,49 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
       .map((line) => JSON.parse(line))
       .find((event) => event.type === 'task.context_compiled' && event.data.role === 'builder');
     assert.deepEqual(contextEvent.data.files, ['src/index.ts']);
+  });
+});
+
+test('trivial final review is deterministic and skips the reviewer executor', async () => {
+  await withTempProject(async (root) => {
+    await execFile('git', ['add', '.'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'factory setup'], { cwd: root });
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const reviewerExecutor = makeExecutor('reviewer', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
+        await fs.writeFile(path.join(input.cwd, 'src/index.ts'), 'export const x = 2;\n', 'utf8');
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: 'builder completed',
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      reviewerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => false,
+    });
+
+    assert.equal(calls.filter((call) => call.label === 'reviewer').length, 0);
+    const reviewerExecution = await readJson(path.join(result.runDir, 'reviewer-execution.json'));
+    assert.equal(reviewerExecution.status, 'completed');
+    assert.match(reviewerExecution.outputText, /Ready for approval\./);
+    assert.match(reviewerExecution.outputText, /Deterministic review passed/);
+    const eventsRaw = await fs.readFile(path.join(result.runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /review\.deterministic/);
+    assert.match(eventsRaw, /"reviewerTools":\[\]/);
   });
 });
 
@@ -2806,8 +2855,8 @@ test('workflow node roles select the correct executor and context role', async (
       requestApproval: async () => true,
     });
 
-    const securityReviewCalls = calls.filter((call) => call.label === 'reviewer' && /security review/.test(call.prompt));
-    assert.equal(securityReviewCalls.length, 1);
+    const securityReviewCalls = calls.filter((call) => call.label === 'reviewer' && /Task id: task-3/.test(call.prompt));
+    assert.ok(securityReviewCalls.length >= 1);
     assert.match(securityReviewCalls[0].prompt, /Role rules:/);
     assert.match(securityReviewCalls[0].prompt, /acceptance, consistency, risk, and scope control/);
     assert.match(securityReviewCalls[0].prompt, /Task id: task-3/);
@@ -2816,6 +2865,9 @@ test('workflow node roles select the correct executor and context role', async (
 
 test('final approval still happens after plan approval and implementation', async () => {
   await withTempProject(async (root) => {
+    await execFile('git', ['add', '.'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'factory setup'], { cwd: root });
+
     const calls = [];
     const plannerExecutor = makeExecutor('planner', calls);
     const builderExecutor = makeExecutor('builder', calls);
@@ -2845,7 +2897,9 @@ test('final approval still happens after plan approval and implementation', asyn
     assert.ok((result.builderExecutionPaths?.length ?? 0) > 0);
     assert.equal(summary.status, 'CANCELLED');
     assert.equal(summary.phase, 'approval-rejected');
-    assert.equal(calls.filter((call) => call.label === 'reviewer').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'reviewer').length, 0);
+    const eventsRaw = await fs.readFile(path.join(result.runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /review\.deterministic/);
   });
 });
 

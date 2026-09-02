@@ -6,6 +6,7 @@ import type { CompiledContext } from "../context/compiler.js";
 import type { AgentExecutionResult } from "./interfaces.js";
 import type { SkillBundleSelection } from "../skills/index.js";
 import type { InterviewDecisionRecord } from "./controller.js";
+import type { ReviewSurface } from "./review-surface.js";
 
 export function buildCompiledPrompt(goal: string, compiled: CompiledContext, workspacePath?: string): string {
   const sections = [
@@ -141,6 +142,7 @@ export function buildReviewerPrompt(
   constitutionContext?: string,
   skillBundleText?: string,
   interviewDecisions?: InterviewDecisionRecord[],
+  reviewSurface?: ReviewSurface,
 ): string {
   const commandStatuses = verification.commands
     .map((command) => `${command.name}: ${command.status}`)
@@ -150,6 +152,7 @@ export function buildReviewerPrompt(
     `Goal: ${goal}`,
     `Verification status: ${verification.overallStatus}`,
     commandStatuses ? `Command results:\n${commandStatuses}` : "Command results: none",
+    reviewSurface ? renderReviewSurface(reviewSurface) : undefined,
     interviewDecisions?.length
       ? `Human interview decisions (authoritative):\n${interviewDecisions.map((d) => `- ${d.question} → ${d.answer ?? d.optionId}`).join("\n")}`
       : undefined,
@@ -157,6 +160,33 @@ export function buildReviewerPrompt(
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Review the candidate and report whether it looks ready for approval.",
     "Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly.",
+    reviewSurface ? "Only read files listed above or their direct imports. Do not search or scan the repository." : undefined,
+    reviewSurface ? "If the supplied review surface is insufficient, say exactly what is missing instead of reading unrelated files." : undefined,
+  ].filter(Boolean).join("\n");
+}
+
+function renderReviewSurface(surface: ReviewSurface): string {
+  const diffSummary = `Diff summary: ${surface.diff.fileCount || surface.changedFiles.length} file(s), +${surface.diff.additions} / -${surface.diff.deletions}${surface.diff.truncated ? " (truncated)" : ""}`;
+  return [
+    "Review surface (authoritative):",
+    surface.changedFiles.length ? `Changed files:\n${surface.changedFiles.map((file) => `- ${file}`).join("\n")}` : "Changed files: none recorded",
+    diffSummary,
+    surface.directImports.length
+      ? `Direct imports/dependencies of changed files:\n${surface.directImports.map((file) => `- ${file}`).join("\n")}`
+      : "Direct imports/dependencies of changed files: none detected",
+    surface.planTargetFiles.length
+      ? `Plan target files:\n${surface.planTargetFiles.map((file) => `- ${file}`).join("\n")}`
+      : undefined,
+    surface.planNonGoals.length
+      ? `Plan non-goals:\n${surface.planNonGoals.map((file) => `- ${file}`).join("\n")}`
+      : undefined,
+    surface.nonGoalViolations.length
+      ? `Plan non-goal violations:\n${surface.nonGoalViolations.map((violation) => `- ${violation.file} matched non-goal ${violation.nonGoal}`).join("\n")}`
+      : undefined,
+    surface.highRiskFiles.length
+      ? `High-risk files changed:\n${surface.highRiskFiles.map((file) => `- ${file}`).join("\n")}`
+      : undefined,
+    ["Diff:", "```diff", surface.diff.diff || "(no diff available)", "```"].join("\n"),
   ].filter(Boolean).join("\n");
 }
 

@@ -241,6 +241,9 @@ test('interview uses custom overlay when editor is unavailable, one question at 
           'Should we add',
           'What verification',
         ];
+        assert.ok(lines.some((line) => line.includes(qStarts[index - 1])), 'current question text should be visible');
+        assert.ok(lines.some((line) => line === 'Answer'), 'answer label should be visible');
+        assert.ok(lines.some((line) => line.startsWith('> ')), 'answer input should be visible');
         for (let q = 1; q <= 6; q++) {
           const expected = q === index;
           assert.equal(

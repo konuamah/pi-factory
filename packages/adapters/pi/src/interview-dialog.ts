@@ -77,11 +77,10 @@ async function askWithOverlay(
       render(width: number): string[] {
         const contentWidth = Math.max(24, width - 4);
         const hasAnswer = answer.trim().length > 0;
-        const header = [
-          title,
-          "",
-          ...question.split(/\r?\n/).flatMap((line) => wrapStyledLine(line, contentWidth)),
-        ];
+        const questionLines = question
+          .split(/\r?\n/)
+          .flatMap((line) => wrapStyledLine(line, contentWidth));
+        const header = [title, ""];
         const answerLines = wrapStyledLine(`> ${answer || ""}`, contentWidth);
         const footer = [
           "",
@@ -92,12 +91,12 @@ async function askWithOverlay(
             ? "enter submit · ↑/↓ scroll · escape cancel"
             : "answer required before submit · ↑/↓ scroll · escape cancel",
         ];
-        const availableRows = Math.max(3, INTERVIEW_OVERLAY_HEIGHT - header.length - footer.length);
-        const maxOffset = Math.max(0, header.length - availableRows);
+        const availableRows = Math.max(3, INTERVIEW_OVERLAY_HEIGHT - header.length - footer.length - 2);
+        const maxOffset = Math.max(0, questionLines.length - availableRows);
         scrollOffset = Math.min(scrollOffset, maxOffset);
-        const visible = header.slice(scrollOffset, scrollOffset + availableRows);
-        const position = header.length > availableRows
-          ? [`Showing ${scrollOffset + 1}-${Math.min(header.length, scrollOffset + availableRows)} of ${header.length}`, ""]
+        const visible = questionLines.slice(scrollOffset, scrollOffset + availableRows);
+        const position = questionLines.length > availableRows
+          ? [`Showing ${scrollOffset + 1}-${Math.min(questionLines.length, scrollOffset + availableRows)} of ${questionLines.length}`, ""]
           : [];
         return fixedHeightLines([...header, ...position, ...visible, ...footer], contentWidth, INTERVIEW_OVERLAY_HEIGHT);
       },

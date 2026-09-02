@@ -203,7 +203,7 @@ test('interview decision fails loudly when custom UI is unavailable', async () =
   );
 });
 
-test('custom interview dialog is step-by-step, writable, and width safe', async () => {
+test('interview uses custom overlay when editor is unavailable, one question at a time', async () => {
   const questions = [
     '❓ **Q1** - **What does “keyword search” need to mean for this gap?** Should it match title, description, tags, or all of them?\n\n**Recommended answer:** Include title, description, and tags.',
     '❓ **Q2** - **Which clients should this cover?** Web, mobile, or both?',
@@ -228,39 +228,37 @@ test('custom interview dialog is step-by-step, writable, and width safe', async 
         const lines = component.render(75);
         assert.equal(lines.length, 22);
         assert.ok(lines.every((line) => visibleWidth(line) <= 75));
-        assert.ok(lines.some((line) => /Question 1 of 6/.test(line)));
-        assert.ok(lines.some((line) => /Recommended answer/.test(line)));
-        assert.ok(lines.every((line) => !/Which clients/.test(line)));
-        component.handleInput?.('\u001b[C');
-        const blockedLines = component.render(75);
-        assert.equal(blockedLines.length, 22);
-        assert.ok(blockedLines.some((line) => /Question 1 of 6/.test(line)));
-        for (const char of 'use mongodb text search') {
+        const title = lines.find((line) => /Question \d of 6/.test(line));
+        const match = title ? /Question (\d) of 6/.exec(title) : null;
+        const index = match ? Number(match[1]) : NaN;
+        assert.ok(Number.isFinite(index), 'expected Question N of 6 header');
+        // Only the current question text is rendered.
+        const qStarts = [
+          'What does',
+          'Which clients',
+          'Should results',
+          'What empty state',
+          'Should we add',
+          'What verification',
+        ];
+        for (let q = 1; q <= 6; q++) {
+          const expected = q === index;
+          assert.equal(
+            lines.some((line) => line.includes(qStarts[q - 1])),
+            expected,
+            `question ${q} visibility mismatch (current ${index})`,
+          );
+        }
+        // Blank answer cannot submit.
+        component.handleInput?.('\r');
+        assert.equal(result, undefined);
+        const answer = ['use mongodb text search', 'web and mobile', 'relevance first', 'clear no results message', 'no metrics yet', 'unit and api tests'][index - 1];
+        for (const char of answer) {
           component.handleInput?.(char);
         }
-        component.handleInput?.('\u001b[C');
-        const nextLines = component.render(75);
-        assert.equal(nextLines.length, 22);
-        assert.ok(nextLines.some((line) => /Question 2 of 6/.test(line)));
-        assert.ok(nextLines.some((line) => /Which clients/.test(line)));
-        assert.ok(nextLines.every((line) => !/keyword search/.test(line)));
-        component.handleInput?.('\u001b[D');
-        const firstAnswerLines = component.render(75);
-        assert.equal(firstAnswerLines.length, 22);
-        assert.ok(firstAnswerLines.some((line) => /> use mongodb text search/.test(line)));
-        component.handleInput?.('\u001b[C');
-        for (const char of 'web and mobile') {
-          component.handleInput?.(char);
-        }
+        assert.ok(component.render(75).some((line) => line.includes(`> ${answer}`)));
         component.handleInput?.('\r');
-        assert.ok(component.render(75).some((line) => /Question 3 of 6/.test(line)));
-        for (const answer of ['relevance first', 'clear no results message', 'no metrics yet', 'unit and api tests']) {
-          for (const char of answer) {
-            component.handleInput?.(char);
-          }
-          component.handleInput?.('\r');
-        }
-        component.handleInput?.('\r');
+        assert.ok(result, `step ${index} should resolve`);
         return result;
       },
     },
@@ -280,4 +278,87 @@ test('custom interview dialog is step-by-step, writable, and width safe', async 
   assert.match(decision.feedback, /A1: use mongodb text search/);
   assert.match(decision.feedback, /Q6: .*verification/);
   assert.match(decision.feedback, /A6: unit and api tests/);
+});
+
+test('interview uses Pi editor when available, one editor per question', async () => {
+  const questions = ['Q1: Which search behavior should govern?', 'Q2: Which clients should this cover?'];
+  const prompts = [];
+  const decision = await requestDecisionInput(
+    {
+      notify() {},
+      setWidget() {},
+      editor: async (title, prefill) => {
+        prompts.push({ title, prefill });
+        return prompts.length === 1 ? 'editor text answer' : 'second answer';
+      },
+    },
+    {
+      id: 'interview-editor',
+      title: 'Interview: grill',
+      question: questions.join('\n\n---\n\n'),
+      options: [{ id: 'answered', label: 'Use my answer' }],
+      source: 'INTERVIEW',
+      reason: 'USER_PREFERENCE',
+    },
+  );
+
+  assert.equal(decision.optionId, 'answered');
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[0].title, /Question 1 of 2/);
+  assert.match(prompts[1].title, /Question 2 of 2/);
+  assert.equal(prompts[0].prefill, '');
+  assert.match(decision.feedback, /Q1: .*search behavior/);
+  assert.match(decision.feedback, /A1: editor text answer/);
+  assert.match(decision.feedback, /A2: second answer/);
+});
+
+test('interview cancel fails loudly and does not resolve', async () => {
+  const questions = ['Q1: One', 'Q2: Two'];
+  await assert.rejects(
+    () => requestDecisionInput(
+      {
+        notify() {},
+        setWidget() {},
+        custom: async (factory) => {
+          let result;
+          const component = factory({ requestRender() {} }, undefined, undefined, (value) => {
+            result = value;
+          });
+          // Escape cancels without answering.
+          component.handleInput?.('\u001b');
+          return result;
+        },
+      },
+      {
+        id: 'interview-cancel',
+        title: 'Interview: cancel',
+        question: questions.join('\n\n---\n\n'),
+        options: [{ id: 'answered', label: 'Use my answer' }],
+        source: 'INTERVIEW',
+        reason: 'USER_PREFERENCE',
+      },
+    ),
+    /cancelled or left blank/,
+  );
+});
+
+test('interview editor returning blank fails loudly', async () => {
+  await assert.rejects(
+    () => requestDecisionInput(
+      {
+        notify() {},
+        setWidget() {},
+        editor: async () => '   ',
+      },
+      {
+        id: 'interview-blank',
+        title: 'Interview: blank',
+        question: 'Q1: One question only',
+        options: [{ id: 'answered', label: 'Use my answer' }],
+        source: 'INTERVIEW',
+        reason: 'USER_PREFERENCE',
+      },
+    ),
+    /cancelled or left blank/,
+  );
 });

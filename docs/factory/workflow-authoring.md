@@ -59,6 +59,8 @@ Use `interview` before planning when Factory must ask the user questions first.
 - that structured record reaches builder context, the reviewer prompt, and approval, not just the planner
 - Factory bundles the interview skill as `skills/grilling`; bind `skills.require: [grilling]` directly
 
+When the model returns several questions in one decision (separated by `---` in the interview prompt output), the Pi adapter presents them one at a time — a full editor when the host exposes it, otherwise an overlay — and folds every answer into a single structured interview record, so planning still receives one `interview-decisions.json` entry per interview stage.
+
 Stage dependencies are resolved by stage name into task ids. A task with `dependsOn: [plan]` includes the planner task as dependency context for the builder, and direct task ids also work.
 
 Use `command` for verification:

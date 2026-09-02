@@ -295,3 +295,14 @@ Factory can complete a run while pre-existing verification failures remain. This
 - the final approval prompt shows `baselineDebt` (failed command, classification, reason, implicated files) and asks whether to approve despite it
 
 Do not treat a `COMPLETED` run with baseline debt as a silent pass: inspect `verification.json` `failureClassification` and the approval `baselineDebt` to see what remains. If the same baseline failure keeps appearing, fix it once in the repo (for example missing type declarations or an SSR guard) rather than re-running.
+
+Post-landing behavior: after a successful cherry-pick/merge, Factory re-runs the
+landing verification commands against the landed target checkout (`mergeCwd`),
+not the pre-landing worktree. If that re-run fails only on baseline debt that
+was already classified `baseline-unrelated` + `ignore` + non-retryable before
+landing, Factory records the honest `failed` state and does **not** launch a
+repair agent (edits after the commit already landed cannot change the landed
+commit). Look for the `landing.post_verification_repair_skipped` event and
+`postLandingVerification.reason` / `repairAttempted: false` in
+`final-merge.json`. Real post-landing failures (not pre-classified as ignorable
+baseline debt) still trigger the repair path.

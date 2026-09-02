@@ -308,6 +308,47 @@ export function isGeneratedPath(file: string): boolean {
   return GENERATED_PATH_SEGMENTS.some((segment) => normalized.includes(`/${segment}/`) || normalized.startsWith(`${segment}/`) || normalized === segment);
 }
 
+/**
+ * True when a verification failure classification is strict baseline debt:
+ * every classified command is baseline-unrelated, flagged ignore, and not
+ * retryable. Callers use this to decide that repair would be wasted work
+ * (e.g. post-landing verification after the change already landed).
+ *
+ * When `failedCommandNames` is provided, every currently-failed command must
+ * also have been classified as ignorable baseline debt; a brand-new failure
+ * that was never classified (or was classified as real) is not ignorable.
+ */
+export function isIgnorableBaselineFailure(
+  classification: VerificationFailureClassification | undefined,
+  failedCommandNames?: Iterable<string>,
+): boolean {
+  if (!classification || classification.perCommand.length === 0) {
+    return false;
+  }
+  const allIgnorable = classification.perCommand.every(
+    (c) => c.category === "baseline-unrelated"
+      && c.suggestedAction === "ignore"
+      && c.retryable === false,
+  );
+  if (!allIgnorable) {
+    return false;
+  }
+  if (!failedCommandNames) {
+    return true;
+  }
+  const ignorableNames = new Set(
+    classification.perCommand
+      .filter((c) => c.category === "baseline-unrelated" && c.suggestedAction === "ignore")
+      .map((c) => c.commandName),
+  );
+  for (const name of failedCommandNames) {
+    if (!ignorableNames.has(name)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function filesReferToSamePath(left: string, right: string): boolean {
   const a = normalizePathForComparison(left);
   const b = normalizePathForComparison(right);

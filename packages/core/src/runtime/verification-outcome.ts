@@ -9,7 +9,7 @@ import { buildRunFailureResult } from "./controller-helpers.js";
 import { loadEffectiveConfig } from "../config/loader.js";
 import type { RunFactoryControllerInput, RunFactoryControllerResult } from "./controller.js";
 import type { VerificationRunResult } from "./verification.js";
-import type { VerificationFailureClassification } from "./failure-classification.js";
+import { isIgnorableBaselineFailure, type VerificationFailureClassification } from "./failure-classification.js";
 
 export interface VerificationOutcomeState {
   run: Awaited<ReturnType<typeof createFactoryRun>>;
@@ -40,11 +40,7 @@ export async function handleVerificationOutcome(state: VerificationOutcomeState)
   let reviewerExecutionPath: string | undefined;
 
 const allFailuresBaseline = verification.overallStatus === "failed"
-&& Boolean(verificationFailureClassification)
-&& verificationFailureClassification!.perCommand.length > 0
-&& verificationFailureClassification!.perCommand.every(
-  (c) => c.category === "baseline-unrelated" || c.suggestedAction === "ignore",
-);
+&& isIgnorableBaselineFailure(verificationFailureClassification);
 
 if (verification.overallStatus === "failed" && allFailuresBaseline) {
 await appendFactoryRunEvent(run.eventsPath, {

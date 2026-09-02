@@ -519,3 +519,233 @@ test('landing guard: no non-goals means no scope note/reason', async () => {
   assert.equal(verdict.ok, true);
   assert.equal(verdict.notes, undefined);
 });
+
+// Helper: a real candidate branch + commit, then run runLandingFlow with a
+// post-landing verification command that fails. Returns the landing result
+// plus the run dir, events, and a repair-executor spy.
+async function landingFixture({ postLandingExitCode, verificationFailureClassification, verificationStatus = "passed" }) {
+  const root = await initRepo();
+  await git(root, ["switch", "-c", "factory/task-1"]);
+  await fs.writeFile(path.join(root, "index.html"), "<h1>Candidate</h1>\n", "utf8");
+  await git(root, ["add", "index.html"]);
+  await git(root, ["commit", "-m", "candidate"]);
+  const candidateSha = await git(root, ["rev-parse", "HEAD"]);
+  await git(root, ["switch", "main"]);
+
+  const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "factory-run-landing-"));
+  const eventsPath = path.join(runDir, "events.jsonl");
+  await fs.writeFile(eventsPath, "", "utf8");
+  const landingExecutor = {
+    async execute() {
+      return {
+        status: "completed",
+        outputText: JSON.stringify({
+          strategy: "cherry-pick",
+          targetBranch: "main",
+          candidateSha,
+          sourceBranch: "factory/task-1",
+          reasoning: ["safe single commit"],
+          verification: ["lint"],
+          risk: "low",
+          expectedFiles: ["index.html"],
+          recoveryPlan: "Open a PR if direct landing fails.",
+        }),
+        events: [],
+      };
+    },
+  };
+  const repairCalls = [];
+  const repairExecutor = {
+    async execute(input) {
+      repairCalls.push(input);
+      return { status: "completed", outputText: "", events: [] };
+    },
+  };
+
+  const result = await runLandingFlow({
+    runDir,
+    runId: "run-test",
+    eventsPath,
+    goal: "Add candidate feature",
+    mergeCwd: root,
+    taskType: "general",
+    config: {
+      git: { baseBranch: "main", pullRequest: { enabled: true, provider: "github", cli: "gh", draft: false } },
+      approval: { finalMerge: "required" },
+      runtime: { limits: {} },
+      models: { repair: { provider: "openai-codex", model: "gpt-test" }, landing: { provider: "openai-codex", model: "gpt-test" }, reviewer: { provider: "openai-codex", model: "gpt-test" } },
+    },
+    completedTasks: [{
+      taskId: "task-1",
+      targetBranch: "main",
+      sourceBranch: "factory/task-1",
+      commitSha: candidateSha,
+      changedFiles: ["index.html"],
+      workspaceMode: "created",
+      worktreePath: root,
+    }],
+    candidateSha,
+    candidateBranch: "factory/task-1",
+    verificationPlan: {
+      cwd: root,
+      cwdResolution: "default-root",
+      commands: { lint: `node -e "process.exit(${postLandingExitCode})"` },
+      selectionSource: "deterministic",
+      skill: { id: "test", version: "1.0.0", mode: "verification", selectionReasons: [] },
+      evidence: { rootCwd: root, configuredCommands: {}, allowedCommands: [], rootScripts: [], candidateCwds: [], commandDecisions: [] },
+    },
+    verification: { cwd: root, cwdResolution: "default-root", commands: [], overallStatus: verificationStatus },
+    verificationFailureClassification,
+    contractCanComplete: true,
+    controllerInput: { cwd: root, goal: "Add candidate feature", landingExecutor, repairExecutor },
+    repairGuidanceText: undefined,
+  });
+  return { root, runDir, eventsPath, candidateSha, result, repairCalls };
+}
+
+test('post-landing verification failure on baseline-unrelated debt skips the repair agent', async () => {
+  const { runDir, result, repairCalls } = await landingFixture({
+    postLandingExitCode: 1,
+    verificationStatus: "failed",
+    verificationFailureClassification: {
+      kind: "baseline-unrelated",
+      reason: "lint fails on untouched legacy file",
+      retryable: false,
+      suggestedPhase: "verification",
+      classificationSource: "deterministic",
+      perCommand: [{
+        commandName: "lint",
+        category: "baseline-unrelated",
+        reason: "Failure outside implemented files: hooks/useRateLimiter.js",
+        retryable: false,
+        suggestedAction: "ignore",
+        implicatedFiles: ["hooks/useRateLimiter.js"],
+      }],
+    },
+  });
+
+  assert.equal(result.status, "COMPLETED");
+  assert.equal(result.landingStatus, "landed");
+  assert.equal(repairCalls.length, 0, "baseline-unrelated post-landing failure must not launch a repair agent");
+  const finalMerge = JSON.parse(await fs.readFile(path.join(runDir, "final-merge.json"), "utf8"));
+  assert.equal(finalMerge.status, "landed");
+  assert.equal(finalMerge.postLandingVerification.status, "failed");
+  assert.equal(finalMerge.postLandingVerification.repairAttempted, false);
+  assert.match(finalMerge.postLandingVerification.reason, /baseline-unrelated/);
+  const events = await fs.readFile(path.join(runDir, "events.jsonl"), "utf8");
+  assert.ok(/landing.post_verification_repair_skipped/.test(events), "expected repair-skipped event");
+});
+
+test('post-landing verification failure on a real failure still launches the repair agent', async () => {
+  const { result, repairCalls } = await landingFixture({
+    postLandingExitCode: 1,
+    verificationStatus: "failed",
+    verificationFailureClassification: {
+      kind: "real-code-failure",
+      reason: "type error in changed file",
+      retryable: true,
+      suggestedPhase: "verification",
+      classificationSource: "deterministic",
+      perCommand: [{
+        commandName: "lint",
+        category: "real-code-failure",
+        reason: "error in src/index.ts",
+        retryable: true,
+        suggestedAction: "repair",
+        implicatedFiles: ["src/index.ts"],
+      }],
+    },
+  });
+
+  assert.equal(result.status, "COMPLETED");
+  assert.equal(result.landingStatus, "landed");
+  assert.ok(repairCalls.length >= 1, "real post-landing failure should still repair");
+});
+
+test('post-landing verification runs in mergeCwd, not the stale verification worktree', async () => {
+  const root = await initRepo();
+  await git(root, ["switch", "-c", "factory/task-1"]);
+  await fs.writeFile(path.join(root, "index.html"), "<h1>Candidate</h1>\n", "utf8");
+  await git(root, ["add", "index.html"]);
+  await git(root, ["commit", "-m", "candidate"]);
+  const candidateSha = await git(root, ["rev-parse", "HEAD"]);
+  await git(root, ["switch", "main"]);
+
+  // A stale checkout that the pre-landing verification ran in; the landed
+  // commit lives in `root` (mergeCwd), so post-landing verification must run
+  // there, not here.
+  const staleWorktree = await fs.mkdtemp(path.join(os.tmpdir(), "factory-stale-worktree-"));
+
+  const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "factory-run-landing-"));
+  const eventsPath = path.join(runDir, "events.jsonl");
+  await fs.writeFile(eventsPath, "", "utf8");
+  const landingExecutor = {
+    async execute() {
+      return {
+        status: "completed",
+        outputText: JSON.stringify({
+          strategy: "cherry-pick",
+          targetBranch: "main",
+          candidateSha,
+          sourceBranch: "factory/task-1",
+          reasoning: ["safe single commit"],
+          verification: ["lint"],
+          risk: "low",
+          expectedFiles: ["index.html"],
+          recoveryPlan: "Open a PR if direct landing fails.",
+        }),
+        events: [],
+      };
+    },
+  };
+
+  const result = await runLandingFlow({
+    runDir,
+    runId: "run-test",
+    eventsPath,
+    goal: "Add candidate feature",
+    mergeCwd: root,
+    taskType: "general",
+    config: {
+      git: { baseBranch: "main", pullRequest: { enabled: true, provider: "github", cli: "gh", draft: false } },
+      approval: { finalMerge: "required" },
+      runtime: { limits: {} },
+      models: { landing: { provider: "openai-codex", model: "gpt-test" }, reviewer: { provider: "openai-codex", model: "gpt-test" } },
+    },
+    completedTasks: [{
+      taskId: "task-1",
+      targetBranch: "main",
+      sourceBranch: "factory/task-1",
+      commitSha: candidateSha,
+      changedFiles: ["index.html"],
+      workspaceMode: "created",
+      worktreePath: root,
+    }],
+    candidateSha,
+    candidateBranch: "factory/task-1",
+    // verificationPlan.cwd points at the STALE checkout; mergeCwd is the real
+    // target. Post-landing verification must execute against mergeCwd.
+    verificationPlan: {
+      cwd: staleWorktree,
+      cwdResolution: "default-root",
+      commands: { lint: `node -e "require('node:fs').writeFileSync('post-landing-cwd.txt', process.cwd())"` },
+      selectionSource: "deterministic",
+      skill: { id: "test", version: "1.0.0", mode: "verification", selectionReasons: [] },
+      evidence: { rootCwd: staleWorktree, configuredCommands: {}, allowedCommands: [], rootScripts: [], candidateCwds: [], commandDecisions: [] },
+    },
+    verification: { cwd: staleWorktree, cwdResolution: "default-root", commands: [], overallStatus: "passed" },
+    verificationFailureClassification: undefined,
+    contractCanComplete: true,
+    controllerInput: { cwd: root, goal: "Add candidate feature", landingExecutor },
+    repairGuidanceText: undefined,
+  });
+
+  assert.equal(result.status, "COMPLETED");
+  assert.equal(result.landingStatus, "landed");
+  const markerInMergeCwd = path.join(root, "post-landing-cwd.txt");
+  const markerInStale = path.join(staleWorktree, "post-landing-cwd.txt");
+  const mergeCwdMarker = await fs.readFile(markerInMergeCwd, "utf8").catch(() => undefined);
+  const staleMarker = await fs.readFile(markerInStale, "utf8").catch(() => undefined);
+  assert.ok(mergeCwdMarker && mergeCwdMarker.trim() === (await fs.realpath(root)), `post-landing verification should run in mergeCwd (${root}), got ${mergeCwdMarker ?? "no marker"}`);
+  assert.equal(staleMarker, undefined, "post-landing verification must not run in the stale worktree");
+});

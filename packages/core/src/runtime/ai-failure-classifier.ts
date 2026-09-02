@@ -212,12 +212,20 @@ function sanitizeAiClassification(
     const action = category !== rawCategory
       ? defaultAction(category)
       : pickEnum(raw.suggestedAction, [...ALLOWED_ACTIONS]) ?? defaultAction(category);
+    // Structural invariant: baseline-unrelated means pre-existing debt not
+    // caused by the change. It is never retryable and never repaired.
+    const commandRetryable = category === "baseline-unrelated"
+      ? false
+      : typeof raw.retryable === "boolean" ? raw.retryable : retryable;
+    const commandAction = category === "baseline-unrelated"
+      ? "ignore" as const
+      : constrainAction(action, category);
     return {
       commandName: typeof raw.commandName === "string" ? raw.commandName : "command",
       category,
       reason: typeof raw.reason === "string" && raw.reason.trim() ? raw.reason.trim() : reason,
-      retryable: typeof raw.retryable === "boolean" ? raw.retryable : retryable,
-      suggestedAction: constrainAction(action, category),
+      retryable: commandRetryable,
+      suggestedAction: commandAction,
       implicatedFiles,
     };
   });

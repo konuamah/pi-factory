@@ -71,7 +71,7 @@ These are now implemented across the stage-handoff remediation:
 
 - **Keep interview output structured.** Interview answers are stored in `interview-decisions.json` (question, answer, option, decision request id) and passed to planning, builder context, review, and run inspection.
 - **Represent controller-native stages clearly in plan artifacts.** `plan`, `discover`, and `interview` tasks are marked `done` with `controllerHandled: true` and artifact path refs.
-- **Preserve planner intent as structured fields.** `plan.json` carries an `implementationContract` (target files, non-goals, verification checks, risks, blockers).
+- **Preserve planner intent as structured fields.** `plan.json` carries an `implementationContract` (target files, implementation steps, verification checks, non-goals, risks, blockers).
 - **Fix dependency task handoff.** Builder context resolves `dependsOn` by the same stage-name mapping as the scheduler, with direct task-id fallback.
 - **Make baseline-unrelated completion more visible.** Final approval receives `baselineDebt` (failed command, classification, reason, implicated files) and asks explicitly whether to approve despite it.
 

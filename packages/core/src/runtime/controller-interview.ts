@@ -284,7 +284,8 @@ export function buildPlannerPrompt(
 ): string {
   return [
     "You are an expert Principal Software Architect and Lead Project Planner.",
-    "Your job is to turn the validated Discovery result and project guidance into a clear execution contract for the Builder.",
+    "Your job is to turn the validated Discovery result and project guidance into a precise execution contract for the Builder.",
+    "The Builder should not need to reconstruct the plan by broadly surveying the repository; your handoff must name the files, order of edits, constraints, and verification signals.",
     `Task: ${goal}`,
     "Do not write implementation code.",
     "Do not perform broad repository discovery here; Discovery already gathered the evidence.",
@@ -327,9 +328,9 @@ export function buildPlannerPrompt(
     "4. IMPLEMENTATION SEQUENCE",
     "- Break the work into small, sequential, and testable steps labeled Step 1, Step 2, etc.",
     "- Ensure each step builds logically on the previous one.",
-    "- For each step, say exactly what kind of file/component/config change the Builder should make.",
+    "- For each step, include: affected file(s), exact action, negative path/edge case to preserve, and verification signal.",
     "- Do not make the first step a broad search, location, or file-identification step.",
-    "- A narrow read/inspection step is allowed only for concrete files named by Discovery or explicit new files named by this plan.",
+    "- A narrow read/inspection step is allowed only for concrete files named by Discovery or explicit new files named by this plan, and only to confirm local context before editing.",
     "",
     "5. VERIFICATION CONTRACT",
     "- List the exact checks, commands, or manual assertions that should prove the change works.",
@@ -350,7 +351,7 @@ export function buildPlannerPrompt(
     "- Do not broaden scope beyond the requested outcome.",
     "- Do not propose unrelated documentation rewrites or adjacent cleanup unless clearly required.",
     "- Do not repeat the prompt, Discovery Report, or project guidance context.",
-    "- Keep the plan concise but operational: the Builder should know where to start, what to change, and how to verify.",
+    "- Keep the plan concise but operational: the Builder should know where to start, what to change, what not to break, and how to verify without rebuilding the plan.",
     "- End with exactly: WAITING_FOR_APPROVAL",
   ].filter(Boolean).join("\n");
 }

@@ -33,7 +33,7 @@ Already exists — do not rebuild:
 | Capability | Location |
 | --- | --- |
 | Structured interview artifact | `packages/core/src/runtime/controller-interview.ts:148` writes `interview-decisions.json` |
-| Planner intent contract | `packages/core/src/runtime/artifacts.ts:41` (`implementationContract`: `targetFiles`, `nonGoals`, `verificationChecks`, `risks`, `blockers`) |
+| Planner intent contract | `packages/core/src/runtime/artifacts.ts:41` (`implementationContract`: `targetFiles`, `implementationSteps`, `verificationChecks`, `nonGoals`, `risks`, `blockers`) |
 | Read-only run aggregation | `packages/core/src/runs/show.ts`, `inspect.ts`, `logs-by-id.ts` parse state/summary/plan/verification/repair/reviewer/events/decisions/interview-decisions |
 | Model routing ledger | `packages/core/src/runs/model-ledger.ts` (`ModelLedgerEntry`: role, taskType, taskTypeSource, taskTypeConfidence, requestedModel, resolvedModel, provider, modelSource) |
 | Landing artifacts | `landing-plan.json` (incl. `guardVerdict`), `landing-diagnosis-<n>.json`, `landing-attempts.jsonl`, `final-merge.json`, `completed-tasks.json` |

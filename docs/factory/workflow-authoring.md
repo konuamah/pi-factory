@@ -64,6 +64,8 @@ When the model returns several questions in one decision (separated by `---` in 
 
 Stage dependencies are resolved by stage name into task ids. A task with `dependsOn: [plan]` includes the planner task as dependency context for the builder, and direct task ids also work.
 
+Planner output is also extracted into `plan.json` `implementationContract` fields: `targetFiles`, `implementationSteps`, `verificationChecks`, `nonGoals`, `risks`, and `blockers`. Builder context treats that contract as authoritative and should not broadly rediscover target files when the planner named concrete files and ordered steps.
+
 Use `command` for verification:
 
 - lint

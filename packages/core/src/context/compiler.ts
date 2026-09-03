@@ -66,6 +66,8 @@ export interface ContextCompileRequest {
   planIntent?: {
     targetFiles?: string[];
     nonGoals?: string[];
+    implementationSteps?: string[];
+    verificationChecks?: Array<{ name: string; command?: string; reason?: string }>;
     blockers?: string[];
     risks?: Array<{ risk: string; mitigation?: string }>;
   };
@@ -158,13 +160,13 @@ function renderInstructions(
     renderTaskSection(input.task),
     renderRoleSection(input.role),
     renderDependenciesSection(dependencies),
-    renderSkillsSection(skills),
-    renderFailuresSection(input.failures),
-    renderGuidanceSection(guidance.text),
     renderFileHintsSection(input.fileHints),
     ...renderPlanIntentSection(input.planIntent),
-    ...renderCapabilitiesSection(input.grantedCapabilities, input.deniedCapabilities),
     renderRunDecisionsSection(input.runDecisions),
+    renderSkillsSection(skills),
+    ...renderCapabilitiesSection(input.grantedCapabilities, input.deniedCapabilities),
+    renderFailuresSection(input.failures),
+    renderGuidanceSection(guidance.text),
   ].filter((section): section is string => Boolean(section));
 }
 
@@ -210,13 +212,23 @@ function renderFileHintsSection(fileHints: ContextCompileRequest["fileHints"]): 
 
 function renderPlanIntentSection(planIntent: ContextCompileRequest["planIntent"]): string[] {
   if (!planIntent) return [];
-  const { targetFiles, nonGoals, blockers, risks } = planIntent;
-  const sections: string[] = [];
+  const { targetFiles, nonGoals, implementationSteps, verificationChecks, blockers, risks } = planIntent;
+  const sections: string[] = [
+    "Planner handoff (authoritative): use these file targets, ordered steps, and checks as the implementation contract. Do not re-plan or broadly rediscover target files unless a named file is missing or contradicts the handoff.",
+  ];
   if (targetFiles?.length) sections.push(`Target files:\n${targetFiles.map((file) => `- ${file}`).join("\n")}`);
+  if (implementationSteps?.length) sections.push(`Implementation sequence:\n${implementationSteps.map((step) => `- ${step}`).join("\n")}`);
+  if (verificationChecks?.length) {
+    sections.push(`Verification contract:\n${verificationChecks.map((check) => {
+      const command = check.command ? ` — ${check.command}` : "";
+      const reason = check.reason ? ` (${check.reason})` : "";
+      return `- ${check.name}${command}${reason}`;
+    }).join("\n")}`);
+  }
   if (nonGoals?.length) sections.push(`Non-goals (do not do):\n${nonGoals.map((item) => `- ${item}`).join("\n")}`);
   if (risks?.length) sections.push(`Known risks:\n${risks.map((r) => `- ${r.risk}${r.mitigation ? ` (mitigation: ${r.mitigation})` : ""}`).join("\n")}`);
   if (blockers?.length) sections.push(`Blockers:\n${blockers.map((item) => `- ${item}`).join("\n")}`);
-  return sections;
+  return sections.length > 1 ? sections : [];
 }
 
 function renderCapabilitiesSection(granted: ContextCompileRequest["grantedCapabilities"], denied: ContextCompileRequest["deniedCapabilities"]): string[] {
@@ -277,7 +289,7 @@ function buildRoleRules(role: ContextRole): string | undefined {
     case "planner":
       return "Role rules:\n- Produce architecture and execution guidance only; do not implement code.\n- Do not broaden scope beyond the requested outcome.";
     case "builder":
-      return "Role rules:\n- Keep changes tightly scoped to the requested task.\n- Use the native Pi tools provided to you; do not print DSML/XML/tool-call markup as text.\n- Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.";
+      return "Role rules:\n- Treat the Planner handoff as the authoritative implementation contract.\n- Keep changes tightly scoped to the requested task.\n- Use the native Pi tools provided to you; do not print DSML/XML/tool-call markup as text.\n- Do not broadly search, locate, or identify implementation files when the handoff names concrete target files.\n- Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.";
     case "reviewer":
       return "Role rules:\n- Focus on acceptance, consistency, risk, and scope control.\n- Flag unrelated edits, scope creep, missing verification, and instruction drift explicitly.";
     case "landing":

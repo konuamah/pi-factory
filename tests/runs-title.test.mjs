@@ -157,9 +157,11 @@ test('implementation contract extracts target files from planner prose sections'
   });
 
   const targetFiles = plan.implementationContract?.targetFiles ?? [];
-  assert.ok(targetFiles.includes('src/data/books/beyond-breach.json'), 'new files extracted');
-  assert.ok(targetFiles.includes('src/app/books/beyond-breach/page.tsx'), 'landing page extracted');
+  assert.ok(targetFiles.includes('src/data/books/beyond-breach.json'), 'new files extracted without truncating .json to .js');
+  assert.ok(targetFiles.includes('src/app/books/beyond-breach/page.tsx'), 'landing page extracted without truncating .tsx to .ts');
   assert.ok(targetFiles.includes('src/app/sitemap.ts'), 'modified files extracted');
+  assert.ok(!targetFiles.includes('src/data/books/beyond-breach.js'), 'does not truncate .json extension');
+  assert.ok(!targetFiles.includes('src/app/books/beyond-breach/page.ts'), 'does not truncate .tsx extension');
 });
 
 test('build tasks receive planner contract target files as file hints', () => {

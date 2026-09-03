@@ -134,7 +134,7 @@ Tests:
 
 Problem:
 
-Planner output is prose. Builder and verifier get enough text to act, but Factory cannot reliably inspect target files, non-goals, checks, risks, or blockers.
+Planner output is prose. Builder and verifier get enough text to act, but Factory cannot reliably inspect target files, implementation steps, non-goals, checks, risks, or blockers unless those fields are extracted into a structured contract.
 
 Implementation:
 
@@ -144,6 +144,9 @@ Implementation:
 {
   "targetFiles": ["frontend/landoptima/src/app/LandAnalysis.tsx"],
   "nonGoals": ["Do not change backend APIs."],
+  "implementationSteps": [
+    "Step 1: Edit frontend/landoptima/src/app/LandAnalysis.tsx to add the status bar while preserving existing layout spacing."
+  ],
   "verificationChecks": [
     {
       "name": "lint",
@@ -164,6 +167,7 @@ Implementation:
 - Start with best-effort extraction from existing planner prose.
 - Later, make planner emit both prose and JSON contract.
 - Feed `implementationContract` into builder context, verification planning, review, and approval preview.
+- Builder context should treat `targetFiles`, `implementationSteps`, and `verificationChecks` as the authoritative handoff before falling back to broader guidance.
 
 Primary files:
 

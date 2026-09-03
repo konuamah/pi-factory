@@ -34,6 +34,7 @@ export interface PlannerTask {
 export interface ImplementationContract {
   targetFiles?: string[];
   nonGoals?: string[];
+  implementationSteps?: string[];
   verificationChecks?: Array<{ name: string; command?: string; reason?: string }>;
   risks?: Array<{ risk: string; mitigation?: string }>;
   blockers?: string[];
@@ -142,16 +143,18 @@ export function extractImplementationContract(
       return inline.length > 0 ? inline : undefined;
     })();
   const nonGoals = extractBulletSection(planText, "non-goals", "non goals");
+  const implementationSteps = extractImplementationSteps(planText);
   const blockers = extractBulletSection(planText, "blockers", "blocked");
   const risks = extractRisks(planText);
   const verificationChecks = extractVerificationChecks(planText);
 
-  if (!targetFiles && !nonGoals && !blockers && !risks && !verificationChecks) {
+  if (!targetFiles && !nonGoals && !implementationSteps && !blockers && !risks && !verificationChecks) {
     return undefined;
   }
   return {
     ...(targetFiles?.length ? { targetFiles } : {}),
     ...(nonGoals?.length ? { nonGoals } : {}),
+    ...(implementationSteps?.length ? { implementationSteps } : {}),
     ...(verificationChecks?.length ? { verificationChecks } : {}),
     ...(risks?.length ? { risks } : {}),
     ...(blockers?.length ? { blockers } : {}),
@@ -183,10 +186,11 @@ function extractFileList(text: string | undefined, section: string): string[] | 
     // line — a heading may be followed by a blank line before its bullets.
     if (!line) continue;
     if (/^#{1,6}\s/.test(line) || /^\d+\.\s+[A-Z]/.test(line)) break;
-    const cleaned = line.replace(/^[-*]\s*/, "").trim().replace(/^`|`$/g, "");
+    const cleaned = line.replace(/^[-*]\s*/, "").trim();
     if (/^[a-z ]*$/.test(cleaned)) break;
-    if (/\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|sql|json|ya?ml|md|html|css|scss)$/i.test(cleaned)) {
-      files.push(cleaned);
+    const file = extractFirstFilePath(cleaned);
+    if (file) {
+      files.push(file);
     }
   }
   return files.length > 0 ? files : undefined;
@@ -204,7 +208,7 @@ export function extractInlineFilePaths(text: string | undefined): string[] {
   // Root-level files (index.html, script.js) have no directory prefix; prefixed
   // paths (src/app/x.ts, tests/verify-page.mjs) do. Match a file path (with
   // optional backtick quoting) ending in a known source extension.
-  const pathPattern = /`?[\w@][\w./-]*\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|sql|json|ya?ml|md|html|css|scss)`?/gi;
+  const pathPattern = /`?[\w@][\w./-]*\.(tsx|jsx|mjs|cjs|json|ya?ml|scss|html|css|ts|js|py|go|rs|sql|md)`?/gi;
   for (const match of text.matchAll(pathPattern)) {
     const cleaned = match[0].replace(/^`|`$/g, "");
     if (cleaned.length > 3 && cleaned.length < 200 && !cleaned.includes("://")) {
@@ -212,6 +216,11 @@ export function extractInlineFilePaths(text: string | undefined): string[] {
     }
   }
   return [...paths];
+}
+
+function extractFirstFilePath(value: string): string | undefined {
+  const match = value.match(/`?([\w@][\w./-]*\.(tsx|jsx|mjs|cjs|json|ya?ml|scss|html|css|ts|js|py|go|rs|sql|md))`?/i);
+  return match?.[1];
 }
 
 function extractBulletSection(text: string | undefined, ...sectionNames: string[]): string[] | undefined {
@@ -246,6 +255,39 @@ function extractBulletSection(text: string | undefined, ...sectionNames: string[
     }
   }
   return items.length > 0 ? items : undefined;
+}
+
+function extractImplementationSteps(text: string | undefined): string[] | undefined {
+  if (!text) return undefined;
+  const lines = text.split(/\r?\n/);
+  let startLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim().replace(/^#{1,6}\s*/, "");
+    if (/^(\d+\.\s*)?implementation sequence\b/i.test(line)) {
+      startLine = i;
+      break;
+    }
+  }
+  if (startLine < 0) return undefined;
+
+  const steps: string[] = [];
+  for (const rawLine of lines.slice(startLine + 1)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^#{1,6}\s/.test(line) || /^\d+\.\s+[A-Z]/.test(line)) break;
+    const cleaned = line
+      .replace(/^[-*]\s*/, "")
+      .replace(/^\d+\.\s*/, "")
+      .trim();
+    if (/^step\s+\d+\b/i.test(cleaned) || steps.length > 0) {
+      steps.push(cleaned);
+      continue;
+    }
+    if (cleaned && !/^none\.?$/i.test(cleaned)) {
+      steps.push(cleaned);
+    }
+  }
+  return steps.length > 0 ? steps : undefined;
 }
 
 function extractRisks(text: string | undefined): ImplementationContract["risks"] {

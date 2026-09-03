@@ -242,7 +242,8 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(plannerPrompt, /architecture-planning@1\.0\.0/);
     assert.match(plannerPrompt, /Validated Discovery result \(authoritative pre-planning evidence\):/);
     assert.match(plannerPrompt, /src\/index\.ts/);
-    assert.match(plannerPrompt, /execution contract for the Builder/);
+    assert.match(plannerPrompt, /precise execution contract for the Builder/);
+    assert.match(plannerPrompt, /Builder should not need to reconstruct the plan/);
     assert.match(plannerPrompt, /Do not perform broad repository discovery here/);
     assert.match(plannerPrompt, /Do not ask Builder to broadly find, locate, search for, or identify implementation files/);
     assert.match(plannerPrompt, /PLANNING DECISIONS/);
@@ -250,11 +251,13 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(plannerPrompt, /VERIFICATION CONTRACT/);
     assert.match(plannerPrompt, /RISKS AND BLOCKERS/);
     assert.match(plannerPrompt, /Name the confirmed files, components, data sources, commands, or config surfaces/);
+    assert.match(plannerPrompt, /For each step, include: affected file\(s\), exact action, negative path\/edge case to preserve, and verification signal/);
     assert.match(plannerPrompt, /Do not make the first step a broad search/);
     assert.match(plannerPrompt, /Do not broaden scope beyond the requested outcome\./);
     assert.match(builderPrompt, /Selected skills:/);
     assert.match(builderPrompt, /implementation-task@1\.0\.0/);
     assert.match(builderPrompt, /Likely files: src\/index\.ts/);
+    assert.match(builderPrompt, /Treat the Planner handoff as the authoritative implementation contract/);
     assert.match(builderPrompt, /Use the native Pi tools provided to you; do not print DSML\/XML\/tool-call markup as text/);
     assert.match(builderPrompt, /Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits/);
     assert.match(reviewerPrompt, /Selected skills:/);
@@ -3186,6 +3189,11 @@ test('planner intent is extracted into plan.json and reaches builder context', a
             '- src/app/page.tsx',
             'Non-goals:',
             '- Do not change backend APIs.',
+            'Implementation Sequence:',
+            '- Step 1: Edit src/components/StatusBar.tsx to render the new status message; preserve existing layout class names; verify no overlap.',
+            '- Step 2: Edit src/app/page.tsx to mount StatusBar near the top of the page; preserve current content order; verify the import path compiles.',
+            'Verification Contract:',
+            '- npm run build - proves the status bar import compiles',
             'Risks:',
             '- Status bar overlaps content.',
             'WAITING_FOR_APPROVAL',
@@ -3219,10 +3227,17 @@ test('planner intent is extracted into plan.json and reaches builder context', a
     assert.ok(planJson.implementationContract);
     assert.ok(planJson.implementationContract.targetFiles?.includes('src/components/StatusBar.tsx'));
     assert.ok(planJson.implementationContract.nonGoals?.some((g) => /backend API/.test(g)));
+    assert.ok(planJson.implementationContract.implementationSteps?.some((step) => /Edit src\/components\/StatusBar\.tsx/.test(step)));
+    assert.ok(planJson.implementationContract.verificationChecks?.some((check) => /npm run build/.test(check.command ?? '')));
 
     const builderPrompt = calls.find((call) => call.label === 'builder')?.prompt ?? '';
+    assert.match(builderPrompt, /Planner handoff \(authoritative\)/);
     assert.match(builderPrompt, /Target files:/);
     assert.match(builderPrompt, /src\/components\/StatusBar\.tsx/);
+    assert.match(builderPrompt, /Implementation sequence:/);
+    assert.match(builderPrompt, /Edit src\/components\/StatusBar\.tsx to render the new status message/);
+    assert.match(builderPrompt, /Verification contract:/);
+    assert.match(builderPrompt, /npm run build - proves the status bar import compiles/);
     assert.match(builderPrompt, /Non-goals/);
   });
 });

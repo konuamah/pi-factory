@@ -18,13 +18,14 @@ The benchmark measures Factory **orchestration**, not just whether code got writ
 
 ## Why Bombsite, and what it can't test
 
-`D:\projects\bombsite` is 14 tracked files / ~61K, Factory-configured (`provider: commandcode`, `approval.finalMerge: required`, worktrees enabled), with 11 real run directories including the four failure modes fixed on 2026-08-30 and one successful landing. Fixtures copy into a container in seconds.
+`/Users/slammtechnologies/Documents/GitHub/bombsite` is the real doctor-portfolio stress site (Dr. Kwame Boateng, Family Medicine, M.D. University of Ghana Medical School, Board Certified Family Medicine, 12 years; `index.html` + `script.js`, `.factory/config.yaml` with `lint`/`test` commands, `factory.yaml` with the `discover → interview → plan → build → verify → review → approval` workflow, `tests/verify-page.mjs`). Fixtures copy into a container in seconds. The Harbor task fixtures under `harbor/tasks/bombsite-0{1..6}` keep self-contained token-filled copies; this repo is the real, filled-in content.
 
 Its `factory.yaml` workflow (`safe-feature`: plan → build → review → approval) has **no interview stage**, no `package.json`, no configured commands, and no nested packages. So three consequences:
 
-- Interview-driven tasks need a benchmark workflow variant that adds an `interview` stage (pattern exists: pi-factory's own `factory.yaml` `grilled-feature`, and LandOptima's `grilled-dev`).
+The real repo's `factory.yaml` now ships the `interviewed-feature` workflow (discover → interview → plan → build → verify → review → approval) with the `grilling` interview skill, so it is directly usable for interview-driven stress runs. Two remaining consequences still apply:
+
 - `adaptationQuality` would score an empty set and silently report 1.0. Each task that measures adaptation must **seed its own repo reality** (a `package.json` with stale scripts, broken lint debt, a nested app dir).
-- Bombsite cannot produce interview data at all. The only real interview fixtures on this machine are LandOptima runs; keep 2–3 of those as interview fixtures.
+- The real repo itself carries no recorded interview runs yet; the Harbor task fixtures keep their scripted `interview.json` answers, and LandOptima runs remain the source of historical interview fixtures.
 
 ## Verified starting state (2026-08-30)
 

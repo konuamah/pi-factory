@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildPlanArtifact, listFactoryRuns, showFactoryRun, smartRunTitle, writePrototypeSummaryArtifact } from '../packages/core/dist/index.js';
+import { buildPlanArtifact, listFactoryRuns, showFactoryRun, smartRunTitle, taskObjectiveForPrompt, writePrototypeSummaryArtifact } from '../packages/core/dist/index.js';
 
 test('smartRunTitle shortens long natural prompts deterministically', () => {
   assert.equal(
@@ -25,6 +25,24 @@ test('smartRunTitle strips command noise and file refs', () => {
 
 test('smartRunTitle falls back for empty prompts', () => {
   assert.equal(smartRunTitle(' @@@ --workflow=safe '), 'Untitled run');
+});
+
+test('taskObjectiveForPrompt strips nested planner prompt templates for model prompts', () => {
+  const wrapped = [
+    '# Planner Mode',
+    '',
+    'You are the Lead Software Architect & Planner.',
+    '',
+    'Your job for this task — **Improve planner prompt handoff...',
+    '',
+    '# Lead Software Architect & Planner',
+    'Analyze the users request and produce a plan.',
+    'Do **not** write production code.** — is to analyze the codebase and produce a precise implementation plan.',
+  ].join('\n');
+
+  assert.equal(taskObjectiveForPrompt(wrapped), 'Improve planner prompt handoff');
+  assert.equal(smartRunTitle(wrapped), 'Improve planner prompt handoff');
+  assert.equal(taskObjectiveForPrompt('Improve planner prompt handoff\n\n# Planner Mode\nDo not write code.'), 'Improve planner prompt handoff');
 });
 
 test('summary writes title while list keeps old runs compatible', async () => {

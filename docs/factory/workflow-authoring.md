@@ -66,6 +66,8 @@ Stage dependencies are resolved by stage name into task ids. A task with `depend
 
 Planner output is also extracted into `plan.json` `implementationContract` fields: `targetFiles`, `implementationSteps`, `verificationChecks`, `nonGoals`, `risks`, and `blockers`. Builder context treats that contract as authoritative and should not broadly rediscover target files when the planner named concrete files and ordered steps.
 
+Factory preserves the raw user goal in run artifacts for audit, but model-facing task prompts use a cleaned task objective when the raw goal contains a pasted Pi prompt template such as Planner Mode or Builder Mode. This prevents role-wrapper text like "do not write production code" from leaking into Builder prompts while keeping the original request inspectable.
+
 Use `command` for verification:
 
 - lint

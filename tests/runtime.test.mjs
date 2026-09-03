@@ -283,6 +283,50 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
   });
 });
 
+test('prompt-template wrappers are stripped from model-facing task objectives', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const wrappedGoal = [
+      '# Planner Mode',
+      '',
+      'You are the Lead Software Architect & Planner.',
+      '',
+      'Your job for this task — **Improve planner prompt handoff...',
+      '',
+      '# Lead Software Architect & Planner',
+      'Analyze the users request and existing codebase.',
+      'Do **not** write or modify production code.** — is to analyze the codebase and produce a precise implementation plan.',
+      '',
+      '## Response Format',
+      '- Understanding & Scope',
+    ].join('\n');
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = makeExecutor('builder', calls);
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: wrappedGoal,
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const discoveryPrompt = calls.find((call) => call.label === 'discovery')?.prompt ?? '';
+    const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
+    const builderPrompt = calls.find((call) => call.label === 'builder')?.prompt ?? '';
+    assert.match(discoveryPrompt, /User task: Improve planner prompt handoff/);
+    assert.match(plannerPrompt, /Task: Improve planner prompt handoff/);
+    assert.match(builderPrompt, /Goal: Improve planner prompt handoff/);
+    for (const prompt of [discoveryPrompt, plannerPrompt, builderPrompt]) {
+      assert.doesNotMatch(prompt, /Do \*\*not\*\* write or modify production code/);
+      assert.doesNotMatch(prompt, /Response Format/);
+    }
+    const summary = await readJson(path.join(result.runDir, 'summary.json'));
+    assert.equal(summary.goal, wrappedGoal);
+  });
+});
+
 test('trivial final review is deterministic and skips the reviewer executor', async () => {
   await withTempProject(async (root) => {
     await execFile('git', ['add', '.'], { cwd: root });

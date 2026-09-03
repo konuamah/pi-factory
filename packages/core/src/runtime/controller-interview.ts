@@ -9,6 +9,7 @@ import { applyWorkflowSkillPolicy } from "./skills.js";
 import { failBuiltInSkillPolicy } from "./controller-helpers.js";
 import { slugifyGoal } from "./skills.js";
 import { renderSkillBundleForPrompt } from "./prompts.js";
+import { taskObjectiveForPrompt } from "../runs/title.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { RunFactoryControllerInput, FactoryRunProgressEvent, TaskWorkspaceSelection, InterviewDecisionRecord } from "./controller.js";
@@ -179,6 +180,7 @@ export function buildInterviewPrompt(input: {
   skillBundleText?: string;
   discoveryReport?: string;
 }): string {
+  const taskObjective = taskObjectiveForPrompt(input.goal);
   return [
     "Role: Interview",
     "",
@@ -186,7 +188,7 @@ export function buildInterviewPrompt(input: {
     "Do not implement code. Do not write the implementation plan.",
     "If no user interview is needed, return exactly: INTERVIEW_COMPLETE",
     "",
-    `Task: ${input.goal}`,
+    `Task: ${taskObjective}`,
     `Interview stage: ${input.stage.name}`,
     input.stage.description ? `Stage description: ${input.stage.description}` : undefined,
     input.skillBundleText ? `Selected skills:\n${input.skillBundleText}` : undefined,
@@ -204,6 +206,7 @@ export function buildDiscoveryPrompt(
   skillBundleText?: string,
   evidencePacket?: DiscoveryEvidencePacket,
 ): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
   return [
     "Role: Discovery",
     "",
@@ -228,7 +231,7 @@ export function buildDiscoveryPrompt(
     "- Capture only unknowns that remain after read-only inspection.",
     "- Prefer files from candidate_files. You may list another file only if it appears in observed_files.",
     "",
-    `User task: ${goal}`,
+    `User task: ${taskObjective}`,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     evidencePacket ? `Repository evidence packet (authoritative):\n${renderDiscoveryEvidencePacket(evidencePacket)}` : undefined,
@@ -282,11 +285,12 @@ export function buildPlannerPrompt(
   discoveryReport?: string,
   interviewContext?: string,
 ): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
   return [
     "You are an expert Principal Software Architect and Lead Project Planner.",
     "Your job is to turn the validated Discovery result and project guidance into a precise execution contract for the Builder.",
     "The Builder should not need to reconstruct the plan by broadly surveying the repository; your handoff must name the files, order of edits, constraints, and verification signals.",
-    `Task: ${goal}`,
+    `Task: ${taskObjective}`,
     "Do not write implementation code.",
     "Do not perform broad repository discovery here; Discovery already gathered the evidence.",
     "Produce a concrete, repository-grounded implementation plan and then stop.",

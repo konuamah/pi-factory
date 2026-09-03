@@ -7,10 +7,12 @@ import type { AgentExecutionResult } from "./interfaces.js";
 import type { SkillBundleSelection } from "../skills/index.js";
 import type { InterviewDecisionRecord } from "./controller.js";
 import type { ReviewSurface } from "./review-surface.js";
+import { taskObjectiveForPrompt } from "../runs/title.js";
 
 export function buildCompiledPrompt(goal: string, compiled: CompiledContext, workspacePath?: string): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
   const sections = [
-    `Goal: ${goal}`,
+    `Goal: ${taskObjective}`,
     ...(workspacePath ? [`Working directory: ${workspacePath}`] : []),
     ...compiled.instructions,
     ...(compiled.role === "builder" ? [
@@ -54,8 +56,9 @@ export function buildBuilderPrompt(
   constitutionContext?: string,
   skillBundleText?: string,
 ): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
   return [
-    `Goal: ${goal}`,
+    `Goal: ${taskObjective}`,
     `Task id: ${task.id}`,
     `Task stage: ${task.stage}`,
     `Task title: ${task.title}`,
@@ -77,8 +80,9 @@ export function buildIntegrationRepairPrompt(
   constitutionContext?: string,
   skillBundleText?: string,
 ): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
   return [
-    `Goal: ${goal}`,
+    `Goal: ${taskObjective}`,
     `Integration conflict while merging branch: ${branch}`,
     `Conflicting files: ${conflictingFiles.join(", ")}`,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
@@ -96,13 +100,14 @@ export function buildRepairPrompt(
   skillBundleText?: string,
   generalFix?: string,
 ): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
   const failures = verification.commands
     .filter((command) => command.status === "failed")
     .map((command) => `${command.name}: ${firstNonEmpty(command.stderr, command.stdout, "failed")}`)
     .join("\n");
 
   return [
-    `Goal: ${goal}`,
+    `Goal: ${taskObjective}`,
     `Verification status: ${verification.overallStatus}`,
     `Verification cwd: ${verification.cwd}`,
     failures ? `Failures:\n${failures}` : "Failures: none recorded",
@@ -144,12 +149,13 @@ export function buildReviewerPrompt(
   interviewDecisions?: InterviewDecisionRecord[],
   reviewSurface?: ReviewSurface,
 ): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
   const commandStatuses = verification.commands
     .map((command) => `${command.name}: ${command.status}`)
     .join("\n");
 
   return [
-    `Goal: ${goal}`,
+    `Goal: ${taskObjective}`,
     `Verification status: ${verification.overallStatus}`,
     commandStatuses ? `Command results:\n${commandStatuses}` : "Command results: none",
     reviewSurface ? renderReviewSurface(reviewSurface) : undefined,

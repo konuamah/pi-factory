@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { taskObjectiveForPrompt } from "../runs/title.js";
 
 export interface ProjectGuidanceContext {
   text?: string;
@@ -78,15 +79,16 @@ export async function selectConstitutionContext(input: {
 }
 
 function buildRoleHint(role: "planner" | "builder" | "reviewer" | "repair", goal: string): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
   switch (role) {
     case "planner":
-      return `Use the repository guidance to plan work for: ${goal}`;
+      return `Use the repository guidance to plan work for: ${taskObjective}`;
     case "builder":
-      return `Use the repository guidance while implementing: ${goal}`;
+      return `Use the repository guidance while implementing: ${taskObjective}`;
     case "reviewer":
-      return `Use the repository guidance while reviewing work for: ${goal}`;
+      return `Use the repository guidance while reviewing work for: ${taskObjective}`;
     case "repair":
-      return `Use the repository guidance while repairing verification failures for: ${goal}`;
+      return `Use the repository guidance while repairing verification failures for: ${taskObjective}`;
   }
 }
 

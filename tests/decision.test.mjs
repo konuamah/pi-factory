@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { appendDecisionLedgerEntry, readDecisionLedger, findPendingDecision } from '../packages/core/dist/index.js';
+import { appendDecisionLedgerEntry, readDecisionLedger, findPendingDecision, parseInterviewQuestions } from '../packages/core/dist/index.js';
 
 async function withTempDir(fn) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-factory-decision-'));
@@ -44,4 +44,47 @@ test('decision ledger persists request then resolution and finds pending', async
     assert.equal(entries[1].type, 'resolution');
     assert.equal(await findPendingDecision(root), undefined);
   });
+});
+
+test('parseInterviewQuestions extracts explicit options and recommendation', () => {
+  const questions = parseInterviewQuestions([
+    'Q1 - Search strategy: Which implementation should govern?',
+    '',
+    'Options:',
+    '[A] MongoDB text search — Simpler and uses existing indexes',
+    '[B] Regex fallback — Broader but less precise',
+    '',
+    '-> Prefer MongoDB text search unless ranking semantics require more.',
+  ].join('\n'));
+
+  assert.equal(questions.length, 1);
+  assert.match(questions[0].prompt, /Search strategy/);
+  assert.equal(questions[0].options.length, 2);
+  assert.deepEqual(questions[0].options[0], {
+    id: 'a',
+    label: 'MongoDB text search',
+    description: 'Simpler and uses existing indexes',
+  });
+  assert.deepEqual(questions[0].options[1], {
+    id: 'b',
+    label: 'Regex fallback',
+    description: 'Broader but less precise',
+  });
+  assert.match(questions[0].recommendation ?? '', /Prefer MongoDB/);
+});
+
+test('parseInterviewQuestions ignores malformed options blocks and preserves free-text prompt', () => {
+  const questions = parseInterviewQuestions([
+    'Q1: Which clients should this cover?',
+    '',
+    'Options:',
+    'Web and mobile',
+    '',
+    '-> Both if parity is expected.',
+  ].join('\n'));
+
+  assert.equal(questions.length, 1);
+  assert.equal(questions[0].options.length, 0);
+  assert.match(questions[0].prompt, /Web and mobile/);
+  assert.match(questions[0].recommendation ?? '', /Both if parity/);
 });

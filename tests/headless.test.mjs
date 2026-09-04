@@ -14,9 +14,11 @@ const execFile = promisify(execFileCb);
 test('parseScriptedDecisionAnswers rejects malformed files loudly', () => {
   assert.throws(() => parseScriptedDecisionAnswers('nope'), /not valid JSON/);
   assert.throws(() => parseScriptedDecisionAnswers('[]'), /must be a JSON object/);
-  assert.throws(() => parseScriptedDecisionAnswers('{"a": 1}'), /must be a non-empty answer string/);
+  assert.throws(() => parseScriptedDecisionAnswers('{"a": 1}'), /must be a non-empty answer string or answer object/);
   assert.throws(() => parseScriptedDecisionAnswers('{"a": "  "}'), /must be a non-empty answer string/);
+  assert.throws(() => parseScriptedDecisionAnswers('{"a": {}}'), /must provide optionId, feedback, or answers/);
   assert.deepEqual(parseScriptedDecisionAnswers('{"INTERVIEW":"yes"}'), { INTERVIEW: 'yes' });
+  assert.deepEqual(parseScriptedDecisionAnswers('{"INTERVIEW":{"optionId":"A"}}'), { INTERVIEW: { optionId: 'a' } });
 });
 
 test('createScriptedDecisionHandler matches by title, source, or wildcard and refuses gaps', async () => {
@@ -44,6 +46,53 @@ test('createScriptedDecisionHandler matches by title, source, or wildcard and re
   await assert.rejects(
     () => createScriptedDecisionHandler({ 'something-else': 'x' })(request),
     /no entry for decision "Interview: grill"/,
+  );
+});
+
+test('createScriptedDecisionHandler formats structured interview option answers', async () => {
+  const request = {
+    id: 'req-2',
+    title: 'Interview: grill',
+    question: [
+      'Q1 - Search strategy: Which implementation should govern?',
+      '',
+      'Options:',
+      '[A] MongoDB text search — Simpler and uses existing indexes',
+      '[B] Regex fallback — Broader but less precise',
+    ].join('\n'),
+    options: [{ id: 'answered', label: 'Use my answer' }],
+    source: 'INTERVIEW',
+    reason: 'USER_PREFERENCE',
+  };
+
+  const handler = createScriptedDecisionHandler({ interview: { optionId: 'b' } });
+  const resolved = await handler(request);
+  assert.equal(resolved.optionId, 'answered');
+  assert.match(resolved.feedback ?? '', /Choice1: \[B\] Regex fallback/);
+  assert.match(resolved.feedback ?? '', /A1: Regex fallback/);
+  assert.equal(resolved.interviewQuestions?.[0]?.selectedOptionId, 'b');
+  assert.equal(resolved.interviewQuestions?.[0]?.selectedOptionLabel, 'Regex fallback');
+  assert.equal(resolved.interviewQuestions?.[0]?.finalAnswer, 'Regex fallback');
+});
+
+test('createScriptedDecisionHandler rejects unknown structured interview option ids', async () => {
+  const request = {
+    id: 'req-3',
+    title: 'Interview: grill',
+    question: [
+      'Q1 - Search strategy: Which implementation should govern?',
+      '',
+      'Options:',
+      '[A] MongoDB text search',
+    ].join('\n'),
+    options: [{ id: 'answered', label: 'Use my answer' }],
+    source: 'INTERVIEW',
+    reason: 'USER_PREFERENCE',
+  };
+
+  await assert.rejects(
+    () => createScriptedDecisionHandler({ interview: { optionId: 'z' } })(request),
+    /unknown optionId "z"/,
   );
 });
 
@@ -173,7 +222,6 @@ test('headless scripted decisions drive an interview workflow to completion', as
       requestDecision: handler,
     });
 
-    // Gate 1: the run used to die with "no requestDecision handler is configured".
     assert.ok(calls.some((call) => call.label === 'interview'));
     assert.ok(calls.some((call) => call.label === 'builder'));
     const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
@@ -185,6 +233,7 @@ test('headless scripted decisions drive an interview workflow to completion', as
     assert.equal(interviewDecisions[0].stage, 'grill');
     assert.match(interviewDecisions[0].question, /Q1: Which search behavior/);
     assert.match(interviewDecisions[0].answer, /MongoDB text search only/);
+    assert.equal(interviewDecisions[0].questions, undefined);
     assert.ok(result.runId);
   });
 });

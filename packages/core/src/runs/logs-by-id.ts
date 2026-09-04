@@ -45,6 +45,16 @@ export interface FactoryRunLogsByIdResult {
     question: string;
     optionId: string;
     answer?: string;
+    questions?: Array<{
+      index: number;
+      prompt: string;
+      options?: Array<{ id: string; label: string; description?: string }>;
+      recommendation?: string;
+      selectedOptionId?: string;
+      selectedOptionLabel?: string;
+      customAnswer?: string;
+      finalAnswer: string;
+    }>;
     decisionRequestId: string;
   }>;
 }

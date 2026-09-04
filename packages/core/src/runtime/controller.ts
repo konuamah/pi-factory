@@ -28,6 +28,7 @@ import {
 import type { AgentExecutionResult, AgentExecutor } from "./interfaces.js";
 import { buildPlanArtifact, extractImplementationContract, type ImplementationContract, type PlannerTask } from "./planner.js";
 import type { CapabilityPolicy, EffectiveFactoryConfig, ModelRole, ModelSelection, WorkflowStage } from "@factory/schemas";
+import type { InterviewQuestionDecision } from "../decisions/index.js";
 import {
   capabilitiesToToolNames,
   defaultCapabilitiesForRole,
@@ -70,6 +71,7 @@ export interface InterviewDecisionRecord {
   question: string;
   optionId: string;
   answer?: string;
+  questions?: InterviewQuestionDecision[];
   decisionRequestId: string;
 }
 

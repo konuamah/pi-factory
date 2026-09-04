@@ -142,6 +142,7 @@ export async function runInterviewStages(input: {
       question: output,
       optionId: decision.optionId,
       answer: decision.feedback,
+      ...(decision.interviewQuestions?.length ? { questions: decision.interviewQuestions } : {}),
       decisionRequestId: decision.requestId,
     });
   }

@@ -33,9 +33,21 @@ export interface DecisionRequest {
   reason: DecisionReason;
 }
 
+export interface InterviewQuestionDecision {
+  index: number;
+  prompt: string;
+  options?: DecisionOption[];
+  recommendation?: string;
+  selectedOptionId?: string;
+  selectedOptionLabel?: string;
+  customAnswer?: string;
+  finalAnswer: string;
+}
+
 export interface DecisionResult {
   requestId: string;
   optionId: string;
   feedback?: string;
+  interviewQuestions?: InterviewQuestionDecision[];
   decidedAt: string;
 }

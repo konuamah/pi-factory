@@ -3193,6 +3193,17 @@ test('structured interview decisions are persisted and reach builder context', a
         requestId: request.id,
         optionId: 'answered',
         feedback: 'Preserve the current search behavior.',
+        interviewQuestions: [{
+          index: 1,
+          prompt: 'Q1: Which search behavior should govern?',
+          options: [
+            { id: 'a', label: 'MongoDB text search' },
+            { id: 'b', label: 'Regex fallback' },
+          ],
+          selectedOptionId: 'a',
+          selectedOptionLabel: 'MongoDB text search',
+          finalAnswer: 'MongoDB text search',
+        }],
         decidedAt: new Date().toISOString(),
       }),
     });
@@ -3206,6 +3217,8 @@ test('structured interview decisions are persisted and reach builder context', a
     assert.equal(interviewArtifact.length, 1);
     assert.equal(interviewArtifact[0].stage, 'grill');
     assert.equal(interviewArtifact[0].answer, 'Preserve the current search behavior.');
+    assert.equal(interviewArtifact[0].questions?.[0]?.selectedOptionId, 'a');
+    assert.equal(interviewArtifact[0].questions?.[0]?.selectedOptionLabel, 'MongoDB text search');
 
     // Builder prompt contains the human interview decision.
     const builderPrompt = calls.find((call) => call.label === 'builder')?.prompt ?? '';

@@ -103,6 +103,14 @@ Implementation:
     "question": "What should the sidebar contain?",
     "optionId": "answered",
     "answer": "Add navigation links and keep it collapsible.",
+    "questions": [
+      {
+        "index": 1,
+        "prompt": "What should the sidebar contain?",
+        "customAnswer": "Add navigation links and keep it collapsible.",
+        "finalAnswer": "Add navigation links and keep it collapsible."
+      }
+    ],
     "decisionRequestId": "run_id-interview"
   }
 ]

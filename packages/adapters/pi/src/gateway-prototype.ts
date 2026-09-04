@@ -165,6 +165,10 @@ export async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommand
     } else if (executionId.includes("reviewer")) {
       panel.setRole("reviewer");
     }
+    const toolLine = piExecutors.formatToolActivityLine(event);
+    if (toolLine) {
+      panel.append(toolLine);
+    }
     if (event.text) {
       panel.appendStream(event.text);
     }

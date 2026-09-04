@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildPlanArtifact, listFactoryRuns, showFactoryRun, smartRunTitle, taskObjectiveForPrompt, writePrototypeSummaryArtifact } from '../packages/core/dist/index.js';
+import { buildPlanArtifact, listFactoryRuns, readFactoryRunLogs, showFactoryRun, smartRunTitle, taskObjectiveForPrompt, writePrototypeSummaryArtifact } from '../packages/core/dist/index.js';
 
 test('smartRunTitle shortens long natural prompts deterministically', () => {
   assert.equal(
@@ -133,12 +133,29 @@ test('showFactoryRun surfaces the latest task failure reason', async () => {
       ].map((event) => JSON.stringify(event)).join('\n') + '\n',
       'utf8',
     );
+    await fs.writeFile(
+      path.join(runDir, 'builder-execution-task-4.json'),
+      JSON.stringify({
+        executionId: 'run_1-builder-task-4',
+        status: 'failed',
+        outputText: '',
+        events: [
+          { type: 'tool.started', at: 10, data: { toolName: 'read', taskId: 'task-4', preview: 'src/app/page.tsx' } },
+          { type: 'tool.completed', at: 20, data: { toolName: 'read', taskId: 'task-4', elapsedMs: 10 } },
+          { type: 'tool.started', at: 30, data: { toolName: 'bash', taskId: 'task-4', preview: 'npm run lint' } },
+        ],
+      }),
+      'utf8',
+    );
 
     const shown = await showFactoryRun(root, 'run_1');
+    const logs = await readFactoryRunLogs(root, 'run_1');
     assert.equal(shown.runFailure?.reason, 'VERIFICATION_PLANNER_INVALID_JSON: Verification planner returned invalid structured JSON.');
     assert.equal(shown.taskFailure?.taskId, 'task-4');
     assert.equal(shown.taskFailure?.reason, 'Agent execution made no progress for 60s (model-timeout)');
     assert.equal(shown.taskFailure?.builderExecutionPath, '/tmp/builder.json');
+    assert.deepEqual(shown.toolActivity, ['read task-4: src/app/page.tsx', 'read task-4 done (10ms)', 'bash task-4: npm run lint']);
+    assert.deepEqual(logs.toolActivity, shown.toolActivity);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

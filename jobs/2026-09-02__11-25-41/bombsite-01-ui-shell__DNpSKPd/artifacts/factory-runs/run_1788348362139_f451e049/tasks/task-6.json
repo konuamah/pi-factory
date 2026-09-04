@@ -1,0 +1,11 @@
+{
+  "id": "task-6",
+  "title": "Review for: Make portfolio usable on phone doctor s",
+  "stage": "review",
+  "status": "pending",
+  "dependsOn": [
+    "verify"
+  ],
+  "type": "agent",
+  "role": "reviewer"
+}

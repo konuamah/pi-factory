@@ -1,0 +1,21 @@
+{
+  "mergeBaseBranch": "main",
+  "candidateBranch": "make-the-portfolio-usable-on-a-phone-the-1788348362074",
+  "candidateSha": "a354197def82896a627074bdffcf2fc6e0006e63",
+  "mergeCwd": "/app",
+  "targetBranch": "main",
+  "sourceBranch": "make-the-portfolio-usable-on-a-phone-the-1788348362074",
+  "strategy": "merge",
+  "status": "landed",
+  "outcome": "landed",
+  "targetHeadBefore": "9de50ec7188a8093c926e81a98b3f7729daae978",
+  "targetHeadAfter": "a354197def82896a627074bdffcf2fc6e0006e63",
+  "postLandingVerification": {
+    "status": "passed",
+    "commands": [
+      "lint",
+      "build"
+    ],
+    "repairAttempted": false
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "scores": {
+    "overall": 0.964,
+    "interviewQuality": 1,
+    "handoffQuality": 0.961,
+    "executionQuality": 1,
+    "mergeQuality": 0.833,
+    "adaptationQuality": 1,
+    "scopeQuality": null,
+    "timeEfficiency": null
+  },
+  "judge": {
+    "scores": {
+      "interviewQuality": 0.92,
+      "handoffQuality": 0.84,
+      "executionQuality": 1,
+      "mergeQuality": 0.95,
+      "adaptationQuality": 1,
+      "scopeQuality": 1,
+      "timeEfficiency": 0.9
+    },
+    "reasoning": {
+      "interviewQuality": "The interview asked the key constraint and behavior questions (tabs, mobile nav shape, active indicator, hash behavior) and captured answers that matched the task.",
+      "handoffQuality": "The plan preserved the interview decisions into the implementation scope and approach, and the verified result stayed within the two target files.",
+      "executionQuality": "The run completed successfully: both configured checks passed and the change landed.",
+      "mergeQuality": "The merge was marked landed after successful verification, with no evidence of an unsafe or misdiagnosed landing.",
+      "adaptationQuality": "Verification used the repo’s actual configured commands, `node --check script.js` and `node tests/verify-page.mjs`, rather than generic checks.",
+      "scopeQuality": "Only `index.html` and `script.js` were changed, matching the stated target scope.",
+      "timeEfficiency": "The task was completed with a small, direct verification set and no visible wasted work in the evidence."
+    },
+    "warnings": []
+  }
+}

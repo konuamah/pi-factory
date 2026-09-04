@@ -1,4 +1,5 @@
 export * from "./executor.js";
+export { formatToolActivityLine } from "./executor-helpers.js";
 export * from "./factory.js";
 export * from "./fake-session-factory.js";
 export * from "./harness.js";

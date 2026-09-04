@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PiAgentExecutor, createPiSdkSessionFactory } from '../packages/executors/pi/dist/index.js';
+import { PiAgentExecutor, createPiSdkSessionFactory, formatToolActivityLine } from '../packages/executors/pi/dist/index.js';
 
 function makeSdkSession() {
   return {
@@ -641,6 +641,66 @@ test('tool execution pauses the model idle watchdog and tools are tracked', asyn
   });
   assert.equal(result.status, 'completed');
   assert.equal(result.events.some((event) => event.type === 'executor.timeout'), false);
+});
+
+test('SDK tool execution events are normalized for live display', async () => {
+  const liveEvents = [];
+  const session = {
+    listener: undefined,
+    async prompt() {
+      this.listener?.({
+        type: 'tool_execution_start',
+        data: {
+          toolCallId: 't1',
+          assistantMessageEvent: {
+            type: 'toolCall',
+            name: 'read',
+            input: { path: 'src/app/page.tsx' },
+          },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      this.listener?.({
+        type: 'tool_execution_end',
+        data: {
+          toolCallId: 't1',
+          assistantMessageEvent: {
+            type: 'toolCall',
+            name: 'read',
+            result: 'file contents',
+          },
+        },
+      });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {},
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: { async create() { return { session }; } },
+    onEvent(_executionId, event) {
+      liveEvents.push(event);
+    },
+  });
+  const result = await executor.execute({
+    executionId: 'exec-tool-normalized',
+    cwd: process.cwd(),
+    prompt: 'build',
+    metadata: { role: 'builder', taskId: 'task-4' },
+  });
+
+  const started = result.events.find((event) => event.type === 'tool.started');
+  const completed = result.events.find((event) => event.type === 'tool.completed');
+  assert.equal(started?.data?.toolName, 'read');
+  assert.equal(started?.data?.capability, 'repo.read');
+  assert.equal(started?.data?.preview, 'src/app/page.tsx');
+  assert.equal(completed?.data?.toolName, 'read');
+  assert.equal(typeof completed?.data?.elapsedMs, 'number');
+  assert.equal(liveEvents.some((event) => event.type === 'tool.started'), true);
+  assert.equal(formatToolActivityLine(started), 'read: src/app/page.tsx');
 });
 
 test('tool timeout aborts a session when a single tool exceeds its bound', async () => {

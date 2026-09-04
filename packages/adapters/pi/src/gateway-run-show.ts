@@ -115,6 +115,7 @@ export async function handleShow(runId: string | undefined, ctx: FactoryPiComman
     ...buildGuidanceDiagnosticLines(result.guidance),
     ...buildVerificationDiagnosticLines(result.verificationContext, result.verification),
     ...buildIntegrationFailureLines(result.integrationFailure),
+    ...(result.toolActivity?.length ? ["", "Tool activity", ...result.toolActivity] : []),
   ]);
 
   ctx.ui.notify("Factory run loaded", "info");

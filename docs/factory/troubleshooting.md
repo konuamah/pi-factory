@@ -4,6 +4,8 @@ Run summaries include the full user prompt as `goal` and may include a short det
 
 Planner-generated task titles should also use the compact deterministic title, not the full goal. Full goals stay in prompts and artifacts; task titles are for readable status, logs, approvals, and timeout diagnosis.
 
+Live runs, `/factory logs <run-id>`, and `/factory show <run-id>` include concise tool activity lines such as `read: src/app/page.tsx`, `grep: "query"`, `write: src/data.ts`, `edit: src/app/page.tsx`, and `bash: npm run lint`. Use those lines to see what the agent last read, wrote, searched, or ran before opening raw `*-execution.json` artifacts.
+
 Use this by symptom.
 
 ## Missing Approval Handler Auto-Approves

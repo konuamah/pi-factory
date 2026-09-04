@@ -67,5 +67,6 @@ export interface PiExecutorState {
   executionId: string;
   events: AgentExecutionResult["events"];
   outputChunks: string[];
+  toolStarts?: Map<string, { toolName: string; at: number }>;
   terminalErrorMessage?: string;
 }

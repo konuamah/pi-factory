@@ -1,0 +1,17 @@
+{
+    "job_name": "2026-09-02__11-25-41",
+    "agents": [
+        {
+            "name": "factory_pi:FactoryPiAgent",
+            "model_name": "openai-codex/gpt-5.4-mini",
+            "kwargs": {
+                "interview_answers_path": "harbor/tasks/bombsite-01-ui-shell/interview.json"
+            }
+        }
+    ],
+    "tasks": [
+        {
+            "path": "harbor/tasks/bombsite-01-ui-shell"
+        }
+    ]
+}

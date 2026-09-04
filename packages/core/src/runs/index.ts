@@ -14,3 +14,4 @@ export * from "./model-ledger.js";
 export * from "./artifacts-read.js";
 export * from "./store.js";
 export * from "./title.js";
+export * from "./tool-activity.js";

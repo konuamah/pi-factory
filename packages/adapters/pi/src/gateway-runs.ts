@@ -63,6 +63,7 @@ export async function handleLogs(ctx: FactoryPiCommandContext, runId?: string): 
     ...buildGuidanceDiagnosticLines(logs.guidance),
     ...buildVerificationDiagnosticLines(logs.verificationContext, undefined),
     ...buildIntegrationFailureLines(logs.integrationFailure),
+    ...(logs.toolActivity?.length ? ["", "Tool activity", ...logs.toolActivity] : []),
     "",
     "Recent events",
     ...logs.events,

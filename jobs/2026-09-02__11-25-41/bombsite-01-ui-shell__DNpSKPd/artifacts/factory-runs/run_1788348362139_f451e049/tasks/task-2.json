@@ -1,0 +1,17 @@
+{
+  "id": "task-2",
+  "title": "Interview before planning for: Make portfolio usable on phone doctor s",
+  "stage": "interview",
+  "status": "done",
+  "dependsOn": [
+    "discover"
+  ],
+  "type": "interview",
+  "role": "planner",
+  "controllerHandled": true,
+  "artifactRefs": {
+    "discoveryExecutionPath": "/app/.factory/runs/run_1788348362139_f451e049/discovery-execution.json",
+    "interviewExecutionPath": "/app/.factory/runs/run_1788348362139_f451e049/interview-interview-execution.json",
+    "plannerExecutionPath": "/app/.factory/runs/run_1788348362139_f451e049/planner-execution.json"
+  }
+}

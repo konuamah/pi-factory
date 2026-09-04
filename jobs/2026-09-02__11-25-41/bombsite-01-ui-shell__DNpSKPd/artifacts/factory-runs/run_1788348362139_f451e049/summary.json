@@ -1,0 +1,32 @@
+{
+  "title": "Make portfolio usable on phone doctor s",
+  "runId": "run_1788348362139_f451e049",
+  "goal": "# Make the portfolio usable on a phone\n\nThe doctor's page in `index.html` shows its entire content stack at once. On a\nphone you have to scroll through everything to reach the contact form, and the\nnavigation is one row of five links that wraps badly on a narrow screen.\n\nMake the page behave like a tabbed page:\n\n- the navigation should read as a list of section names, and the section you\n  are currently looking at should be obvious;\n- clicking a section name shows that section and hides the others;\n- the page should be usable at a narrow phone width;\n- the contact form must keep working exactly as it does now.\n\n`script.js` already has section-toggling logic — build on it rather than\nreplacing it.\n\nConstraints:\n\n- plain HTML and JavaScript only;\n- no CSS at all: no `.css` file, no `<style>` block, no `style=\"...\"`\n  attributes, no stylesheet link or CDN asset;\n- no dependencies and no build step — the page is opened straight from disk;\n- do not change the wording of the medical content;\n- do not edit `.factory/` or `factory.yaml`.\n\nThe repository checks configured in `.factory/config.yaml` (`node --check\nscript.js` and `node tests/verify-page.mjs`) must keep passing.\n",
+  "status": "COMPLETED",
+  "phase": "complete",
+  "approved": true,
+  "candidateSha": "a354197def82896a627074bdffcf2fc6e0006e63",
+  "planPath": "/app/.factory/runs/run_1788348362139_f451e049/plan.json",
+  "taskPaths": [
+    "/app/.factory/runs/run_1788348362139_f451e049/tasks/task-1.json",
+    "/app/.factory/runs/run_1788348362139_f451e049/tasks/task-2.json",
+    "/app/.factory/runs/run_1788348362139_f451e049/tasks/task-3.json",
+    "/app/.factory/runs/run_1788348362139_f451e049/tasks/task-4.json",
+    "/app/.factory/runs/run_1788348362139_f451e049/tasks/task-5.json",
+    "/app/.factory/runs/run_1788348362139_f451e049/tasks/task-6.json",
+    "/app/.factory/runs/run_1788348362139_f451e049/tasks/task-7.json"
+  ],
+  "discoveryExecutionPath": "/app/.factory/runs/run_1788348362139_f451e049/discovery-execution.json",
+  "plannerExecutionPath": "/app/.factory/runs/run_1788348362139_f451e049/planner-execution.json",
+  "builderExecutionPaths": [
+    "/app/.factory/runs/run_1788348362139_f451e049/builder-execution-task-4.json"
+  ],
+  "integrationPath": "/app/.factory/runs/run_1788348362139_f451e049/integration.json",
+  "finalMergePath": "/app/.factory/runs/run_1788348362139_f451e049/final-merge.json",
+  "landingStatus": "landed",
+  "landingAttempts": 1,
+  "repairExecutionPaths": [],
+  "reviewerExecutionPath": "/app/.factory/runs/run_1788348362139_f451e049/reviewer-execution.json",
+  "verificationPath": "/app/.factory/runs/run_1788348362139_f451e049/verification.json",
+  "verificationStatus": "passed"
+}

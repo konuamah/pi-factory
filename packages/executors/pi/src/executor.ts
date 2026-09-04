@@ -4,7 +4,7 @@ import type {
   AgentExecutor,
 } from "@factory/core";
 import { builtInDefaults } from "@factory/core";
-import { parseDsmlToolCalls, detectDsmlMarkup, parseDsmlParameters, decodeDsmlText, normalizeDsmlToolName, buildDsmlToolResultPrompt, summarizeToolResult, extractToolName, extractToolArgs, toolToCapability, withAgentTurnTimeouts, isAbortError, type WatchdogHandle } from "./executor-helpers.js";
+import { parseDsmlToolCalls, detectDsmlMarkup, parseDsmlParameters, decodeDsmlText, normalizeDsmlToolName, buildDsmlToolResultPrompt, summarizeToolResult, extractToolName, extractToolArgs, extractToolResult, extractToolCallId, previewToolArgs, previewToolResult, normalizeToolActivityName, toolToCapability, withAgentTurnTimeouts, isAbortError, type WatchdogHandle } from "./executor-helpers.js";
 import type {
   PiExecutorOptions,
   PiExecutorState,
@@ -75,6 +75,7 @@ export class PiAgentExecutor implements AgentExecutor {
         data: diagnostic.data,
       })),
       outputChunks: [],
+      toolStarts: new Map(),
     };
 
     for (const diagnostic of created.diagnostics ?? []) {
@@ -99,6 +100,7 @@ export class PiAgentExecutor implements AgentExecutor {
       watchdog.markActivity(event.type);
       this.trackToolEvents(watchdog, event);
       this.captureEvent(state, event);
+      this.captureToolActivity(input.executionId, state, event, input.metadata);
       this.auditToolCall(input.executionId, state, event, input.metadata);
       void this.options.onEvent?.(input.executionId, event);
     });
@@ -307,6 +309,56 @@ export class PiAgentExecutor implements AgentExecutor {
     }
   }
 
+  private captureToolActivity(executionId: string, state: PiExecutorState, event: PiSessionEvent, metadata?: Record<string, unknown>): void {
+    if (event.type !== "tool_execution_start" && event.type !== "tool_execution_end") {
+      return;
+    }
+    const rawToolName = extractToolName(event);
+    if (!rawToolName) {
+      return;
+    }
+    const toolName = normalizeToolActivityName(rawToolName);
+    const callId = extractToolCallId(event) ?? toolName;
+    const now = Date.now();
+    if (event.type === "tool_execution_start") {
+      state.toolStarts?.set(callId, { toolName, at: now });
+      this.emitNormalizedToolEvent(executionId, state, {
+        type: "tool.started",
+        at: now,
+        data: {
+          role: stringMeta(metadata, "role"),
+          taskId: stringMeta(metadata, "taskId"),
+          toolName,
+          rawToolName: rawToolName === toolName ? undefined : rawToolName,
+          capability: toolToCapability(toolName),
+          preview: previewToolArgs(extractToolArgs(event)),
+        },
+      });
+      return;
+    }
+
+    const started = state.toolStarts?.get(callId);
+    state.toolStarts?.delete(callId);
+    this.emitNormalizedToolEvent(executionId, state, {
+      type: "tool.completed",
+      at: now,
+      data: {
+        role: stringMeta(metadata, "role"),
+        taskId: stringMeta(metadata, "taskId"),
+        toolName,
+        rawToolName: rawToolName === toolName ? undefined : rawToolName,
+        capability: toolToCapability(toolName),
+        preview: previewToolResult(extractToolResult(event)),
+        elapsedMs: started ? Math.max(0, now - started.at) : undefined,
+      },
+    });
+  }
+
+  private emitNormalizedToolEvent(executionId: string, state: PiExecutorState, event: { type: string; at?: number; data: Record<string, unknown> }): void {
+    state.events.push(event);
+    void this.options.onEvent?.(executionId, event);
+  }
+
   private async bridgeDsmlToolMarkup(
     executionId: string,
     session: PiSessionLike,
@@ -408,4 +460,9 @@ function extractTerminalErrorMessage(event: PiSessionEvent): string | undefined 
   return typeof errorMessage === "string" && errorMessage.trim()
     ? errorMessage
     : "Pi SDK reported an assistant message error.";
+}
+
+function stringMeta(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value : undefined;
 }

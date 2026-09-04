@@ -83,8 +83,22 @@ export function summarizeToolResult(result: unknown): Record<string, unknown> {
   };
 }
 
+export function formatToolActivityLine(event: { type: string; data?: Record<string, unknown> }): string | undefined {
+  if (event.type !== "tool.started" && event.type !== "tool.completed") {
+    return undefined;
+  }
+  const toolName = normalizeToolActivityName(typeof event.data?.toolName === "string" ? event.data.toolName : "tool");
+  const preview = typeof event.data?.preview === "string" && event.data.preview ? `: ${event.data.preview}` : "";
+  const elapsed = typeof event.data?.elapsedMs === "number" ? ` (${event.data.elapsedMs}ms)` : "";
+  const status = event.type === "tool.completed" ? ` done${elapsed}` : "";
+  return `${toolName}${preview}${status}`;
+}
+
 export function extractToolName(event: PiSessionEvent): string | undefined {
   const data = event.data as Record<string, unknown> | undefined;
+  if (typeof data?.toolName === "string") {
+    return data.toolName;
+  }
   const assistantMessageEvent = data?.assistantMessageEvent as Record<string, unknown> | undefined;
   if (!assistantMessageEvent) {
     return undefined;
@@ -101,6 +115,9 @@ export function extractToolName(event: PiSessionEvent): string | undefined {
 
 export function extractToolArgs(event: PiSessionEvent): unknown {
   const data = event.data as Record<string, unknown> | undefined;
+  if (data && ("args" in data || "arguments" in data || "input" in data || "toolArgs" in data)) {
+    return data.args ?? data.arguments ?? data.input ?? data.toolArgs;
+  }
   const assistantMessageEvent = data?.assistantMessageEvent as Record<string, unknown> | undefined;
   if (!assistantMessageEvent) {
     return undefined;
@@ -112,8 +129,66 @@ export function extractToolArgs(event: PiSessionEvent): unknown {
   return assistantMessageEvent.arguments ?? assistantMessageEvent.input;
 }
 
+export function extractToolResult(event: PiSessionEvent): unknown {
+  const data = event.data as Record<string, unknown> | undefined;
+  if (data && ("result" in data || "output" in data || "error" in data)) {
+    return data.result ?? data.output ?? data.error;
+  }
+  const assistantMessageEvent = data?.assistantMessageEvent as Record<string, unknown> | undefined;
+  return assistantMessageEvent?.result ?? assistantMessageEvent?.output ?? assistantMessageEvent?.error;
+}
+
+export function extractToolCallId(event: PiSessionEvent): string | undefined {
+  const data = event.data as Record<string, unknown> | undefined;
+  return typeof data?.toolCallId === "string" ? data.toolCallId : undefined;
+}
+
+export function previewToolArgs(args: unknown): string | undefined {
+  const record = args && typeof args === "object" ? args as Record<string, unknown> : undefined;
+  const value =
+    stringField(record, "path")
+    ?? stringField(record, "file")
+    ?? stringField(record, "targetPath")
+    ?? stringField(record, "command")
+    ?? stringField(record, "pattern")
+    ?? stringField(record, "query")
+    ?? (typeof args === "string" ? args : undefined);
+  return value ? truncatePreview(value.replace(/\s+/g, " ").trim()) : undefined;
+}
+
+export function previewToolResult(value: unknown): string | undefined {
+  const text = typeof value === "string" ? value : value === undefined ? undefined : JSON.stringify(value);
+  return text ? truncatePreview(text.replace(/\s+/g, " ").trim()) : undefined;
+}
+
+export function normalizeToolActivityName(toolName: string): string {
+  const lower = toolName.toLowerCase();
+  if (lower === "bash" || lower.includes("shell") || lower.includes("terminal")) {
+    return "bash";
+  }
+  if (lower === "grep" || lower.includes("grep") || lower.includes("search")) {
+    return "grep";
+  }
+  if (lower === "find" || lower.includes("find")) {
+    return "find";
+  }
+  if (lower === "ls" || lower.includes("list") || lower.includes("directory")) {
+    return "ls";
+  }
+  if (lower === "write" || lower.includes("write") || lower.includes("create")) {
+    return "write";
+  }
+  if (lower === "edit" || lower.includes("edit") || lower.includes("patch")) {
+    return "edit";
+  }
+  if (lower === "read" || lower.includes("read") || lower.includes("open")) {
+    return "read";
+  }
+  return toolName;
+}
+
 export function toolToCapability(toolName: string): string | undefined {
-  switch (toolName) {
+  switch (normalizeToolActivityName(toolName)) {
     case "read":
     case "grep":
     case "find":
@@ -127,6 +202,15 @@ export function toolToCapability(toolName: string): string | undefined {
     default:
       return undefined;
   }
+}
+
+function stringField(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function truncatePreview(value: string): string {
+  return value.length <= 120 ? value : `${value.slice(0, 117)}...`;
 }
 
 export interface WatchdogDiagnostics {
@@ -401,4 +485,3 @@ function emptyDiagnostics(startedAt = Date.now()): WatchdogDiagnostics {
 export function isAbortError(error: unknown): boolean {
   return error instanceof Error && /abort|cancel/i.test(error.message);
 }
-

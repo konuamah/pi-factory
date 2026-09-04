@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mountFactoryStreamingWidget } from "../packages/adapters/pi/dist/streaming-panel.js";
+import { formatToolActivityLine } from "../packages/executors/pi/dist/index.js";
 
 test("Factory streaming panel clamps raw stream lines below Pi render width", () => {
   let component;
@@ -30,6 +31,33 @@ test("Factory streaming panel clamps raw stream lines below Pi render width", ()
   const lines = component.render(width);
   assert.ok(lines.length > 0);
   assert.ok(lines.every((line) => visibleWidth(line) <= width - 6));
+});
+
+test("Factory streaming panel can render concise tool activity lines", () => {
+  let component;
+  const panel = mountFactoryStreamingWidget(
+    {
+      setWidget(_id, factory) {
+        component = factory({ requestRender() {} });
+      },
+    },
+    "factory-status",
+    {
+      title: "Factory run",
+      phase: "implementation",
+      role: "builder",
+      status: "streaming",
+      lines: [],
+    },
+  );
+
+  const line = formatToolActivityLine({
+    type: "tool.started",
+    data: { toolName: "write", preview: "src/data/books.ts" },
+  });
+  panel.append(line);
+
+  assert.ok(component.render(90).some((rendered) => rendered.includes("write: src/data/books.ts")));
 });
 
 function visibleWidth(value) {

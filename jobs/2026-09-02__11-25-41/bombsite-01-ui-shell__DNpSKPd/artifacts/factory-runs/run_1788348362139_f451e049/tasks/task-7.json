@@ -1,0 +1,10 @@
+{
+  "id": "task-7",
+  "title": "Prepare approval package for: Make portfolio usable on phone doctor s",
+  "stage": "approval",
+  "status": "pending",
+  "dependsOn": [
+    "review"
+  ],
+  "type": "approval"
+}

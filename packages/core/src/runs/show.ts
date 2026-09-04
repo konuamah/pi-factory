@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { summarizeGuidanceEvents, type GuidanceSummary } from "./guidance.js";
+import { readRunToolActivity } from "./tool-activity.js";
 
 export interface FactoryRunShowResult {
   runDir?: string;
@@ -30,6 +31,7 @@ export interface FactoryRunShowResult {
   planDecision?: "approve" | "reject" | "revise";
   planFeedback?: string;
   implementationStarted?: boolean;
+  toolActivity?: string[];
   runFailure?: {
     reason?: string;
   };
@@ -125,6 +127,7 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     planDecision: planSummary.decision,
     planFeedback: planSummary.feedback,
     implementationStarted: planSummary.implementationStarted,
+    toolActivity: await readRunToolActivity(runDir),
     runFailure,
     taskFailure,
     guidance,

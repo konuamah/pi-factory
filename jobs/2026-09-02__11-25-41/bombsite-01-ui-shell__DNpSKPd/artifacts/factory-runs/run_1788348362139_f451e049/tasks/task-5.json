@@ -1,0 +1,14 @@
+{
+  "id": "task-5",
+  "title": "Verify changes for: Make portfolio usable on phone doctor s",
+  "stage": "verify",
+  "status": "pending",
+  "dependsOn": [
+    "build"
+  ],
+  "type": "command",
+  "commands": [
+    "lint",
+    "test"
+  ]
+}

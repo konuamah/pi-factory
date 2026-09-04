@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { summarizeGuidanceEvents, type GuidanceSummary } from "./guidance.js";
+import { readRunToolActivity } from "./tool-activity.js";
 
 export interface FactoryRunLogsByIdResult {
   runDir?: string;
@@ -12,6 +13,7 @@ export interface FactoryRunLogsByIdResult {
   repairExecutionPaths: string[];
   state?: Record<string, unknown>;
   events: string[];
+  toolActivity?: string[];
   planDecision?: "approve" | "reject" | "revise";
   planFeedback?: string;
   implementationStarted?: boolean;
@@ -82,6 +84,7 @@ export async function readFactoryRunLogs(
     repairExecutionPaths: await listRepairExecutionPaths(runDir),
     state,
     events: parsedEvents.map(formatEventLine),
+    toolActivity: await readRunToolActivity(runDir, 12),
     planDecision: planSummary.decision,
     planFeedback: planSummary.feedback,
     implementationStarted: planSummary.implementationStarted,

@@ -1,0 +1,31 @@
+{
+  "taskId": "local/factory-bombsite-01-ui-shell",
+  "checksPassed": 10,
+  "checksTotal": 10,
+  "partialCredit": 1,
+  "failed": [],
+  "scopeHandoff": {
+    "present": true,
+    "checks": {
+      "planDeclaresNonGoals": true,
+      "planNonGoals": [
+        ".factory/",
+        "factory.yaml",
+        "tests/verify-page.mjs",
+        "any `.css` file",
+        "any `<style>` block",
+        "any `style=\"...\"",
+        "any stylesheet link or CDN asset",
+        "the contact form wording, field IDs, validation messages, mailto behavior, or result text",
+        "the wording of the medical content",
+        "adding dependencies or a build step"
+      ],
+      "landingExpectedFiles": [
+        "index.html",
+        "script.js"
+      ],
+      "landingNonGoalHits": []
+    }
+  },
+  "note": "oracle validates task + verifier only; six-pillar Factory scoring applies to agent trials; scopeHandoff is diagnostic and never gates task_success"
+}

@@ -14,6 +14,13 @@ const average = (values: number[]): number => values.reduce((sum, value) => sum 
 const numeric = (components: Record<string, number | null>): number[] =>
   Object.values(components).filter((value): value is number => typeof value === "number");
 
+function interviewDecisionAnswerText(round: RunArtifacts["interviewDecisions"][number]): string {
+  if (round.questions?.length) {
+    return round.questions.map((question) => question.finalAnswer).join(" ");
+  }
+  return round.answer ?? "";
+}
+
 function tokens(text: string): string[] {
   return (text.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []).filter((word) => word.length >= 4);
 }
@@ -73,7 +80,7 @@ export function scoreInterview(artifacts: RunArtifacts, spec: BenchmarkTaskSpec)
   }
 
   // scope control: an answer stating a non-goal should survive.
-  const answers = rounds.map((round) => round.answer ?? "").join("\n");
+  const answers = rounds.map((round) => interviewDecisionAnswerText(round)).join("\n");
   const scopeControl = spec.expectedTopics && spec.expectedTopics.length > 0
     ? topicCoverage(spec.expectedTopics, answers)
     : null;
@@ -101,7 +108,7 @@ export function scoreHandoff(artifacts: RunArtifacts, spec: BenchmarkTaskSpec): 
 
   // interview -> plan: do chosen answers reappear in plan text? Round-level only.
   const planText = [plan.summary, plan.planText ?? ""].join("\n");
-  const answers = artifacts.interviewDecisions.map((round) => round.answer ?? "");
+  const answers = artifacts.interviewDecisions.map((round) => interviewDecisionAnswerText(round));
   const answerWords = answers.join(" ");
   const questionWords = artifacts.interviewDecisions.map((round) => round.question).join(" ");
   // Distinctive words are those in the answer that are NOT in the question; an

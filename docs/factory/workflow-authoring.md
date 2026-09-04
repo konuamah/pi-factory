@@ -61,6 +61,18 @@ Use `interview` before planning when Factory must ask the user questions first.
 
 When the model returns several questions in one decision (separated by `---` in the interview prompt output), the Pi adapter presents them one at a time — a full editor when the host exposes it, otherwise an overlay — and folds every answer into a single structured interview record, so planning still receives one `interview-decisions.json` entry per interview stage.
 
+Interview questions may also include an optional structured multiple-choice block inside the question text:
+
+```text
+Q1 - Search strategy: Which implementation should govern?
+Options:
+[A] MongoDB text search — Simpler and uses existing indexes
+[B] Regex fallback — Broader but less precise
+-> Prefer MongoDB text search unless ranking semantics require more.
+```
+
+When `Options:` is present, the Pi interview UI renders arrow-key selection plus a built-in `Custom answer…` path. The selected choice is recorded both in the human-readable interview answer text and in structured per-question fields inside `interview-decisions.json`; open-ended questions without `Options:` keep the existing free-text flow.
+
 Stage dependencies are resolved by stage name into task ids. A task with `dependsOn: [plan]` includes the planner task as dependency context for the builder, and direct task ids also work.
 
 Use `command` for verification:

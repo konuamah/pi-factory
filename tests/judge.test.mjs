@@ -9,7 +9,7 @@ const spec = {
 
 const artifacts = {
   runId: 'run_x', runDir: '/tmp/run_x',
-  interviewDecisions: [{ stage: 'grill', role: 'planner', question: 'Q1 which links?', optionId: 'answered', answer: 'home, services', decisionRequestId: 'r1' }],
+  interviewDecisions: [{ stage: 'grill', role: 'planner', question: 'Q1 which links?', optionId: 'answered', answer: 'home, services', questions: [{ index: 1, prompt: 'Q1 which links?', finalAnswer: 'home, services', customAnswer: 'home, services' }], decisionRequestId: 'r1' }],
   plan: { summary: 'plan', planText: 'build navbar', workflowStages: [], tasks: [], implementationContract: { targetFiles: ['components/Navbar.tsx'] } },
   verification: { overallStatus: 'passed', cwd: '/app', commands: [{ name: 'test', status: 'passed' }] },
   completedTasks: [{ taskId: 't1', targetBranch: 'main', sourceBranch: 'x', commitSha: 'abc', changedFiles: ['components/Navbar.tsx'], workspaceMode: 'in-place' }],

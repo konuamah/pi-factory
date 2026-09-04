@@ -151,13 +151,26 @@ export function buildReviewerPrompt(
     `Verification status: ${verification.overallStatus}`,
     commandStatuses ? `Command results:\n${commandStatuses}` : "Command results: none",
     interviewDecisions?.length
-      ? `Human interview decisions (authoritative):\n${interviewDecisions.map((d) => `- ${d.question} → ${d.answer ?? d.optionId}`).join("\n")}`
+      ? `Human interview decisions (authoritative):\n${interviewDecisions.map((d) => renderInterviewDecisionSummary(d)).join("\n")}`
       : undefined,
     skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     "Review the candidate and report whether it looks ready for approval.",
     "Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly.",
   ].filter(Boolean).join("\n");
+}
+
+function renderInterviewDecisionSummary(decision: InterviewDecisionRecord): string {
+  if (decision.questions?.length) {
+    const detail = decision.questions.map((question) => {
+      const resolved = question.selectedOptionLabel
+        ? `[${(question.selectedOptionId ?? "").toUpperCase()}] ${question.selectedOptionLabel}`
+        : question.finalAnswer;
+      return `Q${question.index}: ${question.prompt} → ${resolved}`;
+    }).join(" | ");
+    return `- ${decision.question} → ${detail}`;
+  }
+  return `- ${decision.question} → ${decision.answer ?? decision.optionId}`;
 }
 
 export function renderSkillBundleForPrompt(bundle: SkillBundleSelection): string | undefined {

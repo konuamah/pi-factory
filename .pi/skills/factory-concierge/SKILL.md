@@ -179,7 +179,7 @@ Factory passes structured artifacts between workflow stages, not just text. When
 
 - `discovery-execution.json` — structured discovery facts (files, constraints) validated before planning.
 - Discovery uses structured implementation-surface status. `implementationSurface: "missing"` is valid for empty or greenfield repos and should flow into planning so the planner names new files for Builder to create.
-- `interview-decisions.json` — structured interview answers (stage, role, question, optionId, answer). These are authoritative human facts: they reach the planner, builder context, reviewer, and approval.
+- `interview-decisions.json` — structured interview answers (stage, role, question, optionId, answer, optional per-question `questions[]`). These are authoritative human facts: they reach the planner, builder context, reviewer, and approval. Interview questions may be free-text or multiple-choice: when a grilling-style question includes an `Options:` block with `[A]`/`[B]` markers, Pi renders selectable choices plus a built-in `Custom answer…` path, and the selected choice is captured both inside the recorded answer text and in structured per-question fields.
 - `plan.json` — contains `discoveryText`, `planText`, and `implementationContract` (`targetFiles`, `nonGoals`, `verificationChecks`, `risks`, `blockers`).
 - Controller-native stages (`plan`, `discover`, `interview`) appear in task artifacts as `done` with `controllerHandled: true` and artifact path refs.
 - Baseline-unrelated verification failures are surfaced as `baselineDebt` in final approval: the task-specific contract can pass while repository debt remains.

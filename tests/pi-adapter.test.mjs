@@ -98,7 +98,7 @@ test('custom approval dialog uses Pi theme colors without overflowing width', as
 
 function visibleWidth(value) {
   let width = 0;
-  for (const char of value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")) {
+  for (const char of value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')) {
     const codePoint = char.codePointAt(0) ?? 0;
     width += codePoint >= 0x1100 ? 2 : codePoint < 32 || (codePoint >= 0x7f && codePoint < 0xa0) ? 0 : 1;
   }
@@ -232,7 +232,6 @@ test('interview uses custom overlay when editor is unavailable, one question at 
         const match = title ? /Question (\d) of 6/.exec(title) : null;
         const index = match ? Number(match[1]) : NaN;
         assert.ok(Number.isFinite(index), 'expected Question N of 6 header');
-        // Only the current question text is rendered.
         const qStarts = [
           'What does',
           'Which clients',
@@ -249,7 +248,6 @@ test('interview uses custom overlay when editor is unavailable, one question at 
             `question ${q} visibility mismatch (current ${index})`,
           );
         }
-        // Blank answer cannot submit.
         component.handleInput?.('\r');
         assert.equal(result, undefined);
         const answer = ['use mongodb text search', 'web and mobile', 'relevance first', 'clear no results message', 'no metrics yet', 'unit and api tests'][index - 1];
@@ -280,6 +278,98 @@ test('interview uses custom overlay when editor is unavailable, one question at 
   assert.match(decision.feedback, /A6: unit and api tests/);
 });
 
+test('interview uses option overlay for MCQs and records selected option', async () => {
+  const question = [
+    'Q1 - Search strategy: Which implementation should govern?',
+    '',
+    'Options:',
+    '[A] MongoDB text search — Simpler and uses existing indexes',
+    '[B] Regex fallback — Broader but less precise',
+    '',
+    '-> Prefer MongoDB text search unless ranking semantics require more.',
+  ].join('\n');
+  const decision = await requestDecisionInput(
+    {
+      notify() {},
+      setWidget() {},
+      custom: async (factory) => {
+        let result;
+        const component = factory({ requestRender() {} }, undefined, undefined, (value) => {
+          result = value;
+        });
+        const lines = component.render(80);
+        assert.ok(lines.some((line) => line.includes('Options')));
+        assert.ok(lines.some((line) => line.includes('[A] MongoDB text search')));
+        assert.ok(lines.some((line) => line.includes('[B] Regex fallback')));
+        assert.ok(lines.some((line) => line.includes('Custom answer…')));
+        component.handleInput?.('\u001b[B');
+        component.handleInput?.('\r');
+        assert.ok(result);
+        return result;
+      },
+    },
+    {
+      id: 'interview-mcq',
+      title: 'Interview: grill',
+      question,
+      options: [{ id: 'answered', label: 'Use my answer' }],
+      source: 'INTERVIEW',
+      reason: 'USER_PREFERENCE',
+    },
+  );
+
+  assert.equal(decision.optionId, 'answered');
+  assert.match(decision.feedback ?? '', /Choice1: \[B\] Regex fallback/);
+  assert.match(decision.feedback ?? '', /A1: Regex fallback/);
+  assert.equal(decision.interviewQuestions?.[0]?.selectedOptionId, 'b');
+  assert.equal(decision.interviewQuestions?.[0]?.selectedOptionLabel, 'Regex fallback');
+});
+
+test('interview custom option collects typed answer for MCQs', async () => {
+  const question = [
+    'Q1 - Search strategy: Which implementation should govern?',
+    '',
+    'Options:',
+    '[A] MongoDB text search',
+    '[B] Regex fallback',
+  ].join('\n');
+  const decision = await requestDecisionInput(
+    {
+      notify() {},
+      setWidget() {},
+      custom: async (factory) => {
+        let result;
+        const component = factory({ requestRender() {} }, undefined, undefined, (value) => {
+          result = value;
+        });
+        component.handleInput?.('\u001b[B');
+        component.handleInput?.('\u001b[B');
+        component.handleInput?.('\r');
+        for (const char of 'hybrid ranking service') {
+          component.handleInput?.(char);
+        }
+        component.handleInput?.('\r');
+        assert.ok(result);
+        return result;
+      },
+    },
+    {
+      id: 'interview-custom-mcq',
+      title: 'Interview: grill',
+      question,
+      options: [{ id: 'answered', label: 'Use my answer' }],
+      source: 'INTERVIEW',
+      reason: 'USER_PREFERENCE',
+    },
+  );
+
+  assert.equal(decision.optionId, 'answered');
+  assert.match(decision.feedback ?? '', /Choice1: custom/);
+  assert.match(decision.feedback ?? '', /A1: hybrid ranking service/);
+  assert.equal(decision.interviewQuestions?.[0]?.customAnswer, 'hybrid ranking service');
+  assert.equal(decision.interviewQuestions?.[0]?.finalAnswer, 'hybrid ranking service');
+});
+
 test('interview uses Pi editor when available, one editor per question', async () => {
   const questions = ['Q1: Which search behavior should govern?', 'Q2: Which clients should this cover?'];
   const prompts = [];
@@ -305,7 +395,10 @@ test('interview uses Pi editor when available, one editor per question', async (
   assert.equal(decision.optionId, 'answered');
   assert.equal(prompts.length, 2);
   assert.match(prompts[0].title, /Question 1 of 2/);
+  assert.match(prompts[0].title, /Which search behavior should govern/);
+  assert.match(prompts[0].title, /Answer:/);
   assert.match(prompts[1].title, /Question 2 of 2/);
+  assert.match(prompts[1].title, /Which clients should this cover/);
   assert.equal(prompts[0].prefill, '');
   assert.match(decision.feedback, /Q1: .*search behavior/);
   assert.match(decision.feedback, /A1: editor text answer/);
@@ -324,7 +417,6 @@ test('interview cancel fails loudly and does not resolve', async () => {
           const component = factory({ requestRender() {} }, undefined, undefined, (value) => {
             result = value;
           });
-          // Escape cancels without answering.
           component.handleInput?.('\u001b');
           return result;
         },

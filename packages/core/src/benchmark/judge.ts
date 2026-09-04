@@ -82,6 +82,7 @@ export function buildJudgePrompt(artifacts: RunArtifacts, spec: BenchmarkTaskSpe
       stage: round.stage,
       question: round.question,
       answer: round.answer ?? null,
+      questions: round.questions ?? null,
     })),
     plan: artifacts.plan
       ? {

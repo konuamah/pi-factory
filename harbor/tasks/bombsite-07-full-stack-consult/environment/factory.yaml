@@ -1,0 +1,43 @@
+defaultWorkflowId: benchmark-interview
+workflows:
+  - id: benchmark-interview
+    name: "Benchmark: Interviewed Feature Work"
+    description: "Discover, interview, plan, build, verify, review, then ask before merge."
+    stages:
+      - name: discover
+        description: "Gather the repository evidence needed for the request."
+        type: agent
+        role: discovery
+      - name: interview
+        description: "Ask clarifying questions before planning."
+        type: interview
+        role: planner
+        dependsOn: [discover]
+        skills:
+          require: [grilling]
+      - name: plan
+        description: "Turn discovery and the answers into a scoped plan."
+        type: agent
+        role: planner
+        dependsOn: [interview]
+      - name: build
+        description: "Implement the approved plan."
+        type: agent
+        role: builder
+        dependsOn: [plan]
+        skills:
+          require: [implementation-task]
+      - name: verify
+        description: "Run the repository checks."
+        type: command
+        commands: [lint, test]
+        dependsOn: [build]
+      - name: review
+        description: "Review risk and acceptance."
+        type: agent
+        role: reviewer
+        dependsOn: [verify]
+      - name: approval
+        description: "Ask before final merge."
+        type: approval
+        dependsOn: [review]

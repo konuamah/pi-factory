@@ -1,8 +1,0 @@
-{
-    "job_name": "2026-09-02__11-24-15",
-    "tasks": [
-        {
-            "path": "harbor/tasks/bombsite-01-ui-shell"
-        }
-    ]
-}

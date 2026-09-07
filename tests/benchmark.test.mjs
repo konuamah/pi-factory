@@ -496,3 +496,46 @@ test('reviewerAgreement is 0 when the conclusion explicitly blocks while control
   assert.equal(scored.pillars.handoffQuality.components.reviewerAgreement, 0);
   assert.ok(scored.pillars.handoffQuality.warnings.some((warning) => /reviewer reported/.test(warning)));
 });
+
+test('reviewOutcome ignores benign "not blockers" mentions and reads the verdict conclusion', async () => {
+  // Real regression: a reviewer that says "Observations (not blockers ...)"
+  // but concludes "Ready for approval" used to score reviewOutcome 0 because
+  // the old regex matched the word "blockers" anywhere in the transcript.
+  const runDir = await writeRunDir({
+    raw: {
+      'reviewer-execution.json': JSON.stringify({
+        executionId: 'r', status: 'completed',
+        outputText: '**Observations (not blockers — consequences of the decisions)**\n'
+          + '- aria-current conveys state to assistive tech.\n\n'
+          + '**Verdict:** Ready for approval. All five goal behaviors are implemented per the authoritative decisions.',
+        events: [],
+      }),
+    },
+  });
+  const scored = await scoreFactoryRun(runDir, baseSpec);
+  assert.equal(scored.pillars.executionQuality.components.reviewOutcome, 1);
+});
+
+test('reviewOutcome is 0 when the reviewer conclusion explicitly blocks', async () => {
+  const runDir = await writeRunDir({
+    raw: {
+      'reviewer-execution.json': JSON.stringify({
+        executionId: 'r', status: 'completed',
+        outputText: 'The scope drift is unacceptable. Not ready for approval; must fix before merge.',
+        events: [],
+      }),
+    },
+  });
+  const scored = await scoreFactoryRun(runDir, baseSpec);
+  assert.equal(scored.pillars.executionQuality.components.reviewOutcome, 0);
+});
+
+test('reviewOutcome stays 1 for an empty or absent reviewer output is not forced', async () => {
+  const runDir = await writeRunDir({
+    raw: {
+      'reviewer-execution.json': JSON.stringify({ executionId: 'r', status: 'completed', outputText: '', events: [] }),
+    },
+  });
+  const scored = await scoreFactoryRun(runDir, baseSpec);
+  assert.equal(scored.pillars.executionQuality.components.reviewOutcome, null);
+});

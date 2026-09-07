@@ -9,6 +9,12 @@ export interface DiscoveryContract {
   status: "complete" | "failed";
   implementationSurface?: "identified" | "missing" | "ambiguous";
   files?: string[];
+  /**
+   * Files the goal requires the Builder to CREATE (they do not exist yet).
+   * Kept separate from files[] (which must be observed existing files) so a
+   * mixed edit+create task can be represented without failing validation.
+   */
+  newFiles?: string[];
   evidence?: Array<{ status: "confirmed" | "inferred" | "unknown"; file?: string; finding: string }>;
   unknowns?: string[];
   reason?: string;
@@ -61,6 +67,21 @@ export async function validateDiscoveryOutput(value: string | undefined, cwd: st
     }
   }
 
+  // Files the goal requires creating. They must be concrete paths but are NOT
+  // required to exist yet and are NOT in the observed evidence — the Builder
+  // creates them. Normalize them so the planner/build tasks receive clean paths.
+  const newFileRaw = Array.isArray(parsed.newFiles) ? parsed.newFiles : [];
+  const newFiles = newFileRaw.map(normalizeDiscoveryFilePath).filter((file): file is string => Boolean(file));
+  if (newFileRaw.length > 0 && newFiles.length === 0) {
+    return { ok: false, reason: "Discovery listed newFiles, but none were concrete file paths" };
+  }
+  // A new file must not also be listed as an existing file (contradiction).
+  const newFileSet = new Set(newFiles);
+  const overlap = concreteFiles.filter((file) => newFileSet.has(file));
+  if (overlap.length > 0) {
+    return { ok: false, reason: `Discovery listed the same file in both files[] and newFiles[]: ${overlap.join(", ")}` };
+  }
+
   const evidence = Array.isArray(parsed.evidence) ? parsed.evidence : [];
   if (!evidence.some((item) => item?.finding?.trim()) && !parsed.unknowns?.some((item) => item.trim())) {
     return { ok: false, reason: "Discovery did not provide evidence or unknowns" };
@@ -72,11 +93,15 @@ export async function validateDiscoveryOutput(value: string | undefined, cwd: st
     .filter((item) => item?.status === "confirmed" && item.finding?.trim())
     .map((item) => item.file)
     .filter((file): file is string => isConcreteFile(file));
-  const missingEvidenceFiles = await findMissingDiscoveryFiles(cwd, evidenceFiles);
+  // Evidence may legitimately reference a to-be-created file in its finding
+  // context (e.g. "script.js must include data/schedule.js"), so exclude
+  // newFiles from the must-exist evidence check.
+  const evidenceFilesToCheck = evidenceFiles.filter((file) => !newFileSet.has(file));
+  const missingEvidenceFiles = await findMissingDiscoveryFiles(cwd, evidenceFilesToCheck);
   if (missingEvidenceFiles.length > 0) {
     return { ok: false, reason: `Discovery evidence references files that do not exist: ${missingEvidenceFiles.join(", ")}` };
   }
-  const unobservedEvidenceFiles = findUnobservedDiscoveryFiles(evidenceFiles, evidencePacket);
+  const unobservedEvidenceFiles = findUnobservedDiscoveryFiles(evidenceFilesToCheck, evidencePacket);
   if (unobservedEvidenceFiles.length > 0) {
     return { ok: false, reason: `Discovery evidence references files not observed by Factory evidence: ${unobservedEvidenceFiles.join(", ")}` };
   }
@@ -85,8 +110,9 @@ export async function validateDiscoveryOutput(value: string | undefined, cwd: st
     ok: true,
     discovery: {
       ...parsed,
-      implementationSurface: parsed.implementationSurface ?? (concreteFiles.length > 0 ? "identified" : "missing"),
+      implementationSurface: parsed.implementationSurface ?? (concreteFiles.length > 0 || newFiles.length > 0 ? "identified" : "missing"),
       files: concreteFiles,
+      newFiles,
     },
   };
 }

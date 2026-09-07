@@ -13,7 +13,7 @@ import { createPiSdkSessionFactory, PiAgentExecutor } from "@factory/executor-pi
 import { renderLines, renderIntro } from "./gateway-render.js";
 import { mountFactoryStreamingWidget } from "./streaming-panel.js";
 import { FACTORY_WIDGET_ID } from "./gateway-render.js";
-import { requestPlanApprovalDecision, buildPlanApprovalPreviewLines } from "./approval.js";
+import { requestPlanApprovalDecision, buildPlanApprovalPreviewLines, buildReviewerFindingLines, resolveFinalApprovalConfirm, defaultFinalApproval } from "./approval.js";
 import { requestDecisionInput } from "./decision-dialog.js";
 import type { FactoryPiCommandContext } from "./types.js";
 import type { AgentExecutor } from "@factory/core";
@@ -207,7 +207,13 @@ export async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommand
       );
       return decision;
     },
-    requestApproval: async ({ runId, goal, baselineDebt, contractComplete, verificationStatus, scopeWarnings }) => {
+    requestApproval: async ({ runId, goal, baselineDebt, contractComplete, verificationStatus, scopeWarnings, reviewerVerdict }) => {
+      // Surface the reviewer's verdict (including a blocking "not ready"
+      // finding) so the human decides with the same evidence the reviewer saw.
+      const reviewerLines = buildReviewerFindingLines(reviewerVerdict);
+      if (reviewerLines.length > 0) {
+        renderLines(ctx, reviewerLines);
+      }
       // Surface plan-declared non-goal violations so the human decides.
       const scopeLines = (scopeWarnings ?? []).map((warning) => `  ${warning.file} (declared non-goal: ${warning.nonGoal})`);
       if (scopeLines.length > 0) {
@@ -240,10 +246,14 @@ export async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommand
         ]);
       }
       if (!ctx.ui.confirm) {
-        return true;
+        // No confirm UI: fail loud on a blocking review instead of silently
+        // auto-approving past a reviewer that is not ready.
+        return defaultFinalApproval(reviewerVerdict);
       }
-      const confirmPrompt = debtLines.length > 0 ? "Approve candidate despite baseline debt?" : scopeLines.length > 0 ? "Approve candidate despite scope warnings?" : "Approve Factory candidate?";
-      const confirmBody = `Approve prototype run ${runId} for goal: ${goal}${debtLines.length > 0 ? "\n\nBaseline debt shown above is NOT resolved by this run." : ""}${scopeLines.length > 0 ? "\n\nScope warnings shown above are NOT resolved by approving." : ""}`;
+      const { prompt: confirmPrompt, body: confirmBody } = resolveFinalApprovalConfirm(
+        { runId, goal, hasBaselineDebt: debtLines.length > 0, hasScopeWarnings: scopeLines.length > 0 },
+        reviewerVerdict,
+      );
       return ctx.ui.confirm(confirmPrompt, confirmBody);
     },
     requestDependencyRemediation: async (candidate) => {

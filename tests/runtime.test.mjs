@@ -260,6 +260,14 @@ test('planner, builder, and reviewer prompts include tighter scope rules', async
     assert.match(builderPrompt, /Treat the Planner handoff as the authoritative implementation contract/);
     assert.match(builderPrompt, /Use the native Pi tools provided to you; do not print DSML\/XML\/tool-call markup as text/);
     assert.match(builderPrompt, /Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits/);
+    assert.match(builderPrompt, /The workspace is already prepared/);
+    assert.match(builderPrompt, /CONTRACT_BLOCKED/);
+    assert.match(builderPrompt, /Edit from the contract: read only the handoff-named target files/);
+    assert.doesNotMatch(builderPrompt, /prepare the repository environment yourself/);
+    assert.match(plannerPrompt, /Each step names exact target file\(s\) to read and\/or edit/);
+    assert.match(plannerPrompt, /Stop discovery after/);
+    assert.match(plannerPrompt, /Do not write steps like 'inspect exports\/imports before editing'/);
+    assert.doesNotMatch(plannerPrompt, /A narrow read\/inspection step is allowed only for concrete files/);
     assert.match(reviewerPrompt, /Selected skills:/);
     assert.match(reviewerPrompt, /acceptance-review@1\.0\.0/);
     assert.match(reviewerPrompt, /Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly\./);
@@ -367,6 +375,63 @@ test('trivial final review is deterministic and skips the reviewer executor', as
     const eventsRaw = await fs.readFile(path.join(result.runDir, 'events.jsonl'), 'utf8');
     assert.match(eventsRaw, /review\.deterministic/);
     assert.match(eventsRaw, /"reviewerTools":\[\]/);
+  });
+});
+
+test('blocking reviewer verdict reaches the approval gate and blocks silent auto-approve', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
+        await fs.writeFile(path.join(input.cwd, 'src/helper.ts'), 'export const helper = 2;\n', 'utf8');
+        await fs.writeFile(path.join(input.cwd, 'src/index.ts'), "import { helper } from './helper';\nexport const x = helper;\n", 'utf8');
+        return { executionId: input.executionId, status: 'completed', outputText: 'builder completed', events: [] };
+      },
+      async cancel() {},
+    };
+    const reviewerExecutor = {
+      async execute(input) {
+        calls.push({ label: 'reviewer', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: [
+            '**Finding**',
+            '- High: the consent flow no longer gates analytics loading.',
+            'Not ready for approval.',
+          ].join('\n'),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    let approvalInput;
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      reviewerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      // No confirm UI: harness-level default requestApproval is used, which must
+      // NOT silently approve past a blocking review verdict.
+      requestApproval: async (input) => {
+        approvalInput = input;
+        return false;
+      },
+    });
+
+    assert.equal(approvalInput.reviewerVerdict.verdict, 'block');
+    assert.match(approvalInput.reviewerVerdict.summary, /Not ready for approval/);
+    const summary = await readJson(result.summaryPath);
+    assert.equal(summary.status, 'CANCELLED');
+    assert.equal(summary.phase, 'approval-rejected');
+    const eventsRaw = await fs.readFile(path.join(result.runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /review\.verdict/);
+    assert.match(eventsRaw, /"verdict":"block"/);
   });
 });
 
@@ -769,6 +834,9 @@ test('interview answers are included in planner prompt after decision resolution
     const interviewPrompt = calls.find((call) => call.label === 'interview')?.prompt ?? '';
     assert.match(interviewPrompt, /## grilling@1\.0\.0/);
     assert.match(interviewPrompt, /Instructions:\nAsk the user questions and wait for answers\./);
+    assert.match(interviewPrompt, /When a question is genuinely multiple-choice, include an explicit options block/);
+    assert.match(interviewPrompt, /Options:\\n\[A\] <option label>/);
+    assert.match(interviewPrompt, /Do not emit an 'Other' option/);
     const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
     assert.match(plannerPrompt, /Interview answers and decisions:/);
     assert.match(plannerPrompt, /Q1: Which search behavior should govern/);
@@ -2194,7 +2262,8 @@ test('dependency preparation is delegated to the builder agent', async () => {
     const builderExecutor = {
       async execute(input) {
         calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt, cwd: input.cwd });
-        assert.match(input.prompt, /prepare the repository environment yourself/i);
+        assert.match(input.prompt, /The workspace is already prepared/);
+        assert.match(input.prompt, /reinstall dependencies unless a command fails because they are missing/i);
         await fs.writeFile(path.join(input.cwd, 'builder-after-setup.md'), 'builder ran\n', 'utf8');
         return {
           executionId: input.executionId,

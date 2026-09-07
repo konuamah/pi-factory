@@ -248,12 +248,16 @@ Rules:
 
 ## What is NOT set up yet
 
-- All five task families exist and are oracle-validated: `bombsite-01-ui-shell`
+- Six task families exist and are oracle-validated: `bombsite-01-ui-shell`
   (tabbed phone page), `bombsite-02-status-surface` (interview decides an
   Availability surface), `bombsite-03-verification-adaptation` (stale lint
   command), `bombsite-04-baseline-debt` (unrelated broken JS, scope
   preservation), `bombsite-05-repair-verification` (seeded failing check,
-  repair path).
+  repair path), `bombsite-07-full-stack-consult` (multi-file localStorage +
+  file://-safe data file; the most advanced — combines interview, handoff,
+  adaptation, repair, and a genuinely hard file:// constraint). Note:
+  `bombsite-06-build-only-discipline` is a duplicate of 03 (copy-paste) and is
+  not an independent task.
 - No `-k N` attempt distributions or `summarizeBenchmarkResults` runs yet.
 - `harbor check` (LLM-judge rubric lint) needs model credentials and is not
   part of the gate.

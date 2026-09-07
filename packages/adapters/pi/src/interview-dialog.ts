@@ -58,11 +58,11 @@ async function askOneQuestion(
   const title = `${request.title} — Question ${index} of ${total}`;
 
   if (question.options.length > 0) {
-    if (ui.custom) {
-      return askWithOptionsOverlay(ui.custom, request, title, question);
-    }
     if (ui.select) {
       return askWithSelectFallback(ui, request, title, question);
+    }
+    if (ui.custom) {
+      return askWithOptionsOverlay(ui.custom, request, title, question);
     }
     if (ui.editor) {
       const typed = await ui.editor(buildEditorPrompt(title, question), "");

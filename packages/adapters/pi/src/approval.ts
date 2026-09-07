@@ -296,6 +296,68 @@ function normalizeFeedback(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+export interface FinalApprovalReviewerVerdict {
+  verdict: "block" | "pass" | "unknown";
+  summary: string;
+}
+
+/**
+ * Lines rendered at the final approval gate when a reviewer verdict exists.
+ * A blocking verdict is called out explicitly so approving is an override.
+ */
+export function buildReviewerFindingLines(reviewerVerdict?: FinalApprovalReviewerVerdict): string[] {
+  if (!reviewerVerdict) return [];
+  const summaryLines = (reviewerVerdict.summary ?? "")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .slice(0, 14);
+  return [
+    "Factory approval — reviewer finding",
+    `reviewer verdict: ${reviewerVerdict.verdict}`,
+    "",
+    ...summaryLines,
+    "",
+    reviewerVerdict.verdict === "block"
+      ? "The reviewer is NOT ready for approval. Approving overrides that finding."
+      : "The reviewer text above is provided for your decision.",
+  ];
+}
+
+/**
+ * Confirm prompt/body for the final approval gate. A blocking reviewer verdict
+ * takes precedence over baseline-debt and scope warnings so the human is asked
+ * to explicitly override it.
+ */
+export function resolveFinalApprovalConfirm(
+  input: { runId: string; goal: string; hasBaselineDebt: boolean; hasScopeWarnings: boolean },
+  reviewerVerdict?: FinalApprovalReviewerVerdict,
+): { prompt: string; body: string } {
+  const block = reviewerVerdict?.verdict === "block";
+  const prompt = block
+    ? "Approve candidate despite the reviewer blocking verdict?"
+    : input.hasBaselineDebt
+      ? "Approve candidate despite baseline debt?"
+      : input.hasScopeWarnings
+        ? "Approve candidate despite scope warnings?"
+        : "Approve Factory candidate?";
+  const body = [
+    `Approve prototype run ${input.runId} for goal: ${input.goal}`,
+    block ? "\n\nThe reviewer is NOT ready for approval. Only approve with explicit override intent." : "",
+    input.hasBaselineDebt ? "\n\nBaseline debt shown above is NOT resolved by this run." : "",
+    input.hasScopeWarnings ? "\n\nScope warnings shown above are NOT resolved by approving." : "",
+  ].join("");
+  return { prompt, body };
+}
+
+/**
+ * Default when no confirm UI exists: never silently auto-approve past a
+ * blocking reviewer verdict. "pass", "unknown", and absent verdicts keep the
+ * historical auto-approve default for headless/benchmark flows.
+ */
+export function defaultFinalApproval(reviewerVerdict?: FinalApprovalReviewerVerdict): boolean {
+  return reviewerVerdict?.verdict !== "block";
+}
+
 export function isPlanApprovalDecision(value: string | undefined): value is PlanApprovalDecision {
   return value === "approve" || value === "reject" || value === "revise";
 }

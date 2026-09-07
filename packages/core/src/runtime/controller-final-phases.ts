@@ -12,7 +12,7 @@ import { readGitHeadSha } from "./git-ops.js";
 import { buildRunFailureResult } from "./controller-helpers.js";
 import { runLandingFlow } from "./landing.js";
 import { nonGoalViolations, loadPlanContract } from "./scope-check.js";
-import { buildDeterministicReviewerText, buildReviewSurface, evaluateDeterministicReview } from "./review-surface.js";
+import { buildDeterministicReviewerText, buildReviewSurface, evaluateDeterministicReview, classifyReviewerVerdict, type ReviewerVerdict } from "./review-surface.js";
 import type { RunFactoryControllerInput, RunFactoryControllerResult } from "./controller.js";
 import type { VerificationRunResult } from "./verification.js";
 import type { VerificationFailureClassification } from "./failure-classification.js";
@@ -58,6 +58,7 @@ export async function runFinalPhases(state: FinalPhasesState): Promise<RunFactor
   } = state;
   const reviewerGuidance = { text: reviewerGuidanceText };
   let reviewerExecutionPath: string | undefined;
+  let reviewerVerdict: { verdict: ReviewerVerdict; summary: string } | undefined;
   let candidateSha: string | undefined;
   let finalMergePath: string | undefined;
 
@@ -178,6 +179,9 @@ if (input.reviewerExecutor) {
         },
       });
   reviewerExecutionPath = await writePrototypeReviewerExecutionArtifact(run.runDir, reviewerResult);
+  reviewerVerdict = deterministicReview.eligible
+    ? { verdict: "pass", summary: reviewerResult.outputText }
+    : { verdict: classifyReviewerVerdict(reviewerResult.outputText), summary: reviewerResult.outputText.slice(0, 1200) };
   if (deterministicReview.eligible && reviewSurface) {
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
@@ -202,6 +206,16 @@ if (input.reviewerExecutor) {
       reviewerTools: deterministicReview.eligible ? [] : reviewerTools,
     },
   });
+  if (reviewerVerdict) {
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "review.verdict",
+      data: {
+        verdict: reviewerVerdict.verdict,
+        reviewerExecutionPath,
+      },
+    });
+  }
   await emitProgress(input, {
     runId: run.runId,
     phase: "review",
@@ -366,6 +380,7 @@ const approved = await input.requestApproval({
   contractComplete: contractResult.canComplete,
   verificationStatus: verification.overallStatus,
   scopeWarnings,
+  reviewerVerdict,
 });
 await appendFactoryRunEvent(run.eventsPath, {
   timestamp: new Date().toISOString(),

@@ -6,6 +6,7 @@
 import type { RunArtifacts } from "../runs/artifacts-read.js";
 import type { BenchmarkTaskSpec, PillarResult } from "./types.js";
 import type { RunTiming } from "./types.js";
+import { classifyReviewerVerdict } from "../runtime/review-surface.js";
 
 const clamp = (value: number): number => Math.max(0, Math.min(1, value));
 
@@ -254,8 +255,14 @@ export function scoreExecution(artifacts: RunArtifacts, spec: BenchmarkTaskSpec)
   const repairs = artifacts.repairExecutions.length;
   components.repairEfficiency = repairs === 0 ? 1 : clamp(1 - (repairs - 1) / Math.max(1, maxAttempts));
 
-  const reviewerText = (artifacts.reviewerExecution?.outputText ?? "").toLowerCase();
-  components.reviewOutcome = reviewerText ? (/\bnot ready\b|\bblock(ed)?\b/.test(reviewerText) ? 0 : 1) : null;
+  const reviewerText = artifacts.reviewerExecution?.outputText ?? "";
+  // Conclusion-aware, consistent with the approval gate's classifier: a
+  // "Ready for approval" verdict scores 1 even if the prose mentions
+  // "blocker"/"not ready" in passing, and only an explicit blocking
+  // conclusion scores 0. Null when no reviewer output exists.
+  components.reviewOutcome = reviewerText.trim()
+    ? classifyReviewerVerdict(reviewerText) === "block" ? 0 : 1
+    : null;
 
   return {
     score: numeric(components).length ? average(numeric(components)) : null,

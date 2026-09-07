@@ -305,7 +305,12 @@ if (discoveryExecutor) {
     throw new Error(`Discovery failed: ${reason}`);
   }
   discoveryOutputText = JSON.stringify(discoveryValidation.discovery, null, 2);
-  discoveryFileHints = normalizeDiscoveryFileHints(discoveryValidation.discovery.files ?? []);
+  // Existing files and to-be-created files both become file hints so the
+  // Builder gets the full surface (edit these + create these).
+  discoveryFileHints = normalizeDiscoveryFileHints([
+    ...(discoveryValidation.discovery.files ?? []),
+    ...(discoveryValidation.discovery.newFiles ?? []),
+  ]);
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "discovery.executor_completed",

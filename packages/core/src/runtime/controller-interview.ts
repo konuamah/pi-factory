@@ -197,6 +197,10 @@ export function buildInterviewPrompt(input: {
     input.discoveryReport ? `Validated Discovery result:\n${input.discoveryReport}` : undefined,
     "",
     "Ask concise, answerable questions. Prefer one round of high-impact questions.",
+    "When a question is genuinely multiple-choice, include an explicit options block in this exact shape:",
+    "Options:\n[A] <option label> — <optional short description>\n[B] <option label> — <optional short description>",
+    "Do not emit an 'Other' option; Factory renders a built-in custom-answer path automatically.",
+    "If a question is open-ended, omit the Options block and ask for free text.",
     "The user answer will be recorded and passed into the planner.",
   ].filter(Boolean).join("\n");
 }
@@ -230,6 +234,7 @@ export function buildDiscoveryPrompt(
     "- Find the concrete existing files involved when they exist.",
     "- Return evidence from those files or explain the missing/ambiguous surface as unknowns.",
     "- Capture only unknowns that remain after read-only inspection.",
+    "- If the goal clearly requires creating one or more NEW files (they do not exist and cannot be discovered), report them in newFiles[] with a note in unknowns[] explaining why; never list them in files[] or as confirmed evidence.",
     "- Prefer files from candidate_files. You may list another file only if it appears in observed_files.",
     "",
     `User task: ${taskObjective}`,
@@ -242,6 +247,7 @@ export function buildDiscoveryPrompt(
     "  \"status\": \"complete\",",
     "  \"implementationSurface\": \"identified\" | \"missing\" | \"ambiguous\",",
     "  \"files\": [\"src/path/to/file.ts\"],",
+    "  \"newFiles\": [\"src/path/to/new-file.ts\"],",
     "  \"evidence\": [",
     "    { \"status\": \"confirmed\", \"file\": \"src/path/to/file.ts\", \"finding\": \"What this file proves\" }",
     "  ],",
@@ -254,6 +260,7 @@ export function buildDiscoveryPrompt(
     "If the surface is ambiguous, return implementationSurface \"ambiguous\", only confirmed files in files[], and unknowns that describe the ambiguity.",
     "Every existing file in files[] must appear in observed_files from the repository evidence packet.",
     "Every confirmed evidence file must appear in observed_files from the repository evidence packet.",
+    "If the goal clearly requires creating a NEW file that does not exist yet (e.g. a data file, a new component file, a new config), list it in newFiles[] — NOT in files[]. A newFile must not appear in files[] and must not be claimed as confirmed evidence; describe why it must be created in unknowns[]. Only name a newFile when the goal makes its creation necessary, never speculate.",
   ].filter(Boolean).join("\n");
 }
 
@@ -308,6 +315,7 @@ export function buildPlannerPrompt(
     "Use the supplied Discovery evidence as your repository context.",
     "Do not ask Builder to broadly find, locate, search for, or identify implementation files.",
     "If Discovery identified existing files, create the implementation sequence using those files.",
+    "If Discovery reports newFiles (files the goal requires creating that do not exist yet), treat them as authoritative create-targets: name them in TARGET FILES and give the Builder an explicit create step for each.",
     "If Discovery reports implementationSurface \"missing\", choose explicit new files for the Builder to create based on the task and observed repository status.",
     "If Discovery reports implementationSurface \"ambiguous\", plan the smallest bounded inspection needed before editing and keep it tied to Discovery's observed files and unknowns.",
     "A narrow inspection of an identified or newly planned file is allowed when needed before editing.",
@@ -333,9 +341,11 @@ export function buildPlannerPrompt(
     "4. IMPLEMENTATION SEQUENCE",
     "- Break the work into small, sequential, and testable steps labeled Step 1, Step 2, etc.",
     "- Ensure each step builds logically on the previous one.",
+    "- Each step names exact target file(s) to read and/or edit — never a directory, a glob, or 'the relevant files'.",
     "- For each step, include: affected file(s), exact action, negative path/edge case to preserve, and verification signal.",
+    "- For each edit step, put the concrete reads first (exact file paths) and an explicit 'Stop discovery after <N> check(s):' line naming what the Builder must confirm before it may stop reading and start editing.",
     "- Do not make the first step a broad search, location, or file-identification step.",
-    "- A narrow read/inspection step is allowed only for concrete files named by Discovery or explicit new files named by this plan, and only to confirm local context before editing.",
+    "- Do not write steps like 'inspect exports/imports before editing' — instead name the exact files to read and the exact facts to confirm (e.g. 'confirm exported Foo still exists; confirm Bar accepts field baz').",
     "",
     "5. VERIFICATION CONTRACT",
     "- List the exact checks, commands, or manual assertions that should prove the change works.",

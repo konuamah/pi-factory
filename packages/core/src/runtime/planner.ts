@@ -98,11 +98,23 @@ export function buildPlanArtifact(input: {
 
   const implementationContract = extractImplementationContract(input.planText, input.discoveryText);
 
+  // Discovery-declared create-targets (newFiles) are authoritative: the goal
+  // requires creating them, so ensure they appear in the contract's target
+  // files even if the planner prose did not list them explicitly. This closes
+  // the loop for mixed edit+create tasks where discovery reports newFiles.
+  const discoveryNewFiles = extractDiscoveryNewFiles(input.discoveryText);
+  const mergedContract: ImplementationContract | undefined = discoveryNewFiles.length === 0
+    ? implementationContract
+    : {
+        ...(implementationContract ?? {}),
+        targetFiles: uniqueStrings([...(implementationContract?.targetFiles ?? []), ...discoveryNewFiles]),
+      };
+
   // Planner intent must reach Builder as explicit file targets: when discovery
   // is a net-new surface (implementationSurface: missing), discovery hints are
   // empty and Builder would otherwise rediscover the whole implementation
   // surface from scratch.
-  const contractTargetFiles = implementationContract?.targetFiles ?? [];
+  const contractTargetFiles = mergedContract?.targetFiles ?? [];
   if (contractTargetFiles.length > 0) {
     for (const task of tasks) {
       if (!isBuildStage(task.stage) && task.role !== "builder") {
@@ -120,10 +132,25 @@ export function buildPlanArtifact(input: {
     summary: buildSummary(input.goal, input.config, workflowStages),
     discoveryText: input.discoveryText,
     planText: input.planText,
-    implementationContract,
+    implementationContract: mergedContract,
     workflowStages,
     tasks,
   };
+}
+
+/**
+ * Parse discovery output JSON and return its newFiles array (files the goal
+ * requires creating). Returns [] when discovery is absent or has no newFiles.
+ */
+export function extractDiscoveryNewFiles(discoveryText?: string): string[] {
+  if (!discoveryText) return [];
+  try {
+    const parsed = JSON.parse(discoveryText) as { newFiles?: unknown };
+    if (!Array.isArray(parsed.newFiles)) return [];
+    return parsed.newFiles.filter((file): file is string => typeof file === "string" && Boolean(file.trim()));
+  } catch {
+    return [];
+  }
 }
 
 /**

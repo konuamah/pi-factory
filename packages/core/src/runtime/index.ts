@@ -16,6 +16,7 @@ export * from "./file-planning.js";
 export * from "./file-apply.js";
 export * from "./failure-classification.js";
 export * from "./ai-failure-classifier.js";
+export * from "./review-surface.js";
 export * from "./dependencies.js";
 export * from "./dependency-cache.js";
 export * from "./dependency-remediation.js";

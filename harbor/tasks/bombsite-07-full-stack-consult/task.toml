@@ -1,0 +1,37 @@
+schema_version = "1.4"
+
+artifacts = [
+  { source = "/app/.factory/runs", destination = "factory-runs" },
+]
+
+[task]
+name = "local/factory-bombsite-07-full-stack-consult"
+version = "1.0.0"
+description = "Make the doctor page's contact form persist submissions in localStorage with a running count and render visit availability from a new file://-safe data file, while preserving every existing behavior and adapting around a stale lint command. Oracle validates; agent trials score Factory orchestration."
+[[task.authors]]
+name = "Kelvi"
+keywords = ["factory", "harbor", "benchmark", "html", "javascript", "interview", "localStorage", "multi-file", "adaptation", "repair"]
+
+artifacts = [
+  { source = "/app/.factory/runs", destination = "factory-runs" },
+]
+
+[metadata]
+family = "full-stack-consult"
+stressSite = "bombsite"
+pillarFocus = ["interviewQuality", "handoffQuality", "executionQuality", "adaptationQuality", "scopeQuality"]
+interviewRequired = true
+networkPolicy = "public"
+
+[verifier]
+timeout_sec = 300.0
+
+[agent]
+timeout_sec = 1800.0
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 900.0
+cpus = 2
+memory_mb = 2048
+storage_mb = 10240

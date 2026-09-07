@@ -191,3 +191,33 @@ test('bombsite-05 seeded check fails on the generic message', () => {
   }
   assert.equal(failed, true, 'the seeded check must fail until the message is personalized');
 });
+
+// --- bombsite-07: full-stack-consult (multi-file, localStorage + file:// data) ---
+
+const TASK7 = path.join(process.cwd(), 'harbor', 'tasks', 'bombsite-07-full-stack-consult');
+const GRADE7 = path.join(TASK7, 'tests', 'grade.mjs');
+const SOLVE7 = path.join(TASK7, 'solution', 'solve.sh');
+
+test('bombsite-07 verifier passes on the reference solution', () => {
+  const workspace = makeWorkspace(TASK7, 'bombsite-07-');
+  execFileSync('bash', [SOLVE7], { cwd: workspace, env: envFor(workspace), stdio: 'pipe' });
+  const result = grade(workspace, GRADE7);
+  assert.ok(result.passed, `reference solution should satisfy every check:\n${result.stdout}`);
+  assert.equal(result.rewards.task_success, 1);
+});
+
+test('bombsite-07 verifier fails on the untouched fixture', () => {
+  const result = grade(makeWorkspace(TASK7, 'bombsite-07-'), GRADE7);
+  assert.equal(result.passed, false, 'the fixture must start unsolved or the task is trivial');
+  assert.equal(result.rewards.task_success, 0);
+  assert.match(result.stdout, /persists-to-localStorage/);
+});
+
+test('bombsite-07 verifier rejects a fetch()-based shortcut that breaks file://', () => {
+  const workspace = makeWorkspace(TASK7, 'bombsite-07-');
+  const script = fs.readFileSync(path.join(workspace, 'script.js'), 'utf8');
+  fs.writeFileSync(path.join(workspace, 'script.js'), script + "\nfetch('data/schedule.json').then(r => r.json());\n", 'utf8');
+  const result = grade(workspace, GRADE7);
+  assert.equal(result.rewards.task_success, 0);
+  assert.match(result.stdout, /no-fetch/);
+});

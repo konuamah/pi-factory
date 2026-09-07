@@ -30,7 +30,7 @@ export async function runRuntimeHarness(input: {
   verificationPlannerExecutor?: AgentExecutor;
   failureClassifierExecutor?: AgentExecutor;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: Array<{ id: string; title: string; stage: string; status: "pending" | "done"; dependsOn: string[]; type?: string; role?: string; commands?: string[]; requiresApproval?: boolean }> }) => Promise<PlanApprovalResult>;
-  requestApproval?: (input: { runId: string; goal: string; baselineDebt?: Array<{ commandName: string; category: string; reason: string; suggestedAction: string; implicatedFiles?: string[] }>; contractComplete: boolean; verificationStatus?: string }) => Promise<boolean>;
+  requestApproval?: (input: { runId: string; goal: string; baselineDebt?: Array<{ commandName: string; category: string; reason: string; suggestedAction: string; implicatedFiles?: string[] }>; contractComplete: boolean; verificationStatus?: string; reviewerVerdict?: { verdict: "block" | "pass" | "unknown"; summary: string } }) => Promise<boolean>;
   requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
 }): Promise<RuntimeHarnessResult> {
   const result = await runFactoryController({

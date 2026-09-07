@@ -58,6 +58,7 @@ Use `interview` before planning when Factory must ask the user questions first.
 - the user's answer is passed into the planner prompt and persisted as a structured record in `interview-decisions.json`
 - that structured record reaches builder context, the reviewer prompt, and approval, not just the planner
 - final review also receives a scoped review surface built from `completed-tasks.json`, the candidate diff, direct imports/dependencies, `plan.json` `implementationContract`, and `verification.json`; trivial low-risk changes may skip the LLM reviewer entirely via deterministic review
+- the reviewer's prose verdict is classified from its conclusion into a `review.verdict` event (`block` | `pass` | `unknown`), and a blocking verdict is surfaced in the final approval gate — with no confirm UI, Factory refuses to silently auto-approve past a blocking review
 - Factory bundles the interview skill as `skills/grilling`; bind `skills.require: [grilling]` directly
 
 When the model returns several questions in one decision (separated by `---` in the interview prompt output), the Pi adapter presents them one at a time — a full editor when the host exposes it, otherwise an overlay — and folds every answer into a single structured interview record, so planning still receives one `interview-decisions.json` entry per interview stage.
@@ -72,11 +73,15 @@ Options:
 -> Prefer MongoDB text search unless ranking semantics require more.
 ```
 
-When `Options:` is present, the Pi interview UI renders arrow-key selection plus a built-in `Custom answer…` path. The selected choice is recorded both in the human-readable interview answer text and in structured per-question fields inside `interview-decisions.json`; open-ended questions without `Options:` keep the existing free-text flow.
+When `Options:` is present, the Pi interview UI prefers Pi's built-in selection UI and includes a built-in `Custom answer…` path; if that UI is unavailable, Factory falls back to its custom overlay selector. The selected choice is recorded both in the human-readable interview answer text and in structured per-question fields inside `interview-decisions.json`; open-ended questions without `Options:` keep the existing free-text flow.
 
 Stage dependencies are resolved by stage name into task ids. A task with `dependsOn: [plan]` includes the planner task as dependency context for the builder, and direct task ids also work.
 
 Planner output is also extracted into `plan.json` `implementationContract` fields: `targetFiles`, `implementationSteps`, `verificationChecks`, `nonGoals`, `risks`, and `blockers`. Builder context treats that contract as authoritative and should not broadly rediscover target files when the planner named concrete files and ordered steps.
+
+Builder role rules and the compiled builder prompt are "edit from contract": the workspace is presented as already prepared, the builder reads only handoff-named target files (plus their direct imports when required), then edits, then runs the specified verification. README inspection, repository history/git archaeology, broad search, and dependency reinstall are explicitly out unless a concrete tool failure demands them, and a missing named file or un-executable contract yields `CONTRACT_BLOCKED <reason>` instead of silent rediscovery.
+
+Planner implementation steps should name exact read targets and include an explicit stop condition ("Stop discovery after N check(s):") so the builder does not treat inspection as open-ended. The context budget keeps human decisions and the planner handoff whole at any budget, truncating only general project guidance, so an authoritative interview answer is never silently cut out of a builder prompt.
 
 Factory preserves the raw user goal in run artifacts for audit, but model-facing task prompts use a cleaned task objective when the raw goal contains a pasted Pi prompt template such as Planner Mode or Builder Mode. This prevents role-wrapper text like "do not write production code" from leaking into Builder prompts while keeping the original request inspectable.
 

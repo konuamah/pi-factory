@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import {
   buildPlanApprovalPreviewLines,
   requestPlanApprovalDecision,
+  buildReviewerFindingLines,
+  resolveFinalApprovalConfirm,
+  defaultFinalApproval,
 } from '../packages/adapters/pi/dist/approval.js';
 import { requestDecisionInput } from '../packages/adapters/pi/dist/decision-dialog.js';
 
@@ -281,6 +284,46 @@ test('interview uses custom overlay when editor is unavailable, one question at 
   assert.match(decision.feedback, /A6: unit and api tests/);
 });
 
+test('interview prefers select UI over custom overlay for MCQs when both exist', async () => {
+  const question = [
+    'Q1 - Search strategy: Which implementation should govern?',
+    '',
+    'Options:',
+    '[A] MongoDB text search — Simpler and uses existing indexes',
+    '[B] Regex fallback — Broader but less precise',
+  ].join('\n');
+  let customUsed = false;
+  const decision = await requestDecisionInput(
+    {
+      notify() {},
+      setWidget() {},
+      select: async (_title, options) => {
+        assert.ok(options.includes('MongoDB text search — Simpler and uses existing indexes'));
+        assert.ok(options.includes('Regex fallback — Broader but less precise'));
+        assert.ok(options.includes('Custom answer…'));
+        return 'Regex fallback — Broader but less precise';
+      },
+      custom: async () => {
+        customUsed = true;
+        return undefined;
+      },
+    },
+    {
+      id: 'interview-select-first',
+      title: 'Interview: grill',
+      question,
+      options: [{ id: 'answered', label: 'Use my answer' }],
+      source: 'INTERVIEW',
+      reason: 'USER_PREFERENCE',
+    },
+  );
+
+  assert.equal(customUsed, false);
+  assert.equal(decision.optionId, 'answered');
+  assert.match(decision.feedback ?? '', /Choice1: \[B\] Regex fallback/);
+  assert.equal(decision.interviewQuestions?.[0]?.selectedOptionId, 'b');
+});
+
 test('interview uses option overlay for MCQs and records selected option', async () => {
   const question = [
     'Q1 - Search strategy: Which implementation should govern?',
@@ -456,4 +499,67 @@ test('interview editor returning blank fails loudly', async () => {
     ),
     /cancelled or left blank/,
   );
+});
+
+test('reviewer finding lines render a blocking verdict with the summary', () => {
+  const lines = buildReviewerFindingLines({
+    verdict: 'block',
+    summary: [
+      '**Finding**',
+      '- High: the consent flow no longer gates analytics loading.',
+      'Not ready for approval.',
+    ].join('\n'),
+  });
+  assert.ok(lines.includes('Factory approval — reviewer finding'));
+  assert.ok(lines.includes('reviewer verdict: block'));
+  assert.ok(lines.some((line) => line.includes('consent flow no longer gates analytics loading')));
+  assert.ok(lines.some((line) => line.includes('Not ready for approval')));
+  assert.ok(lines.some((line) => line.includes('The reviewer is NOT ready for approval. Approving overrides that finding.')));
+});
+
+test('reviewer finding lines for a pass verdict are informational', () => {
+  const lines = buildReviewerFindingLines({
+    verdict: 'pass',
+    summary: 'Ready for approval. All checks passed.',
+  });
+  assert.ok(lines.includes('reviewer verdict: pass'));
+  assert.ok(lines.some((line) => line.includes('provided for your decision')));
+  assert.ok(!lines.some((line) => line.includes('NOT ready for approval')));
+});
+
+test('reviewer finding lines are empty when no verdict exists', () => {
+  assert.deepEqual(buildReviewerFindingLines(undefined), []);
+});
+
+test('final approval confirm prompt surfaces a blocking verdict as an explicit override', () => {
+  const { prompt, body } = resolveFinalApprovalConfirm(
+    { runId: 'run_1', goal: 'Add GA tag', hasBaselineDebt: false, hasScopeWarnings: false },
+    { verdict: 'block', summary: 'Not ready for approval.' },
+  );
+  assert.equal(prompt, 'Approve candidate despite the reviewer blocking verdict?');
+  assert.match(body, /Approve prototype run run_1 for goal: Add GA tag/);
+  assert.match(body, /The reviewer is NOT ready for approval\. Only approve with explicit override intent\./);
+});
+
+test('final approval confirm prompt prefers reviewer block over baseline debt', () => {
+  const { prompt } = resolveFinalApprovalConfirm(
+    { runId: 'run_1', goal: 'g', hasBaselineDebt: true, hasScopeWarnings: true },
+    { verdict: 'block', summary: 'blocked' },
+  );
+  assert.equal(prompt, 'Approve candidate despite the reviewer blocking verdict?');
+});
+
+test('final approval confirm without a verdict uses baseline-debt prompt when debt exists', () => {
+  const { prompt } = resolveFinalApprovalConfirm(
+    { runId: 'run_1', goal: 'g', hasBaselineDebt: true, hasScopeWarnings: false },
+    undefined,
+  );
+  assert.equal(prompt, 'Approve candidate despite baseline debt?');
+});
+
+test('default final approval never silently approves a blocking verdict', () => {
+  assert.equal(defaultFinalApproval({ verdict: 'block', summary: 'Not ready' }), false);
+  assert.equal(defaultFinalApproval({ verdict: 'pass', summary: 'Ready' }), true);
+  assert.equal(defaultFinalApproval({ verdict: 'unknown', summary: 'notes' }), true);
+  assert.equal(defaultFinalApproval(undefined), true);
 });

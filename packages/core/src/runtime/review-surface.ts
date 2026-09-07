@@ -30,6 +30,25 @@ const HIGH_RISK_BASENAMES = new Set([
 export const TRIVIAL_REVIEW_MAX_FILES = 1;
 export const TRIVIAL_REVIEW_MAX_CHANGED_LINES = 30;
 
+export type ReviewerVerdict = "block" | "pass" | "unknown";
+
+/**
+ * Classify a reviewer's prose verdict from its conclusion. Positive markers
+ * must not fire when negated ("not ready for approval"), and negative markers
+ * must not fire on benign mid-transcript mentions ("would fail if ... but
+ * ready for approval"). Mirrors the benchmark's reviewer-agreement heuristic
+ * (packages/core/src/benchmark/scoring.ts) so the gate and scoring agree.
+ */
+export function classifyReviewerVerdict(outputText: string): ReviewerVerdict {
+  const text = (outputText ?? "").toLowerCase();
+  const conclusion = text.slice(-600);
+  const positive = /(?<!\bnot )(?<!\bcannot )(?<!\bcan't )(?<!\bcan not )\b(ready for approval|looks? ready|accepted|all checks? pass|no issues?|satisfies (all|every|the)|good to merge|ship it|no problems?|approve)\b/.test(conclusion);
+  const negative = /\b(not ready|must fix|cannot approve|can't approve|blocked pending|needs (work|changes|fixes|rework)|reject|do not merge|does not (look )?ready|fails? (the )?(checks?|review|verification)|not satisfied|unacceptable)\b/.test(conclusion);
+  if (negative && !positive) return "block";
+  if (positive && !negative) return "pass";
+  return "unknown";
+}
+
 export interface ReviewSurface {
   changedFiles: string[];
   directImports: string[];
@@ -104,6 +123,19 @@ export function evaluateDeterministicReview(
   }
   if (surface.nonGoalViolations.length > 0) {
     reasons.push(`non-goal files changed: ${surface.nonGoalViolations.map((violation) => violation.file).slice(0, 3).join(", ")}`);
+  }
+  // A trivial diff cannot be judged "ready" if the plan named goal-bearing
+  // target files the candidate did not touch at all: the deterministic check
+  // only inspects scope/size, never whether the diff fulfills the goal. When
+  // the candidate changed a strict subset of the plan's declared targets, an
+  // LLM reviewer is required so a missing goal surface (e.g. only script.js
+  // edited when the plan named index.html + script.js) is caught.
+  if (surface.planTargetFiles.length > 0) {
+    const touched = new Set(surface.changedFiles);
+    const untouchedTargets = surface.planTargetFiles.filter((file) => !touched.has(file));
+    if (untouchedTargets.length > 0) {
+      reasons.push(`plan target files not changed: ${untouchedTargets.slice(0, 5).join(", ")}`);
+    }
   }
   if (verification.overallStatus === "incomplete") {
     reasons.push("verification is incomplete");

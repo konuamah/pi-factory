@@ -5,5 +5,7 @@ node_modules/
 .factory/runs/
 .worktrees/
 harbor/jobs/
+# Harbor job output (root-level, not just harbor/jobs/)
+jobs/
 .pi-glla/
 harbor/agents/__pycache__/

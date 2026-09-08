@@ -16,9 +16,41 @@ test('parseScriptedDecisionAnswers rejects malformed files loudly', () => {
   assert.throws(() => parseScriptedDecisionAnswers('[]'), /must be a JSON object/);
   assert.throws(() => parseScriptedDecisionAnswers('{"a": 1}'), /must be a non-empty answer string or answer object/);
   assert.throws(() => parseScriptedDecisionAnswers('{"a": "  "}'), /must be a non-empty answer string/);
-  assert.throws(() => parseScriptedDecisionAnswers('{"a": {}}'), /must provide optionId, feedback, or answers/);
+  assert.throws(() => parseScriptedDecisionAnswers('{"a": {}}'), /must provide optionId, feedback, skip, or answers/);
+  assert.throws(() => parseScriptedDecisionAnswers('{"a": {"skip": false}}'), /invalid skip value/);
+  assert.throws(() => parseScriptedDecisionAnswers('{"a": {"skip": true, "feedback": "x"}}'), /cannot combine skip with optionId, feedback, or answers/);
   assert.deepEqual(parseScriptedDecisionAnswers('{"INTERVIEW":"yes"}'), { INTERVIEW: 'yes' });
   assert.deepEqual(parseScriptedDecisionAnswers('{"INTERVIEW":{"optionId":"A"}}'), { INTERVIEW: { optionId: 'a' } });
+  assert.deepEqual(parseScriptedDecisionAnswers('{"INTERVIEW":{"skip":true}}'), { INTERVIEW: { skip: true } });
+  assert.deepEqual(
+    parseScriptedDecisionAnswers('{"INTERVIEW":{"answers":[{"skip":true},{"feedback":"custom"}]}}'),
+    { INTERVIEW: { answers: [{ skip: true }, { feedback: 'custom' }] } },
+  );
+});
+
+test('createScriptedDecisionHandler formats skipped structured interview answers', async () => {
+  const request = {
+    id: 'req-skip',
+    title: 'Interview: grill',
+    question: [
+      'Q1 - Search strategy: Which implementation should govern?',
+      '',
+      'Options:',
+      '[A] MongoDB text search — Simpler and uses existing indexes',
+      '[B] Regex fallback — Broader but less precise',
+    ].join('\n'),
+    options: [{ id: 'answered', label: 'Use my answer' }],
+    source: 'INTERVIEW',
+    reason: 'USER_PREFERENCE',
+  };
+
+  const handler = createScriptedDecisionHandler({ interview: { skip: true } });
+  const resolved = await handler(request);
+  assert.equal(resolved.optionId, 'answered');
+  assert.match(resolved.feedback ?? '', /Choice1: skipped/);
+  assert.match(resolved.feedback ?? '', /A1: \[skipped\]/);
+  assert.equal(resolved.interviewQuestions?.[0]?.skipped, true);
+  assert.equal(resolved.interviewQuestions?.[0]?.finalAnswer, '');
 });
 
 test('createScriptedDecisionHandler matches by title, source, or wildcard and refuses gaps', async () => {

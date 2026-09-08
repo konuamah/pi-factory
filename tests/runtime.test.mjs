@@ -435,6 +435,88 @@ test('blocking reviewer verdict reaches the approval gate and blocks silent auto
   });
 });
 
+test('final approval is requested only after reviewer verdict exists', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const sequence = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
+        await fs.writeFile(path.join(input.cwd, 'src/index.ts'), "import { helper } from './helper.js';\nexport const x = helper;\n", 'utf8');
+        await fs.writeFile(path.join(input.cwd, 'src/helper.ts'), 'export const helper = 2;\n', 'utf8');
+        return { executionId: input.executionId, status: 'completed', outputText: 'builder completed', events: [] };
+      },
+      async cancel() {},
+    };
+    const reviewerExecutor = {
+      async execute(input) {
+        sequence.push('reviewer');
+        calls.push({ label: 'reviewer', executionId: input.executionId, prompt: input.prompt });
+        return { executionId: input.executionId, status: 'completed', outputText: 'Ready for approval. Review passed.', events: [] };
+      },
+      async cancel() {},
+    };
+
+    let approvalInput;
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      reviewerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async (input) => {
+        approvalInput = input;
+        sequence.push(`approval:${input.reviewerVerdict?.verdict ?? 'none'}`);
+        return false;
+      },
+    });
+
+    assert.deepEqual(sequence, ['reviewer', 'approval:pass']);
+    assert.equal(approvalInput.reviewerVerdict.verdict, 'pass');
+    const eventsRaw = await fs.readFile(path.join(result.runDir, 'events.jsonl'), 'utf8');
+    assert.ok(eventsRaw.indexOf('"type":"review.verdict"') < eventsRaw.indexOf('"type":"approval.required"'));
+  });
+});
+
+test('missing reviewer blocks final approval when deterministic review is ineligible', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
+        await fs.writeFile(path.join(input.cwd, 'src/index.ts'), "import { helper } from './helper.js';\nexport const x = helper;\n", 'utf8');
+        await fs.writeFile(path.join(input.cwd, 'src/helper.ts'), 'export const helper = 2;\n', 'utf8');
+        return { executionId: input.executionId, status: 'completed', outputText: 'builder completed', events: [] };
+      },
+      async cancel() {},
+    };
+
+    let finalApprovalCalled = 0;
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => {
+        finalApprovalCalled += 1;
+        return true;
+      },
+    });
+
+    const summary = await readJson(result.summaryPath);
+    assert.equal(finalApprovalCalled, 0);
+    assert.equal(summary.status, 'FAILED');
+    assert.equal(summary.phase, 'review-unavailable');
+    const eventsRaw = await fs.readFile(path.join(result.runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /review\.unavailable/);
+    assert.equal(eventsRaw.includes('"type":"approval.required"'), false);
+  });
+});
+
 test('invalid discovery output fails loudly before planning', async () => {
   await withTempProject(async (root) => {
     const calls = [];
@@ -814,6 +896,7 @@ test('interview answers are included in planner prompt after decision resolution
       async cancel() {},
     };
     const builderExecutor = makeExecutor('builder', calls);
+    const reviewerExecutor = makeExecutor('reviewer', calls);
 
     await runRuntimeHarness({
       cwd: root,
@@ -835,12 +918,110 @@ test('interview answers are included in planner prompt after decision resolution
     assert.match(interviewPrompt, /## grilling@1\.0\.0/);
     assert.match(interviewPrompt, /Instructions:\nAsk the user questions and wait for answers\./);
     assert.match(interviewPrompt, /When a question is genuinely multiple-choice, include an explicit options block/);
-    assert.match(interviewPrompt, /Options:\\n\[A\] <option label>/);
+    assert.match(interviewPrompt, /Options:\n\[A\] <option label>/);
     assert.match(interviewPrompt, /Do not emit an 'Other' option/);
     const plannerPrompt = calls.find((call) => call.label === 'planner')?.prompt ?? '';
     assert.match(plannerPrompt, /Interview answers and decisions:/);
     assert.match(plannerPrompt, /Q1: Which search behavior should govern/);
     assert.match(plannerPrompt, /Use MongoDB text search only; do not add a new search platform\./);
+  });
+});
+
+test('all-skipped interview reaches planner and fails clearly when planner needs clarification', async () => {
+  await withTempProject(async (root) => {
+    await writeProjectSkill(root, 'grilling', 'Ask the user questions and wait for answers.');
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: interview',
+        'workflows:',
+        '  - id: interview',
+        '    name: Interview',
+        '    stages:',
+        '      - name: discover',
+        '        type: agent',
+        '        role: discovery',
+        '      - name: grill',
+        '        type: interview',
+        '        role: planner',
+        '        dependsOn: [discover]',
+        '        skills:',
+        '          require: [grilling]',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '        dependsOn: [grill]',
+        '      - name: build',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '      - name: approval',
+        '        type: approval',
+        '        dependsOn: [build]',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const calls = [];
+    const plannerExecutor = {
+      async execute(input) {
+        const actualLabel = input.executionId.includes('discovery') ? 'discovery' : input.executionId.includes('grill') ? 'interview' : 'planner';
+        calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt });
+        if (actualLabel === 'interview') {
+          return { executionId: input.executionId, status: 'completed', outputText: 'Q1: Which product behavior should Factory implement?', events: [] };
+        }
+        if (actualLabel === 'discovery') {
+          return {
+            executionId: input.executionId,
+            status: 'completed',
+            outputText: JSON.stringify({
+              status: 'complete',
+              files: ['src/index.ts'],
+              evidence: [{ status: 'confirmed', file: 'src/index.ts', finding: 'src/index.ts exists and is the demo implementation surface.' }],
+              unknowns: [],
+            }),
+            events: [],
+          };
+        }
+        assert.match(input.prompt, /A1: \[skipped\]/);
+        assert.match(input.prompt, /Interview answers and decisions:/);
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: 'INTERVIEW_SKIPPED_NEEDS_CLARIFICATION: Missing product behavior preference.',
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const builderExecutor = makeExecutor('builder', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Make the ambiguous workflow better',
+        plannerExecutor,
+        builderExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+        requestDecision: async (request) => ({
+          requestId: request.id,
+          optionId: 'answered',
+          feedback: 'Q1: Which product behavior should Factory implement?\nChoice1: skipped\nA1: [skipped]',
+          interviewQuestions: [{
+            index: 1,
+            prompt: 'Q1: Which product behavior should Factory implement?',
+            finalAnswer: '',
+            skipped: true,
+          }],
+          decidedAt: new Date().toISOString(),
+        }),
+      }),
+      /Planning failed: Interview answers were skipped and planning needs clarification: Missing product behavior preference/,
+    );
+
+    assert.ok(calls.some((call) => call.label === 'interview'));
+    assert.ok(calls.some((call) => call.label === 'planner'));
   });
 });
 
@@ -3516,6 +3697,13 @@ test('final approval receives baseline debt when verification failed baseline-un
     const calls = [];
     const plannerExecutor = makeExecutor('planner', calls);
     const builderExecutor = makeExecutor('builder', calls);
+    const reviewerExecutor = {
+      async execute(input) {
+        calls.push({ label: 'reviewer', executionId: input.executionId, prompt: input.prompt });
+        return { executionId: input.executionId, status: 'completed', outputText: 'Ready for approval. All checks passed.', events: [] };
+      },
+      async cancel() {},
+    };
     const failureClassifier = {
       async execute() {
         return {
@@ -3547,6 +3735,7 @@ test('final approval receives baseline debt when verification failed baseline-un
       goal: 'Add a feature',
       plannerExecutor,
       builderExecutor,
+      reviewerExecutor,
       failureClassifierExecutor: failureClassifier,
       requestPlanApproval: async () => ({ decision: 'approve' }),
       requestApproval: async (input) => {
@@ -3621,6 +3810,12 @@ test('approval gate surfaces scopeWarnings when changed files hit plan non-goals
       },
       async cancel() {},
     };
+    const reviewerExecutor = {
+      async execute(input) {
+        return { executionId: input.executionId, status: 'completed', outputText: 'Ready for approval. All checks passed.', events: [] };
+      },
+      async cancel() {},
+    };
 
     let capturedScopeWarnings;
     const result = await runRuntimeHarness({
@@ -3628,6 +3823,7 @@ test('approval gate surfaces scopeWarnings when changed files hit plan non-goals
       goal: 'Add a demo feature',
       plannerExecutor,
       builderExecutor,
+      reviewerExecutor,
       requestPlanApproval: async () => ({ decision: 'approve' }),
       requestApproval: async ({ scopeWarnings }) => {
         capturedScopeWarnings = scopeWarnings;

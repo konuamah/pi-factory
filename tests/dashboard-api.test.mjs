@@ -68,6 +68,36 @@ test('queryRuns and queryRunLogs work on a run', async () => {
   });
 });
 
+test('queryRun exposes human-readable plan text for dashboard details', async () => {
+  await withRepo(async (root) => {
+    const runsDir = path.join(root, '.factory', 'runs');
+    const runId = `run_${Date.now()}_plan`;
+    const runDir = path.join(runsDir, runId);
+    const planText = [
+      '1. PLANNING DECISIONS',
+      '- Update src/index.ts for the requested behavior.',
+      '',
+      '2. TARGET FILES',
+      '- src/index.ts',
+    ].join('\n');
+
+    await fs.mkdir(runDir, { recursive: true });
+    await fs.writeFile(path.join(runDir, 'state.json'), JSON.stringify({ runId, status: 'RUNNING', phase: 'planning' }), 'utf8');
+    await fs.writeFile(path.join(runDir, 'summary.json'), JSON.stringify({ runId, title: 'Readable plan', goal: 'Show plan text', status: 'RUNNING' }), 'utf8');
+    await fs.writeFile(path.join(runDir, 'plan.json'), JSON.stringify({
+      goal: 'Show plan text',
+      summary: 'Runtime plan summary',
+      planText,
+      workflowStages: [],
+      tasks: [],
+    }), 'utf8');
+
+    const detail = await queryRun(root, runId);
+    assert.equal(detail?.plan?.planText, planText);
+    assert.equal(detail?.plan?.summary, 'Runtime plan summary');
+  });
+});
+
 test('server serves read-only GET endpoints', async () => {
   await withRepo(async (root) => {
     const server = await createDashboardServer({ cwd: root });

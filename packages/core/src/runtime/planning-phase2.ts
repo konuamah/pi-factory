@@ -103,7 +103,8 @@ if (input.plannerExecutor) {
   plannerExecutionPath = await writePrototypePlannerExecutionArtifact(run.runDir, plannerResult);
   let plannerValidation = validatePlannerOutput(plannerOutputText);
   const deterministicPlannerBlock = !plannerValidation.ok
-    && /^Planner delegated broad discovery to Builder/.test(plannerValidation.reason);
+    && (/^Planner delegated broad discovery to Builder/.test(plannerValidation.reason)
+      || /^Interview answers were skipped and planning needs clarification/.test(plannerValidation.reason));
   if (!plannerValidation.ok && !deterministicPlannerBlock && input.plannerExecutor) {
     // Deterministic check failed — try LLM context-aware validation
     const llmValidation = await validatePlannerOutputWithLLM({

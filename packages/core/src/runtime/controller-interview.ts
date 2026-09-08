@@ -134,17 +134,29 @@ export async function runInterviewStages(input: {
       `Stage: ${stage.name}`,
       `Interview prompt/questions:\n${output}`,
       `Selected option: ${decision.optionId}`,
-      decision.feedback ? `User answer:\n${decision.feedback}` : undefined,
+      decision.feedback ? `User answer:\n${decision.feedback}` : "User answer:\n[skipped]",
     ].filter(Boolean).join("\n"));
+    const skipped = interviewDecisionSkipped(decision);
     structuredDecisions.push({
       stage: stage.name,
       role,
       question: output,
       optionId: decision.optionId,
       answer: decision.feedback,
+      ...(skipped ? { skipped: true } : {}),
       ...(decision.interviewQuestions?.length ? { questions: decision.interviewQuestions } : {}),
       decisionRequestId: decision.requestId,
     });
+    if (skipped) {
+      await appendFactoryRunEvent(input.run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "interview.all_questions_skipped",
+        data: {
+          stage: stage.name,
+          decisionRequestId: decision.requestId,
+        },
+      });
+    }
   }
   // Persist structured interview decisions for downstream stages.
   if (structuredDecisions.length > 0) {
@@ -172,6 +184,16 @@ export function executorForRole(input: RunFactoryControllerInput, role: ModelRol
     case "repair":
       return input.repairExecutor;
   }
+}
+
+function interviewDecisionSkipped(decision: {
+  feedback?: string;
+  interviewQuestions?: Array<{ skipped?: boolean; finalAnswer: string }>;
+}): boolean {
+  if (decision.interviewQuestions?.length) {
+    return decision.interviewQuestions.every((question) => question.skipped === true || !question.finalAnswer.trim());
+  }
+  return !decision.feedback?.trim();
 }
 
 export function buildInterviewPrompt(input: {
@@ -310,6 +332,7 @@ export function buildPlannerPrompt(
     constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
     discoveryReport ? `Validated Discovery result (authoritative pre-planning evidence):\n${discoveryReport}` : undefined,
     interviewContext ? `Interview answers and decisions:\n${interviewContext}` : undefined,
+    interviewContext ? "If every interview answer is marked [skipped] and the task plus Discovery evidence are not enough to plan safely, return exactly `INTERVIEW_SKIPPED_NEEDS_CLARIFICATION: <one sentence naming the missing decision>` and stop." : undefined,
     "",
     "Discovery has already inspected the repository.",
     "Use the supplied Discovery evidence as your repository context.",

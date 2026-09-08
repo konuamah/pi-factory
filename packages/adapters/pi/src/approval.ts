@@ -313,6 +313,7 @@ export function buildReviewerFindingLines(reviewerVerdict?: FinalApprovalReviewe
     .slice(0, 14);
   return [
     "Factory approval — reviewer finding",
+    "review status: completed before final approval",
     `reviewer verdict: ${reviewerVerdict.verdict}`,
     "",
     ...summaryLines,
@@ -342,6 +343,7 @@ export function resolveFinalApprovalConfirm(
         : "Approve Factory candidate?";
   const body = [
     `Approve prototype run ${input.runId} for goal: ${input.goal}`,
+    reviewerVerdict ? "\n\nReview completed before this approval prompt." : "",
     block ? "\n\nThe reviewer is NOT ready for approval. Only approve with explicit override intent." : "",
     input.hasBaselineDebt ? "\n\nBaseline debt shown above is NOT resolved by this run." : "",
     input.hasScopeWarnings ? "\n\nScope warnings shown above are NOT resolved by approving." : "",

@@ -18,6 +18,11 @@ interface InterviewAnswer {
   selectedOptionId?: string;
   selectedOptionLabel?: string;
   custom: boolean;
+  skipped?: boolean;
+}
+
+function skippedInterviewAnswer(): InterviewAnswer {
+  return { answer: "", custom: true, skipped: true };
 }
 
 export async function requestInterviewDecision(
@@ -33,10 +38,12 @@ export async function requestInterviewDecision(
   const answers: InterviewAnswer[] = [];
   for (let index = 0; index < questions.length; index++) {
     const answer = await askOneQuestion(ui, request, questions[index]!, index + 1, questions.length);
-    if (!answer.answer.trim()) {
-      throw new Error(`Interview decision '${request.id}' was cancelled or left blank.`);
-    }
-    answers.push({ ...answer, answer: answer.answer.trim() });
+    const trimmed = answer.answer.trim();
+    answers.push({
+      ...answer,
+      answer: answer.skipped ? "" : trimmed,
+      skipped: answer.skipped || !trimmed,
+    });
   }
 
   return {
@@ -66,17 +73,13 @@ async function askOneQuestion(
     }
     if (ui.editor) {
       const typed = await ui.editor(buildEditorPrompt(title, question), "");
-      if (!typed?.trim()) {
-        throw new Error(`Interview decision '${request.id}' was cancelled or left blank.`);
-      }
-      return { answer: typed.trim(), custom: true };
+      const trimmed = typed?.trim() ?? "";
+      return trimmed ? { answer: trimmed, custom: true } : skippedInterviewAnswer();
     }
     if (ui.input) {
       const typed = await ui.input(title, "Type your answer");
-      if (!typed?.trim()) {
-        throw new Error(`Interview decision '${request.id}' was cancelled or left blank.`);
-      }
-      return { answer: typed.trim(), custom: true };
+      const trimmed = typed?.trim() ?? "";
+      return trimmed ? { answer: trimmed, custom: true } : skippedInterviewAnswer();
     }
     throw new Error(`Interview decision '${request.id}' requires Pi custom, select, editor, or input UI for optioned questions.`);
   }
@@ -86,13 +89,15 @@ async function askOneQuestion(
   // question there and keep the editable answer buffer empty.
   if (ui.editor) {
     const answer = await ui.editor(`${title}\n\n${question.prompt}\n\nAnswer:`, "");
-    return { answer: answer ?? "", custom: true };
+    const trimmed = answer?.trim() ?? "";
+    return trimmed ? { answer: trimmed, custom: true } : skippedInterviewAnswer();
   }
 
   // Fall back to a custom overlay for hosts without an editor (tests, stubs).
   if (ui.custom) {
     const answer = await askWithTextOverlay(ui.custom, request, title, question.prompt);
-    return { answer: answer ?? "", custom: true };
+    const trimmed = answer?.trim() ?? "";
+    return trimmed ? { answer: trimmed, custom: true } : skippedInterviewAnswer();
   }
 
   throw new Error(`Interview decision '${request.id}' requires Pi custom UI; no fallback is allowed.`);
@@ -125,8 +130,8 @@ async function askWithTextOverlay(
           ...answerLines,
           "",
           hasAnswer
-            ? "enter submit · ↑/↓ scroll · escape cancel"
-            : "answer required before submit · ↑/↓ scroll · escape cancel",
+            ? "enter submit · ↑/↓ scroll · escape skip"
+            : "enter skip · type to answer · ↑/↓ scroll · escape skip",
         ];
         const availableRows = Math.max(3, INTERVIEW_OVERLAY_HEIGHT - header.length - footer.length - 2);
         const maxOffset = Math.max(0, questionLines.length - availableRows);
@@ -144,9 +149,7 @@ async function askWithTextOverlay(
           return;
         }
         if (data === "\r" || data === "\n") {
-          if (answer.trim()) {
-            done(answer.trim());
-          }
+          done(answer.trim() || undefined);
           return;
         }
         if (data === "\u001b[A") {
@@ -211,9 +214,9 @@ async function askWithOptionsOverlay(
           "",
           mode === "custom"
             ? (customAnswer.trim()
-              ? "enter submit · ↑/↓ move · backspace edit · escape cancel"
-              : "type an answer · ↑/↓ move · backspace edit · escape cancel")
-            : "↑/↓ select · enter choose · escape cancel",
+              ? "enter submit · ↑/↓ move · backspace edit · escape skip"
+              : "enter skip · type to answer · ↑/↓ move · backspace edit · escape skip")
+            : "↑/↓ select · enter choose · escape skip",
         ];
         const allBody = [...questionLines, "", "Options", ...optionLines, ...recommendationLines, ...customLines];
         const header = [title, ""];
@@ -250,9 +253,9 @@ async function askWithOptionsOverlay(
         }
         if (data === "\r" || data === "\n") {
           if (mode === "custom") {
-            if (customAnswer.trim()) {
-              done({ answer: customAnswer.trim(), custom: true });
-            }
+            done(customAnswer.trim()
+              ? { answer: customAnswer.trim(), custom: true }
+              : skippedInterviewAnswer());
             return;
           }
           if (selected === customIndex) {
@@ -285,7 +288,7 @@ async function askWithOptionsOverlay(
   }, overlayConfig());
 
   if (!result) {
-    throw new Error(`Interview decision '${request.id}' was cancelled or left blank.`);
+    return skippedInterviewAnswer();
   }
   return result;
 }
@@ -297,23 +300,21 @@ async function askWithSelectFallback(
   question: ParsedInterviewQuestion,
 ): Promise<InterviewAnswer> {
   const choice = await ui.select?.(
-    title,
+    `${title}\n\n${question.prompt}`,
     [
       ...question.options.map((option) => option.description ? `${option.label} — ${option.description}` : option.label),
       "Custom answer…",
     ],
   );
   if (!choice) {
-    throw new Error(`Interview decision '${request.id}' was cancelled or left blank.`);
+    return skippedInterviewAnswer();
   }
   if (choice === "Custom answer…") {
     const typed = ui.editor
       ? await ui.editor(buildEditorPrompt(title, question), "")
-      : await ui.input?.(title, "Type your answer");
-    if (!typed?.trim()) {
-      throw new Error(`Interview decision '${request.id}' was cancelled or left blank.`);
-    }
-    return { answer: typed.trim(), custom: true };
+      : await ui.input?.(`${title}\n\n${question.prompt}`, "Type your answer");
+    const trimmed = typed?.trim() ?? "";
+    return trimmed ? { answer: trimmed, custom: true } : skippedInterviewAnswer();
   }
   const option = question.options.find((candidate) => choice === candidate.label || choice.startsWith(`${candidate.label} — `));
   if (!option) {
@@ -374,26 +375,34 @@ function fixedHeightLines(lines: string[], width: number, height: number): strin
 }
 
 function buildInterviewQuestionDecisions(questions: ParsedInterviewQuestion[], answers: InterviewAnswer[]): InterviewQuestionDecision[] {
-  return questions.map((question, index) => ({
-    index: index + 1,
-    prompt: question.prompt || question.raw,
-    ...(question.options.length ? { options: question.options } : {}),
-    ...(question.recommendation ? { recommendation: question.recommendation } : {}),
-    ...(answers[index]?.selectedOptionId ? { selectedOptionId: answers[index]?.selectedOptionId } : {}),
-    ...(answers[index]?.selectedOptionLabel ? { selectedOptionLabel: answers[index]?.selectedOptionLabel } : {}),
-    ...(answers[index]?.custom ? { customAnswer: answers[index]?.answer ?? "" } : {}),
-    finalAnswer: (answers[index]?.answer ?? "").trim(),
-  }));
+  return questions.map((question, index) => {
+    const answer = answers[index];
+    const skipped = answer?.skipped || !answer?.answer.trim();
+    return {
+      index: index + 1,
+      prompt: question.prompt || question.raw,
+      ...(question.options.length ? { options: question.options } : {}),
+      ...(question.recommendation ? { recommendation: question.recommendation } : {}),
+      ...(answer?.selectedOptionId && !skipped ? { selectedOptionId: answer.selectedOptionId } : {}),
+      ...(answer?.selectedOptionLabel && !skipped ? { selectedOptionLabel: answer.selectedOptionLabel } : {}),
+      ...(answer?.custom && !skipped ? { customAnswer: answer.answer } : {}),
+      finalAnswer: skipped ? "" : (answer?.answer ?? "").trim(),
+      ...(skipped ? { skipped: true } : {}),
+    };
+  });
 }
 
 function formatInterviewAnswers(questions: ParsedInterviewQuestion[], answers: InterviewAnswer[]): string {
   return questions.map((question, index) => {
+    const answer = answers[index];
+    const skipped = answer?.skipped || !answer?.answer.trim();
     const title = firstNonEmptyLine(question.prompt || question.raw) ?? `Question ${index + 1}`;
     return [
       `Q${index + 1}: ${stripMarkdown(title)}`,
-      answers[index]?.selectedOptionLabel ? `Choice${index + 1}: [${(answers[index]?.selectedOptionId ?? "").toUpperCase()}] ${answers[index]?.selectedOptionLabel}` : undefined,
-      answers[index]?.custom ? `Choice${index + 1}: custom` : undefined,
-      `A${index + 1}: ${(answers[index]?.answer ?? "").trim()}`,
+      skipped ? `Choice${index + 1}: skipped` : undefined,
+      !skipped && answer?.selectedOptionLabel ? `Choice${index + 1}: [${(answer.selectedOptionId ?? "").toUpperCase()}] ${answer.selectedOptionLabel}` : undefined,
+      !skipped && answer?.custom ? `Choice${index + 1}: custom` : undefined,
+      `A${index + 1}: ${skipped ? "[skipped]" : (answer?.answer ?? "").trim()}`,
     ].filter(Boolean).join("\n");
   }).join("\n\n");
 }

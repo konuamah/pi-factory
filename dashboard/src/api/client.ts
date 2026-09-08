@@ -27,6 +27,13 @@ export interface LogEntry {
   metadata?: Record<string, unknown>;
 }
 
+export interface RunPlan {
+  summary?: string;
+  planText?: string;
+  tasks?: Array<{ id?: string; stage?: string; status?: string }>;
+  [key: string]: unknown;
+}
+
 export interface RunDetail {
   runId?: string;
   runDir?: string;
@@ -36,7 +43,7 @@ export interface RunDetail {
   goal?: string;
   state?: Record<string, unknown>;
   summary?: Record<string, unknown>;
-  plan?: Record<string, unknown>;
+  plan?: RunPlan;
   verification?: Record<string, unknown>;
   models?: Array<Record<string, unknown>>;
   decisions?: Array<Record<string, unknown>>;

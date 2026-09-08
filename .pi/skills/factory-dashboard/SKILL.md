@@ -14,3 +14,5 @@ Use `/factory dashboard status` for read-only inspection and `/factory dashboard
 Verify dashboard changes with `/factory doctor` or `/factory dashboard status`.
 
 Dashboard run lists should display the short deterministic run `title` when present and keep the full `goal` available in details.
+
+Dashboard run details should include a Plan tab showing the human-readable `plan.planText` from `plan.json`, not only the structured task list or verification data.

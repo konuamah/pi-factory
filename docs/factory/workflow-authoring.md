@@ -56,9 +56,12 @@ Use `interview` before planning when Factory must ask the user questions first.
 - bind the bundled interview skill with `skills.require`, such as `grilling`
 - Factory pauses in a decision gate when the interview asks questions
 - the user's answer is passed into the planner prompt and persisted as a structured record in `interview-decisions.json`
+- empty interview answers are recorded as skipped questions instead of failing the run: they appear in `interview-decisions.json` with `skipped: true` and in the planner context as `A<N>: [skipped]`
+- if every interview question is skipped, the planner may proceed only when the task and Discovery evidence are sufficient. If the planner cannot safely infer the user's intent, it must return `INTERVIEW_SKIPPED_NEEDS_CLARIFICATION: <reason>`, which Factory reports as a planning failure with a clear clarification message rather than guessing
 - that structured record reaches builder context, the reviewer prompt, and approval, not just the planner
 - final review also receives a scoped review surface built from `completed-tasks.json`, the candidate diff, direct imports/dependencies, `plan.json` `implementationContract`, and `verification.json`; trivial low-risk changes may skip the LLM reviewer entirely via deterministic review
 - the reviewer's prose verdict is classified from its conclusion into a `review.verdict` event (`block` | `pass` | `unknown`), and a blocking verdict is surfaced in the final approval gate — with no confirm UI, Factory refuses to silently auto-approve past a blocking review
+- final approval is a **post-review gate**: a workflow that asks for final approval should put a reviewer stage immediately before `approval`, and `approval.dependsOn` should reference that review stage so acceptance never happens without completed review evidence. Plan approval is the only intended human approval before implementation/review. The built-in default workflow and the setup presets already place `review` before `approval`; if a run ends in `review-unavailable`, Factory refused to open final approval because neither deterministic review nor a reviewer executor produced review evidence.
 - Factory bundles the interview skill as `skills/grilling`; bind `skills.require: [grilling]` directly
 
 When the model returns several questions in one decision (separated by `---` in the interview prompt output), the Pi adapter presents them one at a time — a full editor when the host exposes it, otherwise an overlay — and folds every answer into a single structured interview record, so planning still receives one `interview-decisions.json` entry per interview stage.
@@ -73,7 +76,7 @@ Options:
 -> Prefer MongoDB text search unless ranking semantics require more.
 ```
 
-When `Options:` is present, the Pi interview UI prefers Pi's built-in selection UI and includes a built-in `Custom answer…` path; if that UI is unavailable, Factory falls back to its custom overlay selector. The selected choice is recorded both in the human-readable interview answer text and in structured per-question fields inside `interview-decisions.json`; open-ended questions without `Options:` keep the existing free-text flow.
+When `Options:` is present, the Pi interview UI prefers Pi's built-in selection UI and includes the current question in the select title plus a built-in `Custom answer…` path; if that UI is unavailable, Factory falls back to its custom overlay selector. The selected choice is recorded both in the human-readable interview answer text and in structured per-question fields inside `interview-decisions.json`; open-ended questions without `Options:` keep the existing free-text flow.
 
 Stage dependencies are resolved by stage name into task ids. A task with `dependsOn: [plan]` includes the planner task as dependency context for the builder, and direct task ids also work.
 
@@ -184,9 +187,17 @@ workflows:
         type: agent
         role: builder
         dependsOn: [plan]
+      - name: verify
+        type: command
+        commands: ["lint", "typecheck", "test", "build"]
+        dependsOn: [build]
+      - name: review
+        type: agent
+        role: reviewer
+        dependsOn: [verify]
       - name: approval
         type: approval
-        dependsOn: [build]
+        dependsOn: [review]
 ```
 
 Use `prefer: [grilling]` when the planner should see the skill instructions but does not need to interrupt the run. Use `type: interview` plus `require: [grilling]` when Factory must stop and collect answers before planning.

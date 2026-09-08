@@ -16,13 +16,14 @@ export function defaultWorkflowDefinition(): WorkflowDefinition {
   return {
     id: DEFAULT_WORKFLOW_ID,
     name: "Default Development",
-    description: "Discover, plan, implement, verify, and approve changes.",
+    description: "Discover, plan, implement, verify, review, and approve changes.",
     stages: [
       { name: "discover", type: "agent", role: "discovery" },
       { name: "plan", type: "agent", role: "planner", dependsOn: ["discover"] },
       { name: "implementation", type: "agent", role: "builder", dependsOn: ["plan"] },
       { name: "verification", type: "command", commands: ["lint", "typecheck", "test", "build"], dependsOn: ["implementation"] },
-      { name: "approval", type: "approval", dependsOn: ["verification"] },
+      { name: "review", type: "agent", role: "reviewer", dependsOn: ["verification"] },
+      { name: "approval", type: "approval", dependsOn: ["review"] },
     ],
   };
 }

@@ -15,6 +15,14 @@ export function sanitizePlannerOutput(value: string | undefined): string | undef
 
 export function validatePlannerOutput(value: string | undefined): { ok: true } | { ok: false; reason: string } {
   const text = value?.toLowerCase() ?? "";
+  const skippedInterviewNeedsClarification = value?.match(/^INTERVIEW_SKIPPED_NEEDS_CLARIFICATION:\s*(.+)$/im);
+  if (skippedInterviewNeedsClarification) {
+    const reason = skippedInterviewNeedsClarification[1]?.trim() || "the planner needs a user decision before implementation";
+    return {
+      ok: false,
+      reason: `Interview answers were skipped and planning needs clarification: ${reason}`,
+    };
+  }
   if (!text) {
     return { ok: true };
   }

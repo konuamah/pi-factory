@@ -401,7 +401,8 @@ function normalizeWorkflowStages(stages: WorkflowStage[]): PlannerArtifact["work
       { name: "planning", dependsOn: [], type: "agent", role: "planner" },
       { name: "implementation", dependsOn: ["planning"], type: "agent", role: "builder" },
       { name: "verification", dependsOn: ["implementation"], type: "command", commands: ["lint", "typecheck", "test", "build"] },
-      { name: "approval", dependsOn: ["verification"], type: "approval" },
+      { name: "review", dependsOn: ["verification"], type: "agent", role: "reviewer" },
+      { name: "approval", dependsOn: ["review"], type: "approval" },
     ];
   }
 

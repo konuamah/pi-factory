@@ -3,7 +3,7 @@ import { api, type RunDetail as RunDetailType, type LogEntry } from '../api/clie
 import { useRevalidate, runEvent } from '../api/use-revalidate';
 import { StatusBadge } from './overview';
 
-const TABS = ['Overview', 'Logs', 'Verification'] as const;
+const TABS = ['Overview', 'Plan', 'Logs', 'Verification'] as const;
 
 export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>('Overview');
@@ -23,6 +23,8 @@ export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void
 
   const planTasks = run.plan?.tasks as Array<{ id?: string; stage?: string; status?: string }> | undefined;
   const models = (run.models ?? []).slice(0, 8);
+  const planText = getPlanText(run.plan);
+  const planSummary = getPlanSummary(run.plan);
 
   return (
     <>
@@ -84,6 +86,24 @@ export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void
         </>
       )}
 
+      {tab === 'Plan' && (
+        <article>
+          <h5>Human-readable plan</h5>
+          {planText ? (
+            <pre className="plan-text" aria-label="Human-readable Factory plan">{planText}</pre>
+          ) : (
+            <p className="muted">No human-readable plan text is available for this run yet.</p>
+          )}
+
+          {planSummary ? (
+            <section>
+              <h6>Runtime summary</h6>
+              <p>{planSummary}</p>
+            </section>
+          ) : null}
+        </article>
+      )}
+
       {tab === 'Logs' && (
         <>
           <div className="filters">
@@ -125,4 +145,14 @@ export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void
       )}
     </>
   );
+}
+
+function getPlanText(plan: RunDetailType['plan']): string | undefined {
+  const value = plan?.planText;
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function getPlanSummary(plan: RunDetailType['plan']): string | undefined {
+  const value = plan?.summary;
+  return typeof value === 'string' && value.trim() ? value : undefined;
 }

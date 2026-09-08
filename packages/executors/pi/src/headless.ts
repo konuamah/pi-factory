@@ -13,12 +13,14 @@ import { parseInterviewQuestions, type DecisionRequest, type DecisionResult, typ
 export interface ScriptedInterviewAnswer {
   optionId?: string;
   feedback?: string;
+  skip?: boolean;
 }
 
 export interface ScriptedInterviewAnswerSet {
   answers?: ScriptedInterviewAnswer[];
   optionId?: string;
   feedback?: string;
+  skip?: boolean;
 }
 
 export interface ScriptedDecisionAnswers {
@@ -124,14 +126,23 @@ function parseScriptedAnswerValue(key: string, value: unknown): string | Scripte
     }
     parsed.feedback = object.feedback.trim();
   }
+  if (object.skip !== undefined) {
+    if (object.skip !== true) {
+      throw new Error(`Interview answers file entry "${key}" has an invalid skip value.`);
+    }
+    parsed.skip = true;
+  }
   if (object.answers !== undefined) {
     if (!Array.isArray(object.answers) || object.answers.length === 0) {
       throw new Error(`Interview answers file entry "${key}" must use a non-empty answers array.`);
     }
     parsed.answers = object.answers.map((entry, index) => parseStructuredInterviewAnswer(key, entry, index));
   }
-  if (!parsed.answers && !parsed.optionId && !parsed.feedback) {
-    throw new Error(`Interview answers file entry "${key}" must provide optionId, feedback, or answers.`);
+  if (parsed.skip && (parsed.optionId || parsed.feedback || parsed.answers)) {
+    throw new Error(`Interview answers file entry "${key}" cannot combine skip with optionId, feedback, or answers.`);
+  }
+  if (!parsed.answers && !parsed.optionId && !parsed.feedback && !parsed.skip) {
+    throw new Error(`Interview answers file entry "${key}" must provide optionId, feedback, skip, or answers.`);
   }
   return parsed;
 }
@@ -143,18 +154,26 @@ function parseStructuredInterviewAnswer(key: string, value: unknown, index: numb
   const entry = value as Record<string, unknown>;
   const optionId = entry.optionId;
   const feedback = entry.feedback;
+  const skip = entry.skip;
   if (optionId !== undefined && (typeof optionId !== "string" || !optionId.trim())) {
     throw new Error(`Interview answers file entry "${key}" answer ${index + 1} has an invalid optionId.`);
   }
   if (feedback !== undefined && (typeof feedback !== "string" || !feedback.trim())) {
     throw new Error(`Interview answers file entry "${key}" answer ${index + 1} has an invalid feedback value.`);
   }
-  if (optionId === undefined && feedback === undefined) {
-    throw new Error(`Interview answers file entry "${key}" answer ${index + 1} must provide optionId or feedback.`);
+  if (skip !== undefined && skip !== true) {
+    throw new Error(`Interview answers file entry "${key}" answer ${index + 1} has an invalid skip value.`);
+  }
+  if (skip === true && (optionId !== undefined || feedback !== undefined)) {
+    throw new Error(`Interview answers file entry "${key}" answer ${index + 1} cannot combine skip with optionId or feedback.`);
+  }
+  if (optionId === undefined && feedback === undefined && skip !== true) {
+    throw new Error(`Interview answers file entry "${key}" answer ${index + 1} must provide optionId, feedback, or skip.`);
   }
   return {
     ...(optionId ? { optionId: optionId.trim().toLowerCase() } : {}),
     ...(feedback ? { feedback: feedback.trim() } : {}),
+    ...(skip === true ? { skip: true } : {}),
   };
 }
 
@@ -166,6 +185,16 @@ function buildStructuredInterviewQuestions(request: DecisionRequest, answerSet: 
   }
   return questions.map((question, index) => {
     const answer = answers[index]!;
+    if (answer.skip === true) {
+      return {
+        index: index + 1,
+        prompt: question.prompt || question.raw,
+        ...(question.options.length ? { options: question.options } : {}),
+        ...(question.recommendation ? { recommendation: question.recommendation } : {}),
+        finalAnswer: "",
+        skipped: true,
+      };
+    }
     const option = answer.optionId ? question.options.find((candidate) => candidate.id.toLowerCase() === answer.optionId) : undefined;
     if (answer.optionId && !option) {
       throw new Error(`Decision "${request.title}" question ${index + 1} references unknown optionId "${answer.optionId}".`);
@@ -188,11 +217,13 @@ function buildStructuredInterviewQuestions(request: DecisionRequest, answerSet: 
 
 function formatStructuredInterviewAnswer(request: DecisionRequest, answerSet: ScriptedInterviewAnswerSet): string {
   return buildStructuredInterviewQuestions(request, answerSet).map((question) => {
+    const skipped = question.skipped === true || !question.finalAnswer.trim();
     return [
       `Q${question.index}: ${stripMarkdown(firstNonEmptyLine(question.prompt) ?? `Question ${question.index}`)}`,
-      question.selectedOptionLabel ? `Choice${question.index}: [${(question.selectedOptionId ?? "").toUpperCase()}] ${question.selectedOptionLabel}` : undefined,
-      !question.selectedOptionLabel ? `Choice${question.index}: custom` : undefined,
-      `A${question.index}: ${question.finalAnswer}`,
+      skipped ? `Choice${question.index}: skipped` : undefined,
+      !skipped && question.selectedOptionLabel ? `Choice${question.index}: [${(question.selectedOptionId ?? "").toUpperCase()}] ${question.selectedOptionLabel}` : undefined,
+      !skipped && !question.selectedOptionLabel ? `Choice${question.index}: custom` : undefined,
+      `A${question.index}: ${skipped ? "[skipped]" : question.finalAnswer}`,
     ].filter(Boolean).join("\n");
   }).join("\n\n");
 }

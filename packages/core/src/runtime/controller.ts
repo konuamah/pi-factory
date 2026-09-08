@@ -71,6 +71,7 @@ export interface InterviewDecisionRecord {
   question: string;
   optionId: string;
   answer?: string;
+  skipped?: boolean;
   questions?: InterviewQuestionDecision[];
   decisionRequestId: string;
 }

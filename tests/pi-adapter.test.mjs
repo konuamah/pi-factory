@@ -298,7 +298,10 @@ test('interview prefers select UI over custom overlay for MCQs when both exist',
     {
       notify() {},
       setWidget() {},
-      select: async (_title, options) => {
+      select: async (title, options) => {
+        assert.match(title, /Question 1 of 1/);
+        assert.match(title, /Search strategy/);
+        assert.match(title, /Which implementation should govern/);
         assert.ok(options.includes('MongoDB text search — Simpler and uses existing indexes'));
         assert.ok(options.includes('Regex fallback — Broader but less precise'));
         assert.ok(options.includes('Custom answer…'));
@@ -452,54 +455,71 @@ test('interview uses Pi editor when available, one editor per question', async (
   assert.match(decision.feedback, /A2: second answer/);
 });
 
-test('interview cancel fails loudly and does not resolve', async () => {
+test('interview cancel skips the current question and preserves later answers', async () => {
   const questions = ['Q1: One', 'Q2: Two'];
-  await assert.rejects(
-    () => requestDecisionInput(
-      {
-        notify() {},
-        setWidget() {},
-        custom: async (factory) => {
-          let result;
-          const component = factory({ requestRender() {} }, undefined, undefined, (value) => {
-            result = value;
-          });
+  let promptIndex = 0;
+  const decision = await requestDecisionInput(
+    {
+      notify() {},
+      setWidget() {},
+      custom: async (factory) => {
+        promptIndex += 1;
+        let result;
+        const component = factory({ requestRender() {} }, undefined, undefined, (value) => {
+          result = value;
+        });
+        if (promptIndex === 1) {
           component.handleInput?.('\u001b');
-          return result;
-        },
+        } else {
+          for (const char of 'second answer') {
+            component.handleInput?.(char);
+          }
+          component.handleInput?.('\r');
+        }
+        return result;
       },
-      {
-        id: 'interview-cancel',
-        title: 'Interview: cancel',
-        question: questions.join('\n\n---\n\n'),
-        options: [{ id: 'answered', label: 'Use my answer' }],
-        source: 'INTERVIEW',
-        reason: 'USER_PREFERENCE',
-      },
-    ),
-    /cancelled or left blank/,
+    },
+    {
+      id: 'interview-cancel',
+      title: 'Interview: cancel',
+      question: questions.join('\n\n---\n\n'),
+      options: [{ id: 'answered', label: 'Use my answer' }],
+      source: 'INTERVIEW',
+      reason: 'USER_PREFERENCE',
+    },
   );
+
+  assert.equal(decision.optionId, 'answered');
+  assert.match(decision.feedback ?? '', /Choice1: skipped/);
+  assert.match(decision.feedback ?? '', /A1: \[skipped\]/);
+  assert.match(decision.feedback ?? '', /A2: second answer/);
+  assert.equal(decision.interviewQuestions?.[0]?.skipped, true);
+  assert.equal(decision.interviewQuestions?.[0]?.finalAnswer, '');
+  assert.equal(decision.interviewQuestions?.[1]?.finalAnswer, 'second answer');
 });
 
-test('interview editor returning blank fails loudly', async () => {
-  await assert.rejects(
-    () => requestDecisionInput(
-      {
-        notify() {},
-        setWidget() {},
-        editor: async () => '   ',
-      },
-      {
-        id: 'interview-blank',
-        title: 'Interview: blank',
-        question: 'Q1: One question only',
-        options: [{ id: 'answered', label: 'Use my answer' }],
-        source: 'INTERVIEW',
-        reason: 'USER_PREFERENCE',
-      },
-    ),
-    /cancelled or left blank/,
+test('interview editor returning blank records a skipped answer', async () => {
+  const decision = await requestDecisionInput(
+    {
+      notify() {},
+      setWidget() {},
+      editor: async () => '   ',
+    },
+    {
+      id: 'interview-blank',
+      title: 'Interview: blank',
+      question: 'Q1: One question only',
+      options: [{ id: 'answered', label: 'Use my answer' }],
+      source: 'INTERVIEW',
+      reason: 'USER_PREFERENCE',
+    },
   );
+
+  assert.equal(decision.optionId, 'answered');
+  assert.match(decision.feedback ?? '', /Choice1: skipped/);
+  assert.match(decision.feedback ?? '', /A1: \[skipped\]/);
+  assert.equal(decision.interviewQuestions?.[0]?.skipped, true);
+  assert.equal(decision.interviewQuestions?.[0]?.finalAnswer, '');
 });
 
 test('reviewer finding lines render a blocking verdict with the summary', () => {
@@ -512,6 +532,7 @@ test('reviewer finding lines render a blocking verdict with the summary', () => 
     ].join('\n'),
   });
   assert.ok(lines.includes('Factory approval — reviewer finding'));
+  assert.ok(lines.includes('review status: completed before final approval'));
   assert.ok(lines.includes('reviewer verdict: block'));
   assert.ok(lines.some((line) => line.includes('consent flow no longer gates analytics loading')));
   assert.ok(lines.some((line) => line.includes('Not ready for approval')));
@@ -539,6 +560,7 @@ test('final approval confirm prompt surfaces a blocking verdict as an explicit o
   );
   assert.equal(prompt, 'Approve candidate despite the reviewer blocking verdict?');
   assert.match(body, /Approve prototype run run_1 for goal: Add GA tag/);
+  assert.match(body, /Review completed before this approval prompt\./);
   assert.match(body, /The reviewer is NOT ready for approval\. Only approve with explicit override intent\./);
 });
 

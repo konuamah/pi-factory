@@ -42,6 +42,7 @@ export interface InterviewQuestionDecision {
   selectedOptionLabel?: string;
   customAnswer?: string;
   finalAnswer: string;
+  skipped?: boolean;
 }
 
 export interface DecisionResult {

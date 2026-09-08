@@ -14,6 +14,7 @@ import { runLandingFlow } from "./landing.js";
 import { nonGoalViolations, loadPlanContract } from "./scope-check.js";
 import { buildDeterministicReviewerText, buildReviewSurface, evaluateDeterministicReview, classifyReviewerVerdict, type ReviewerVerdict } from "./review-surface.js";
 import type { RunFactoryControllerInput, RunFactoryControllerResult } from "./controller.js";
+import type { AgentExecutionResult } from "./interfaces.js";
 import type { VerificationRunResult } from "./verification.js";
 import type { VerificationFailureClassification } from "./failure-classification.js";
 import type { VerificationEngineResult } from "../verification/index.js";
@@ -122,158 +123,225 @@ if (!contractResult.canComplete) {
 }
 
 const planContract = await loadPlanContract(planPath);
+// Build the review surface unconditionally: deterministic review must be able
+// to run even when no reviewer executor is configured, so final approval never
+// happens without review evidence (deterministic or executor-based).
 let reviewSurface: Awaited<ReturnType<typeof buildReviewSurface>> | undefined;
-if (input.reviewerExecutor) {
-  try {
-    reviewSurface = await buildReviewSurface({
-      cwd: executionCwd,
-      completedTasks,
-      baseBranch: loaded.effectiveConfig.git.baseBranch,
-      planContract,
-    });
-  } catch (error) {
-    await appendFactoryRunEvent(run.eventsPath, {
-      timestamp: new Date().toISOString(),
-      type: "review.surface_failed",
-      data: {
-        reason: error instanceof Error ? error.message : String(error),
-      },
-    });
-  }
+try {
+  reviewSurface = await buildReviewSurface({
+    cwd: executionCwd,
+    completedTasks,
+    baseBranch: loaded.effectiveConfig.git.baseBranch,
+    planContract,
+  });
+} catch (error) {
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "review.surface_failed",
+    data: {
+      reason: error instanceof Error ? error.message : String(error),
+    },
+  });
 }
 
 await wait(delayMs);
 
 await movePhase(run.statePath, run.eventsPath, run.runId, input, "review", "Reviewing verified candidate");
-if (input.reviewerExecutor) {
-  const deterministicReview = reviewSurface
-    ? evaluateDeterministicReview(reviewSurface, verification, verificationFailureClassification)
-    : { eligible: false, reasons: ["review surface unavailable"] };
-  const reviewerTools = reviewSurface ? ["read"] : ["read", "grep", "find", "ls"];
-  const reviewerResult = deterministicReview.eligible
-    ? {
-        executionId: `${run.runId}-reviewer`,
-        status: "completed" as const,
-        outputText: buildDeterministicReviewerText(reviewSurface!, verification),
-        events: [{
-          type: "review.deterministic",
-          data: {
-            changedFiles: reviewSurface!.changedFiles,
-            fileCount: reviewSurface!.diff.fileCount,
-            additions: reviewSurface!.diff.additions,
-            deletions: reviewSurface!.diff.deletions,
-            strategy: reviewSurface!.diff.strategy,
-          },
-        }],
-      }
-    : await input.reviewerExecutor.execute({
-        executionId: `${run.runId}-reviewer`,
-        cwd: executionCwd,
-        prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills), interviewDecisions, reviewSurface),
-        model: loaded.effectiveConfig.models.reviewer,
-        tools: reviewerTools,
-        limits: loaded.effectiveConfig.runtime.limits,
-        metadata: {
-          role: "reviewer",
-          runId: run.runId,
-        },
-      });
-  reviewerExecutionPath = await writePrototypeReviewerExecutionArtifact(run.runDir, reviewerResult);
-  reviewerVerdict = deterministicReview.eligible
-    ? { verdict: "pass", summary: reviewerResult.outputText }
-    : { verdict: classifyReviewerVerdict(reviewerResult.outputText), summary: reviewerResult.outputText.slice(0, 1200) };
-  if (deterministicReview.eligible && reviewSurface) {
-    await appendFactoryRunEvent(run.eventsPath, {
-      timestamp: new Date().toISOString(),
+const deterministicReview = reviewSurface
+  ? evaluateDeterministicReview(reviewSurface, verification, verificationFailureClassification)
+  : { eligible: false, reasons: ["review surface unavailable"] };
+const reviewerTools = reviewSurface ? ["read"] : ["read", "grep", "find", "ls"];
+let reviewerResult: AgentExecutionResult | undefined;
+
+if (deterministicReview.eligible) {
+  reviewerResult = {
+    executionId: `${run.runId}-reviewer`,
+    status: "completed",
+    outputText: buildDeterministicReviewerText(reviewSurface!, verification),
+    events: [{
       type: "review.deterministic",
       data: {
-        reviewerExecutionPath,
-        changedFiles: reviewSurface.changedFiles,
-        fileCount: reviewSurface.diff.fileCount,
-        additions: reviewSurface.diff.additions,
-        deletions: reviewSurface.diff.deletions,
-        strategy: reviewSurface.diff.strategy,
+        changedFiles: reviewSurface!.changedFiles,
+        fileCount: reviewSurface!.diff.fileCount,
+        additions: reviewSurface!.diff.additions,
+        deletions: reviewSurface!.diff.deletions,
+        strategy: reviewSurface!.diff.strategy,
       },
-    });
-  }
-  await appendFactoryRunEvent(run.eventsPath, {
-    timestamp: new Date().toISOString(),
-    type: "review.completed",
-    data: {
-      reviewerExecutionPath,
-      reviewerStatus: reviewerResult.status,
-      deterministic: deterministicReview.eligible || undefined,
-      reviewerTools: deterministicReview.eligible ? [] : reviewerTools,
+    }],
+  };
+} else if (input.reviewerExecutor) {
+  reviewerResult = await input.reviewerExecutor.execute({
+    executionId: `${run.runId}-reviewer`,
+    cwd: executionCwd,
+    prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills), interviewDecisions, reviewSurface),
+    model: loaded.effectiveConfig.models.reviewer,
+    tools: reviewerTools,
+    limits: loaded.effectiveConfig.runtime.limits,
+    metadata: {
+      role: "reviewer",
+      runId: run.runId,
     },
   });
-  if (reviewerVerdict) {
-    await appendFactoryRunEvent(run.eventsPath, {
-      timestamp: new Date().toISOString(),
-      type: "review.verdict",
-      data: {
-        verdict: reviewerVerdict.verdict,
-        reviewerExecutionPath,
-      },
-    });
-  }
+} else {
+  // No reviewer executor AND deterministic review is not eligible: fail loud
+  // instead of opening final approval without any review evidence.
+  const reason = [
+    "No reviewer executor configured and deterministic review was not eligible; refusing to request final approval without review.",
+    ...deterministicReview.reasons.map((item) => `Reason: ${item}`),
+  ].join(" ");
+  const unavailableState = await updateFactoryRunState({
+    statePath: run.statePath,
+    patch: { status: "FAILED", phase: "review-unavailable" },
+  });
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "review.unavailable",
+    data: { reason, deterministicReviewReasons: deterministicReview.reasons },
+  });
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "run.failed",
+    data: { reason, phase: "review-unavailable" },
+  });
   await emitProgress(input, {
     runId: run.runId,
-    phase: "review",
-    status: reviewerResult.status === "failed" ? "FAILED" : "RUNNING",
-    message: deterministicReview.eligible ? "Reviewer completed deterministically" : `Reviewer ${reviewerResult.status}`,
+    phase: "review-unavailable",
+    status: "FAILED",
+    message: reason,
+  });
+  const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+    runId: run.runId,
+    goal: input.goal,
+    status: "FAILED",
+    phase: unavailableState.phase,
+    approved: false,
+    candidateSha: await readGitHeadSha(executionCwd).catch(() => undefined),
+    planPath,
+    taskPaths,
+    discoveryExecutionPath,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    integrationPath,
+    finalMergePath,
+    repairExecutionPaths,
+    reviewerExecutionPath,
+    verificationPath,
+    verificationStatus: verification.overallStatus,
+    recoveryHint: reason,
+  });
+  return buildRunFailureResult({
+    run,
+    executionCwd,
+    worktree,
+    phases,
+    planPath,
+    taskPaths,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    integrationPath,
+    finalMergePath,
+    repairExecutionPaths,
+    reviewerExecutionPath,
+    verificationPath,
+    summaryPath,
+  });
+}
+
+reviewerExecutionPath = await writePrototypeReviewerExecutionArtifact(run.runDir, reviewerResult);
+reviewerVerdict = deterministicReview.eligible
+  ? { verdict: "pass", summary: reviewerResult.outputText }
+  : { verdict: classifyReviewerVerdict(reviewerResult.outputText), summary: reviewerResult.outputText.slice(0, 1200) };
+if (deterministicReview.eligible && reviewSurface) {
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "review.deterministic",
+    data: {
+      reviewerExecutionPath,
+      changedFiles: reviewSurface.changedFiles,
+      fileCount: reviewSurface.diff.fileCount,
+      additions: reviewSurface.diff.additions,
+      deletions: reviewSurface.diff.deletions,
+      strategy: reviewSurface.diff.strategy,
+    },
+  });
+}
+await appendFactoryRunEvent(run.eventsPath, {
+  timestamp: new Date().toISOString(),
+  type: "review.completed",
+  data: {
+    reviewerExecutionPath,
+    reviewerStatus: reviewerResult.status,
+    deterministic: deterministicReview.eligible || undefined,
+    reviewerTools: deterministicReview.eligible ? [] : reviewerTools,
+  },
+});
+if (reviewerVerdict) {
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "review.verdict",
+    data: {
+      verdict: reviewerVerdict.verdict,
+      reviewerExecutionPath,
+    },
+  });
+}
+await emitProgress(input, {
+  runId: run.runId,
+  phase: "review",
+  status: reviewerResult.status === "failed" ? "FAILED" : "RUNNING",
+  message: deterministicReview.eligible ? "Reviewer completed deterministically" : `Reviewer ${reviewerResult.status}`,
+});
+
+if (reviewerResult.status === "failed") {
+  const failedState = await updateFactoryRunState({
+    statePath: run.statePath,
+    patch: { status: "FAILED", phase: "review-failed" },
+  });
+  await appendFactoryRunEvent(run.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "run.failed",
+    data: { reason: "review failed" },
+  });
+  const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+    runId: run.runId,
+    goal: input.goal,
+    status: "FAILED",
+    phase: failedState.phase,
+    approved: false,
+    planPath,
+    taskPaths,
+    discoveryExecutionPath,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    integrationPath,
+    repairExecutionPaths,
+    reviewerExecutionPath,
+    verificationPath,
+    verificationStatus: verification.overallStatus,
   });
 
-  if (reviewerResult.status === "failed") {
-    const failedState = await updateFactoryRunState({
-      statePath: run.statePath,
-      patch: { status: "FAILED", phase: "review-failed" },
-    });
-    await appendFactoryRunEvent(run.eventsPath, {
-      timestamp: new Date().toISOString(),
-      type: "run.failed",
-      data: { reason: "review failed" },
-    });
-    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
-      runId: run.runId,
-      goal: input.goal,
-      status: "FAILED",
-      phase: failedState.phase,
-      approved: false,
-      planPath,
-      taskPaths,
-      discoveryExecutionPath,
-      plannerExecutionPath,
-      builderExecutionPaths,
-      integrationPath,
-      repairExecutionPaths,
-      reviewerExecutionPath,
-      verificationPath,
-      verificationStatus: verification.overallStatus,
-    });
-
-    return buildRunFailureResult({
-      run,
-      executionCwd,
-      worktree,
-      phases,
-      planPath,
-      taskPaths,
-      plannerExecutionPath,
-      builderExecutionPaths,
-      integrationPath,
-      repairExecutionPaths,
-      reviewerExecutionPath,
-      verificationPath,
-      summaryPath,
-    });
-  }
+  return buildRunFailureResult({
+    run,
+    executionCwd,
+    worktree,
+    phases,
+    planPath,
+    taskPaths,
+    plannerExecutionPath,
+    builderExecutionPaths,
+    integrationPath,
+    repairExecutionPaths,
+    reviewerExecutionPath,
+    verificationPath,
+    summaryPath,
+  });
 }
 
 await wait(delayMs);
 
 candidateSha = await readGitHeadSha(executionCwd);
 
-await movePhase(run.statePath, run.eventsPath, run.runId, input, "approval-ready", "Candidate ready for approval");
+await movePhase(run.statePath, run.eventsPath, run.runId, input, "approval-ready", "Review complete; candidate ready for approval");
 await appendFactoryRunEvent(run.eventsPath, {
   timestamp: new Date().toISOString(),
   type: "approval.required",
@@ -288,7 +356,7 @@ await emitProgress(input, {
   runId: run.runId,
   phase: "approval-ready",
   status: "RUNNING",
-  message: "Waiting for human approval",
+  message: "Review complete; waiting for human approval",
 });
 
 const baselineDebt = (verificationFailureClassification?.perCommand ?? [])

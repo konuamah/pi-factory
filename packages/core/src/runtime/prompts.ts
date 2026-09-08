@@ -28,8 +28,13 @@ export function buildCompiledPrompt(goal: string, compiled: CompiledContext, wor
       "- inspect repository history or do git archaeology,",
       "- broadly search the repository,",
       "- rediscover architecture or re-plan the task,",
-      "- reinstall dependencies unless a command fails because they are missing.",
-      "If a named file is missing, or the contract cannot be executed as written, stop and return: CONTRACT_BLOCKED <exact reason>.",
+      "- reinstall dependencies unless a command fails because they are missing,",
+      "- create cosmetic, unrelated, verification-only, or formatting-only edits,",
+      "- modify source temporarily to work around a port, dependency, process, or environment problem,",
+      "- inspect the main checkout, compare branches, investigate unrelated processes, or create ad hoc test harnesses unless the implementation contract explicitly requires it.",
+      "Run only verification commands explicitly named in the implementation contract. The workflow's verification stage owns broad lint, build, and test checks.",
+      "If the requested behavior is already satisfied by the target files, stop and return: CONTRACT_NOOP <concise reason>.",
+      "If a named file is missing, a required command cannot run, or the contract cannot be executed safely, stop and return: CONTRACT_BLOCKED <exact reason>.",
     ] : []),
     `Role: ${compiled.role}`,
   ];
@@ -54,10 +59,12 @@ export function buildNoChangeRetryPrompt(
     previousSummary,
     "",
     "You are still in the Builder role.",
+    "Do not force a diff and do not create cosmetic or unrelated edits.",
+    "Re-read only the handoff-named target files and the specific contract step that remains unverified.",
+    "If the contract is already satisfied, return: CONTRACT_NOOP <concise reason>.",
+    "If the contract cannot be executed safely, return: CONTRACT_BLOCKED <exact reason>.",
+    "Only make edits when a concrete contract requirement is still missing.",
     "All file paths in your tool calls must be under the working directory above.",
-    "Do not stop after saying what you will inspect or change.",
-    "Use the available native Pi tools now to edit/write the required files in the current workspace.",
-    "If implementation is impossible, return a clear failure reason instead of completing successfully.",
   ].join("\n");
 }
 
@@ -79,7 +86,9 @@ export function buildBuilderPrompt(
     "The workspace is already prepared: target files, dependencies, and git state are ready.",
     "Begin implementing the approved plan immediately. Read the handoff-named target files first, then their direct imports when required, then make the edits.",
     "Do not inspect README files, repository history, or architecture unless a concrete tool failure demands it. Do not reinstall dependencies unless a command fails because they are missing.",
+    "Do not create cosmetic, unrelated, verification-only, or formatting-only edits. Run only verification commands explicitly named in the implementation contract; the workflow's verification stage owns broad lint, build, and test checks. Do not modify source temporarily to work around a port, dependency, process, or environment problem, and do not compare branches or investigate unrelated processes unless the contract explicitly requires it.",
     "Implement only the requested task in this repository and leave the workspace ready for verification.",
+    "If the requested behavior is already satisfied by the target files, stop and return: CONTRACT_NOOP <concise reason>. If a named file is missing, a required command cannot run, or the contract cannot be executed safely, stop and return: CONTRACT_BLOCKED <exact reason>.",
     "Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.",
   ].filter(Boolean).join("\n");
 }

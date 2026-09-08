@@ -100,19 +100,29 @@ const implementationRun = await runImplementationTasks({
 });
 
 if (!implementationRun.ok) {
+  const blocked = implementationRun.failureKind === "contract-noop"
+    || implementationRun.failureKind === "contract-blocked"
+    || implementationRun.failedPhase === "implementation-blocked";
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
-    type: "run.failed",
-    data: { reason: `implementation task failed: ${implementationRun.failedTask.id}` },
+    type: blocked ? "run.blocked" : "run.failed",
+    data: {
+      reason: implementationRun.failureReason ?? `implementation task failed: ${implementationRun.failedTask.id}`,
+      phase: blocked ? "implementation-blocked" : implementationRun.failedPhase,
+      failureKind: implementationRun.failureKind,
+    },
   });
   const failedState = await updateFactoryRunState({
     statePath: run.statePath,
-    patch: { status: "FAILED", phase: implementationRun.failedPhase },
+    patch: {
+      status: blocked ? "BLOCKED" : "FAILED",
+      phase: blocked ? "implementation-blocked" : implementationRun.failedPhase,
+    },
   });
   const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
     runId: run.runId,
     goal: input.goal,
-    status: "FAILED",
+    status: blocked ? "BLOCKED" : "FAILED",
     phase: failedState.phase,
     approved: false,
     planPath,
@@ -124,6 +134,7 @@ if (!implementationRun.ok) {
     repairExecutionPaths,
     verificationPath: path.join(run.runDir, "verification.json"),
     verificationStatus: "incomplete",
+    recoveryHint: blocked ? implementationRun.failureReason : undefined,
   });
 
   return {

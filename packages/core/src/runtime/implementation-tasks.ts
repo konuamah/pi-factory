@@ -5,6 +5,7 @@ import { resolveTaskDependencies } from "./final-merge.js";
 import { resolveModelForRole } from "../models/index.js";
 import { appendFactoryRunEvent } from "../runs/store.js";
 import type { PlannerTask, ImplementationContract } from "./planner.js";
+import type { BuilderOutcomeKind } from "./builder-outcome.js";
 import type { TaskWorkspaceSelection, RunFactoryControllerInput, FactoryRunProgressEvent } from "./controller.js";
 import type { AgentExecutor } from "./interfaces.js";
 import type { SkillBundleSelection } from "../skills/index.js";
@@ -43,7 +44,14 @@ export async function runImplementationTasks(input: {
   builderExecutionPaths: string[];
 }): Promise<
   | { ok: true; taskWorkspaces: TaskWorkspaceSelection[] }
-  | { ok: false; failedTask: PlannerTask; failedPhase: string; taskWorkspaces: TaskWorkspaceSelection[] }
+  | {
+      ok: false;
+      failedTask: PlannerTask;
+      failedPhase: string;
+      failureKind: BuilderOutcomeKind;
+      failureReason: string;
+      taskWorkspaces: TaskWorkspaceSelection[];
+    }
 > {
   if (input.tasks.length === 0) {
     return { ok: true, taskWorkspaces: [] };
@@ -79,7 +87,14 @@ export async function runImplementationTasks(input: {
           completedTaskIds: Array.from(completed),
         },
       });
-      return { ok: false, failedTask: blockedTask, failedPhase: "implementation-blocked", taskWorkspaces };
+      return {
+        ok: false,
+        failedTask: blockedTask,
+        failedPhase: "implementation-blocked",
+        failureKind: "contract-blocked",
+        failureReason: "Implementation tasks could not be scheduled because dependencies were not satisfiable.",
+        taskWorkspaces,
+      };
     }
 
     const batch = runnable.slice(0, parallelism);
@@ -132,7 +147,16 @@ export async function runImplementationTasks(input: {
         completed.add(result.task.id);
         continue;
       }
-      return { ok: false, failedTask: result.task, failedPhase: "implementation-failed", taskWorkspaces };
+      return {
+        ok: false,
+        failedTask: result.task,
+        failedPhase: result.failureKind === "contract-noop" || result.failureKind === "contract-blocked"
+          ? "implementation-blocked"
+          : "implementation-failed",
+        failureKind: result.failureKind ?? "executor-failed",
+        failureReason: result.failureReason ?? "Implementation task failed.",
+        taskWorkspaces,
+      };
     }
   }
 

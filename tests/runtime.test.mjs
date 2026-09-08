@@ -2355,7 +2355,131 @@ test('completed implementation with no file changes retries once before failing 
     const eventsRaw = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
     assert.match(eventsRaw, /task\.no_changes_retrying/);
     assert.match(eventsRaw, /task\.no_changes/);
-    assert.match(eventsRaw, /implementation produced no file changes/);
+    assert.match(eventsRaw, /structured contract outcome/);
+  });
+});
+
+test('completed implementation that declares CONTRACT_NOOP does not retry and blocks the run', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  lint: node -e ""',
+        '  typecheck: node -e ""',
+        '  test: node -e ""',
+        '  build: node -e ""',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: true',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+    await execFile('git', ['add', '.'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'factory setup'], { cwd: root });
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: 'CONTRACT_NOOP The requested task-creation slice is already implemented in the target files.',
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const builderCalls = calls.filter((call) => call.label === 'builder');
+    assert.equal(builderCalls.length, 1, 'an explicit CONTRACT_NOOP must not trigger a retry');
+    const runDir = result.runDir;
+    const summary = await readJson(result.summaryPath);
+    assert.equal(summary.status, 'BLOCKED');
+    assert.equal(summary.phase, 'implementation-blocked');
+    const eventsRaw = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /task\.contract_noop/);
+    assert.doesNotMatch(eventsRaw, /task\.no_changes_retrying/);
+  });
+});
+
+test('completed implementation that declares CONTRACT_BLOCKED does not retry and blocks the run', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(
+      path.join(root, '.factory/config.yaml'),
+      [
+        'project:',
+        '  baseBranch: main',
+        'commands:',
+        '  lint: node -e ""',
+        '  typecheck: node -e ""',
+        '  test: node -e ""',
+        '  build: node -e ""',
+        'runtime:',
+        '  maxParallelAgents: 1',
+        'git:',
+        '  allowWorktrees: true',
+        'repair:',
+        '  enabled: false',
+        'approval:',
+        '  finalMerge: required',
+      ].join('\n'),
+      'utf8',
+    );
+    await execFile('git', ['add', '.'], { cwd: root });
+    await execFile('git', ['commit', '-m', 'factory setup'], { cwd: root });
+
+    const calls = [];
+    const plannerExecutor = makeExecutor('planner', calls);
+    const builderExecutor = {
+      async execute(input) {
+        calls.push({ label: 'builder', executionId: input.executionId, prompt: input.prompt });
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: 'CONTRACT_BLOCKED The verification command cannot run because port 3001 is occupied by an external process.',
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+
+    const result = await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const builderCalls = calls.filter((call) => call.label === 'builder');
+    assert.equal(builderCalls.length, 1, 'an explicit CONTRACT_BLOCKED must not trigger a retry');
+    const runDir = result.runDir;
+    const summary = await readJson(result.summaryPath);
+    assert.equal(summary.status, 'BLOCKED');
+    assert.equal(summary.phase, 'implementation-blocked');
+    const eventsRaw = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /task\.contract_blocked/);
+    assert.doesNotMatch(eventsRaw, /task\.no_changes_retrying/);
   });
 });
 

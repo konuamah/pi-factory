@@ -235,6 +235,9 @@ function suggestResumePolicy(
   finalMerge: Record<string, unknown> | undefined,
   verification: Record<string, unknown> | undefined,
 ): { resumable: boolean; suggestedPhase: string; nextStatus: "PENDING" | "RUNNING"; reason: string } {
+  if (currentPhase === "implementation-blocked") {
+    return { resumable: false, suggestedPhase: "implementation-blocked", nextStatus: "PENDING", reason: "The implementation contract produced no candidate. Revise the goal or plan and start a new run." };
+  }
   if (currentPhase === "plan-approval") {
     return { resumable: true, suggestedPhase: "plan-approval", nextStatus: "PENDING", reason: "Plan approval was interrupted." };
   }

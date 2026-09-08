@@ -8,6 +8,7 @@ import { resolveNodeRole } from "./controller.js";
 import { resolveNodeSkillBundle } from "./skills.js";
 import { compileAgentContext } from "../context/compiler.js";
 import { buildCompiledPrompt, buildNoChangeRetryPrompt } from "./prompts.js";
+import { classifyBuilderOutcome, type BuilderOutcome, type BuilderOutcomeKind } from "./builder-outcome.js";
 import { appendModelLedgerEntry } from "../runs/model-ledger.js";
 import { appendFactoryRunEvent } from "../runs/store.js";
 import { hydrateWorkspaceDependencies, DependencyHydrationError } from "./dependencies.js";
@@ -58,7 +59,13 @@ export async function runImplementationTask(input: {
   builderExecutionPaths: string[];
 }): Promise<
   | { ok: true; task: PlannerTask; workspace: TaskWorkspaceSelection }
-  | { ok: false; task: PlannerTask; workspace: TaskWorkspaceSelection }
+  | {
+      ok: false;
+      task: PlannerTask;
+      workspace: TaskWorkspaceSelection;
+      failureKind: BuilderOutcomeKind;
+      failureReason: string;
+    }
 > {
   const workspace = await resolveTaskWorkspace({
     cwd: input.executionCwd,
@@ -134,7 +141,13 @@ export async function runImplementationTask(input: {
         workspaceBranch: workspace.branch,
       },
     });
-    return { ok: false, task: input.task, workspace };
+    return {
+      ok: false,
+      task: input.task,
+      workspace,
+      failureKind: "executor-failed",
+      failureReason: reason,
+    };
   }
 
   if (input.task.type === "command" && input.task.commands?.length) {
@@ -172,7 +185,13 @@ export async function runImplementationTask(input: {
             workspaceBranch: workspace.branch,
           },
         });
-        return { ok: false, task: input.task, workspace };
+        return {
+          ok: false,
+          task: input.task,
+          workspace,
+          failureKind: "executor-failed",
+          failureReason: `Missing required workflow skill(s): ${nodeSkills.missingRequired.join(", ")}`,
+        };
       }
       const capabilities = resolveEffectiveCapabilities({
         requested: input.task.requiredCapabilities?.length ? input.task.requiredCapabilities : defaultCapabilitiesForRole(nodeRole),
@@ -235,6 +254,7 @@ export async function runImplementationTask(input: {
         result: AgentExecutionResult;
         executionPath: string;
         committedChange: WorkspaceCommitResult;
+        outcome: BuilderOutcome;
       }> => {
         const executionId = attempt === "initial"
           ? `${input.runId}-${nodeRole}-${input.task.id}`
@@ -293,7 +313,7 @@ export async function runImplementationTask(input: {
           },
         });
 
-        return { result, executionPath, committedChange };
+        return { result, executionPath, committedChange, outcome: classifyBuilderOutcome(result, committedChange) };
       };
 
       let builderAttempt = await executeBuilder("initial");
@@ -319,7 +339,7 @@ export async function runImplementationTask(input: {
         builderAttempt = await executeBuilder("transient-error-retry");
       }
 
-      if (builderAttempt.result.status === "completed" && !builderAttempt.committedChange.committed) {
+      if (builderAttempt.outcome.kind === "no-change-unclear") {
         await appendFactoryRunEvent(input.eventsPath, {
           timestamp: new Date().toISOString(),
           type: "task.no_changes_retrying",
@@ -330,7 +350,7 @@ export async function runImplementationTask(input: {
             builderExecutionPath: builderAttempt.executionPath,
             workspacePath: workspace.path,
             workspaceBranch: workspace.branch,
-            reason: "builder completed without producing file changes; retrying once with explicit implementation instructions",
+            reason: "builder completed without changes or a structured contract outcome; retrying once",
           },
         });
         builderAttempt = await executeBuilder("no-change-retry", builderAttempt.result);
@@ -341,6 +361,37 @@ export async function runImplementationTask(input: {
       const committedChange = builderAttempt.committedChange;
       workspace.changedFiles = committedChange.changedFiles;
       workspace.commitSha = committedChange.commitSha;
+
+      if (builderAttempt.outcome.kind === "contract-noop" || builderAttempt.outcome.kind === "contract-blocked") {
+        const terminalEvent = builderAttempt.outcome.kind === "contract-noop"
+          ? "task.contract_noop"
+          : "task.contract_blocked";
+        await updatePrototypeTaskArtifact({
+          runDir: input.runDir,
+          taskId: input.task.id,
+          patch: { status: "failed" },
+        });
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: terminalEvent,
+          data: {
+            taskId: input.task.id,
+            stage: input.task.stage,
+            title: input.task.title,
+            reason: builderAttempt.outcome.reason,
+            builderExecutionPath,
+            workspacePath: workspace.path,
+            workspaceBranch: workspace.branch,
+          },
+        });
+        return {
+          ok: false,
+          task: input.task,
+          workspace,
+          failureKind: builderAttempt.outcome.kind,
+          failureReason: builderAttempt.outcome.reason ?? "Builder reported a terminal contract outcome.",
+        };
+      }
 
       if (builderResult.status !== "completed") {
         await updatePrototypeTaskArtifact({
@@ -362,7 +413,13 @@ export async function runImplementationTask(input: {
             workspaceBranch: workspace.branch,
           },
         });
-        return { ok: false, task: input.task, workspace };
+        return {
+          ok: false,
+          task: input.task,
+          workspace,
+          failureKind: "executor-failed",
+          failureReason: builderResult.errorMessage ?? `builder executor returned ${builderResult.status}`,
+        };
       }
       if (!committedChange.committed) {
         await updatePrototypeTaskArtifact({
@@ -389,13 +446,19 @@ export async function runImplementationTask(input: {
             taskId: input.task.id,
             stage: input.task.stage,
             title: input.task.title,
-            reason: "implementation produced no file changes",
+            reason: "Builder completed twice without producing file changes or a structured contract outcome.",
             builderExecutionPath,
             workspacePath: workspace.path,
             workspaceBranch: workspace.branch,
           },
         });
-        return { ok: false, task: input.task, workspace };
+        return {
+          ok: false,
+          task: input.task,
+          workspace,
+          failureKind: "no-change-unclear",
+          failureReason: "Builder completed twice without producing file changes or a structured contract outcome.",
+        };
       }
     } else {
       await wait(input.delayMs);

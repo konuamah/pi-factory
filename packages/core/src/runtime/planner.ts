@@ -38,6 +38,9 @@ export interface ImplementationContract {
   verificationChecks?: Array<{ name: string; command?: string; reason?: string }>;
   risks?: Array<{ risk: string; mitigation?: string }>;
   blockers?: string[];
+  changeRequired?: "required" | "not-required" | "uncertain";
+  baselineFindings?: string[];
+  requiredChanges?: string[];
 }
 
 export interface PlannerArtifact {
@@ -174,8 +177,9 @@ export function extractImplementationContract(
   const blockers = extractBulletSection(planText, "blockers", "blocked");
   const risks = extractRisks(planText);
   const verificationChecks = extractVerificationChecks(planText);
+  const changeRequirement = extractChangeRequirement(planText);
 
-  if (!targetFiles && !nonGoals && !implementationSteps && !blockers && !risks && !verificationChecks) {
+  if (!targetFiles && !nonGoals && !implementationSteps && !blockers && !risks && !verificationChecks && !changeRequirement) {
     return undefined;
   }
   return {
@@ -185,6 +189,7 @@ export function extractImplementationContract(
     ...(verificationChecks?.length ? { verificationChecks } : {}),
     ...(risks?.length ? { risks } : {}),
     ...(blockers?.length ? { blockers } : {}),
+    ...(changeRequirement ? changeRequirement : {}),
   };
 }
 
@@ -342,11 +347,52 @@ function extractVerificationChecks(text: string | undefined): ImplementationCont
   const checks: ImplementationContract["verificationChecks"] = [];
   for (const line of lines) {
     const cleaned = line.replace(/^[-*]\s*/, "").trim();
-    if (/(npm|pnpm|yarn|npx)\s+(run\s+)?[a-z0-9:_-]+/i.test(cleaned)) {
-      checks.push({ name: cleaned.split(/\s+/)[0] ?? cleaned, command: cleaned });
+    // Normalize list decoration artifacts (e.g. "- — - Run `cd backend && npm start`")
+    // down to the command itself, then extract a package-manager command.
+    const commandOnly = cleaned
+      .replace(/^(?:[-–—]+\s*)+/, "")
+      .replace(/^Run\s+/i, "")
+      .replace(/`/g, "")
+      .replace(/\.+$/, "")
+      .trim();
+    if (!/(npm|pnpm|yarn|npx)\s+(run\s+)?[a-z0-9:_-]+/i.test(commandOnly)) {
+      continue;
     }
+    checks.push({ name: commandOnly.split(/\s+/)[0] ?? commandOnly, command: commandOnly });
   }
   return checks.length > 0 ? checks : undefined;
+}
+
+function extractChangeRequirement(text: string | undefined): Pick<
+  ImplementationContract,
+  "changeRequired" | "baselineFindings" | "requiredChanges"
+> | undefined {
+  if (!text) return undefined;
+  const lines = text.split(/\r?\n/);
+  const headingIndex = lines.findIndex((line) =>
+    /^#{0,6}\s*(?:\d+\.\s*)?CHANGE REQUIREMENT\s*$/i.test(line.trim()),
+  );
+  if (headingIndex < 0) return undefined;
+  const section = lines.slice(headingIndex + 1);
+  const statusLine = section.find((line) => /^\s*[-*]?\s*Status:\s*/i.test(line));
+  const match = statusLine?.match(/Status:\s*(required|not-required|uncertain)\s*$/i);
+  const changeRequired = match?.[1]?.toLowerCase() as "required" | "not-required" | "uncertain" | undefined;
+  const baselineFindings = section
+    .filter((line) => /^\s*[-*]?\s*Baseline gap:\s*/i.test(line))
+    .map((line) => line.replace(/^\s*[-*]?\s*Baseline gap:\s*/i, "").trim())
+    .filter(Boolean);
+  const requiredChanges = section
+    .filter((line) => /^\s*[-*]?\s*Required change:\s*/i.test(line))
+    .map((line) => line.replace(/^\s*[-*]?\s*Required change:\s*/i, "").trim())
+    .filter(Boolean);
+  if (!changeRequired && baselineFindings.length === 0 && requiredChanges.length === 0) {
+    return undefined;
+  }
+  return {
+    ...(changeRequired ? { changeRequired } : {}),
+    ...(baselineFindings.length > 0 ? { baselineFindings } : {}),
+    ...(requiredChanges.length > 0 ? { requiredChanges } : {}),
+  };
 }
 
 function normalizeWorkflowStages(stages: WorkflowStage[]): PlannerArtifact["workflowStages"] {

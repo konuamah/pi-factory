@@ -12,7 +12,16 @@ const execFileAsync = promisify(execFile);
 export async function runCommandTasks(
   input: { task: PlannerTask; eventsPath: string; runDir: string },
   workspace: TaskWorkspaceSelection,
-): Promise<{ ok: true; task: PlannerTask; workspace: TaskWorkspaceSelection } | { ok: false; task: PlannerTask; workspace: TaskWorkspaceSelection }> {
+): Promise<
+  | { ok: true; task: PlannerTask; workspace: TaskWorkspaceSelection }
+  | {
+      ok: false;
+      task: PlannerTask;
+      workspace: TaskWorkspaceSelection;
+      failureKind: "executor-failed";
+      failureReason: string;
+    }
+> {
   if (input.task.type === "command" && input.task.commands?.length) {
     for (const command of input.task.commands) {
       await appendFactoryRunEvent(input.eventsPath, {
@@ -68,7 +77,13 @@ export async function runCommandTasks(
             workspaceBranch: workspace.branch,
           },
         });
-        return { ok: false, task: input.task, workspace };
+        return {
+          ok: false,
+          task: input.task,
+          workspace,
+          failureKind: "executor-failed",
+          failureReason: `Command task failed: ${command}`,
+        };
       }
     }
   }

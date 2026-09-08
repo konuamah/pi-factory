@@ -164,6 +164,63 @@ test('authoritative human decisions survive a tight budget even with large guida
   });
 });
 
+test('builder context includes CONTRACT_NOOP and verification-stage ownership rules', async () => {
+  await withTempProject(async (root) => {
+    const compiled = await compileAgentContext({
+      cwd: root,
+      role: 'builder',
+      goal: 'Add the Google tag',
+      planIntent: {
+        targetFiles: ['src/app/layout.tsx'],
+        implementationSteps: ['Step 1: edit layout'],
+      },
+    });
+    const text = compiled.instructions.join('\n');
+    assert.match(text, /CONTRACT_BLOCKED/);
+  });
+});
+
+test('full builder compiled prompt carries CONTRACT_NOOP and verification-stage ownership', async () => {
+  await withTempProject(async (root) => {
+    const compiled = await compileAgentContext({
+      cwd: root,
+      role: 'builder',
+      goal: 'Add the Google tag',
+      planIntent: {
+        targetFiles: ['src/app/layout.tsx'],
+        implementationSteps: ['Step 1: edit layout'],
+      },
+    });
+    const { buildCompiledPrompt } = await import('../packages/core/dist/runtime/prompts.js');
+    const fullPrompt = buildCompiledPrompt('Add the Google tag', compiled, root);
+    assert.match(fullPrompt, /CONTRACT_NOOP/);
+    assert.match(fullPrompt, /verification stage owns broad lint, build, and test checks/);
+    assert.match(fullPrompt, /modify source temporarily/i);
+  });
+});
+
+test('builder context carries CHANGE REQUIREMENT status when the planner provided one', async () => {
+  await withTempProject(async (root) => {
+    const compiled = await compileAgentContext({
+      cwd: root,
+      role: 'builder',
+      goal: 'Add the Google tag',
+      planIntent: {
+        targetFiles: ['src/app/layout.tsx'],
+        implementationSteps: ['Step 1: edit layout'],
+        changeRequired: 'required',
+        baselineFindings: ['The consent banner is not rendered on the marketing page.'],
+        requiredChanges: ['Render the banner in layout.tsx.'],
+      },
+    });
+    const text = compiled.instructions.join('\n');
+    assert.match(text, /Change requirement: required/);
+    assert.match(text, /Baseline findings \(why this change is needed\):/);
+    assert.match(text, /consent banner is not rendered/);
+    assert.match(text, /Required changes:/);
+  });
+});
+
 test('renderPriorityBudget keeps high-priority sections whole and truncates the tail visibly', async () => {
   const { renderPriorityBudget } = await import('../packages/core/dist/context/compiler.js');
   const sections = [

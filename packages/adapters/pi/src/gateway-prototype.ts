@@ -346,6 +346,9 @@ export function buildFactoryRunResultTitle(status: string, phase: string): strin
   if (status === "CANCELLED") {
     return "Factory prototype run cancelled";
   }
+  if (status === "BLOCKED" && phase === "implementation-blocked") {
+    return "Factory prototype run blocked during implementation";
+  }
   if (phase === "implementation-failed") {
     return "Factory prototype run failed during implementation";
   }

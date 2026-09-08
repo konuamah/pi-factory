@@ -97,6 +97,9 @@ export interface ContextCompileRequest {
     verificationChecks?: Array<{ name: string; command?: string; reason?: string }>;
     blockers?: string[];
     risks?: Array<{ risk: string; mitigation?: string }>;
+    changeRequired?: "required" | "not-required" | "uncertain";
+    baselineFindings?: string[];
+    requiredChanges?: string[];
   };
   maxChars?: number;
   grantedCapabilities?: string[];
@@ -273,7 +276,7 @@ function renderFileHintsSection(fileHints: ContextCompileRequest["fileHints"]): 
 
 function renderPlanIntentSections(planIntent: ContextCompileRequest["planIntent"]): PrioritySection[] {
   if (!planIntent) return [];
-  const { targetFiles, nonGoals, implementationSteps, verificationChecks, blockers, risks } = planIntent;
+  const { targetFiles, nonGoals, implementationSteps, verificationChecks, blockers, risks, changeRequired, baselineFindings, requiredChanges } = planIntent;
   const sections: PrioritySection[] = [
     {
       name: "planIntent",
@@ -282,6 +285,9 @@ function renderPlanIntentSections(planIntent: ContextCompileRequest["planIntent"
     },
   ];
   const sub: Array<{ text: string }> = [];
+  if (changeRequired) sub.push({ text: `Change requirement: ${changeRequired}` });
+  if (baselineFindings?.length) sub.push({ text: `Baseline findings (why this change is needed):\n${baselineFindings.map((item) => `- ${item}`).join("\n")}` });
+  if (requiredChanges?.length) sub.push({ text: `Required changes:\n${requiredChanges.map((item) => `- ${item}`).join("\n")}` });
   if (targetFiles?.length) sub.push({ text: `Target files:\n${targetFiles.map((file) => `- ${file}`).join("\n")}` });
   if (implementationSteps?.length) sub.push({ text: `Implementation sequence:\n${implementationSteps.map((step) => `- ${step}`).join("\n")}` });
   if (verificationChecks?.length) {

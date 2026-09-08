@@ -8,6 +8,7 @@ import {
   defaultFinalApproval,
 } from '../packages/adapters/pi/dist/approval.js';
 import { requestDecisionInput } from '../packages/adapters/pi/dist/decision-dialog.js';
+import { buildFactoryRunResultTitle } from '../packages/adapters/pi/dist/gateway-prototype.js';
 
 function makePreview() {
   return {
@@ -562,4 +563,12 @@ test('default final approval never silently approves a blocking verdict', () => 
   assert.equal(defaultFinalApproval({ verdict: 'pass', summary: 'Ready' }), true);
   assert.equal(defaultFinalApproval({ verdict: 'unknown', summary: 'notes' }), true);
   assert.equal(defaultFinalApproval(undefined), true);
+});
+
+test('run result title distinguishes an implementation-blocked run from a failed one', () => {
+  assert.equal(buildFactoryRunResultTitle('BLOCKED', 'implementation-blocked'), 'Factory prototype run blocked during implementation');
+  assert.equal(buildFactoryRunResultTitle('FAILED', 'implementation-failed'), 'Factory prototype run failed during implementation');
+  assert.equal(buildFactoryRunResultTitle('COMPLETED', 'complete'), 'Factory prototype run complete');
+  assert.equal(buildFactoryRunResultTitle('CANCELLED', 'plan-approval-rejected'), 'Factory prototype run cancelled');
+  assert.equal(buildFactoryRunResultTitle('BLOCKED', 'merge-blocked'), 'Factory prototype run failed');
 });

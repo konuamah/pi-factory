@@ -8,6 +8,34 @@ Live runs, `/factory logs <run-id>`, and `/factory show <run-id>` include concis
 
 Use this by symptom.
 
+## Builder Produces No File Changes Or Declares No-Op / Blocked
+
+Symptom:
+
+```text
+status: BLOCKED
+phase: implementation-blocked
+```
+
+or a run that fails with `implementation produced no file changes`.
+
+Cause:
+
+The Builder completed without committing changes. A completed run with no diff can mean several different things, and the run status now distinguishes them:
+
+- `CONTRACT_NOOP <reason>` — the requested behavior is already satisfied; the Builder stopped instead of making cosmetic or unrelated edits.
+- `CONTRACT_BLOCKED <reason>` — a named file is missing, a required command cannot run, or the contract cannot be executed safely.
+- no directive and no diff — the Builder completed without a structured outcome. Factory retries once, then fails with a reason naming the missing structured outcome.
+- transient provider error — handled by the existing transient-error retry path.
+
+Both `CONTRACT_NOOP` and `CONTRACT_BLOCKED` end the run `BLOCKED` with phase `implementation-blocked` (not `FAILED`), record a `task.contract_noop` / `task.contract_blocked` event, preserve the builder execution artifact, and put the Builder's reason in the summary `recoveryHint`. They do not proceed to verification, review, approval, or landing, and a blocked run is not resumable directly into implementation because there is no candidate to continue.
+
+Fix:
+
+- inspect the latest builder execution artifact and the `task.contract_noop` / `task.contract_blocked` / `task.no_changes_retrying` event
+- if the plan rediscovered already-implemented behavior, revise the goal or the plan instead of re-running the same goal
+- if the Builder hit a port, dependency, or environment problem and returned `CONTRACT_BLOCKED`, fix the project setup or provide an explicit named verification command rather than asking the Builder to work around it
+
 ## Missing Approval Handler Auto-Approves
 
 Symptom: no `requestPlanApproval` / `requestApproval` handler is configured and the run silently approves the plan or merge.

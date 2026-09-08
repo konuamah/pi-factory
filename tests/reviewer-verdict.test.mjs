@@ -20,6 +20,22 @@ test('classifyReviewerVerdict: explicit pass verdict', () => {
   assert.equal(classifyReviewerVerdict(output), 'pass');
 });
 
+test('classifyReviewerVerdict: blocking headline is honored when recommendation omits block words', () => {
+  const output = [
+    'Not ready for approval yet.',
+    '',
+    'Findings:',
+    '- Blocking scope/repository hygiene issue: backend/tasks.db is committed as a binary runtime database.',
+    '- Missing behavior-specific verification: setup/lint/build passed, but restart persistence was not smoke tested.',
+    '',
+    'Recommendation:',
+    '- Remove backend/tasks.db from the commit.',
+    '- Add/confirm ignore coverage for the runtime DB if allowed by the task scope.',
+    '- Run a restart persistence smoke test before approval.',
+  ].join('\n');
+  assert.equal(classifyReviewerVerdict(output), 'block');
+});
+
 test('classifyReviewerVerdict: "looks ready; ship it" passes', () => {
   const output = 'The change is scoped correctly, verification passed, looks ready. Ship it.';
   assert.equal(classifyReviewerVerdict(output), 'pass');

@@ -445,6 +445,7 @@ const landingResult = await runLandingFlow({
   runDir: run.runDir,
   runId: run.runId,
   eventsPath: run.eventsPath,
+  statePath: run.statePath,
   goal: input.goal,
   mergeCwd: input.cwd,
   taskType,

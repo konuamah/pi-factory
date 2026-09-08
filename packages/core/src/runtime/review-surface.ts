@@ -41,9 +41,14 @@ export type ReviewerVerdict = "block" | "pass" | "unknown";
  */
 export function classifyReviewerVerdict(outputText: string): ReviewerVerdict {
   const text = (outputText ?? "").toLowerCase();
+  const headline = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) ?? "";
   const conclusion = text.slice(-600);
-  const positive = /(?<!\bnot )(?<!\bcannot )(?<!\bcan't )(?<!\bcan not )\b(ready for approval|looks? ready|accepted|all checks? pass|no issues?|satisfies (all|every|the)|good to merge|ship it|no problems?|approve)\b/.test(conclusion);
-  const negative = /\b(not ready|must fix|cannot approve|can't approve|blocked pending|needs (work|changes|fixes|rework)|reject|do not merge|does not (look )?ready|fails? (the )?(checks?|review|verification)|not satisfied|unacceptable)\b/.test(conclusion);
+  const reviewWindow = [headline, conclusion].filter(Boolean).join("\n");
+  const positive = /(?<!\bnot )(?<!\bcannot )(?<!\bcan't )(?<!\bcan not )\b(ready for approval|looks? ready|accepted|all checks? pass|no issues?|satisfies (all|every|the)|good to merge|ship it|no problems?|approve)\b/.test(reviewWindow);
+  const negative = /\b(not ready|must fix|cannot approve|can't approve|blocked pending|needs (work|changes|fixes|rework)|reject|do not merge|does not (look )?ready|fails? (the )?(checks?|review|verification)|not satisfied|unacceptable)\b/.test(reviewWindow);
   if (negative && !positive) return "block";
   if (positive && !negative) return "pass";
   return "unknown";

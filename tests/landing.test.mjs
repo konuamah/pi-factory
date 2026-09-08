@@ -312,6 +312,94 @@ test('landing finalizes after direct cherry-pick even when post-landing verifica
   assert.ok(attempts.some((entry) => entry.stage === "finalized"));
 });
 
+test('landing finalizes when post-landing verification command times out', async () => {
+  const root = await initRepo();
+  await git(root, ["switch", "-c", "factory/task-timeout"]);
+  await fs.writeFile(path.join(root, "index.html"), "<h1>Candidate</h1>\n", "utf8");
+  await git(root, ["add", "index.html"]);
+  await git(root, ["commit", "-m", "candidate"]);
+  const candidateSha = await git(root, ["rev-parse", "HEAD"]);
+  await git(root, ["switch", "main"]);
+
+  const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "factory-run-landing-timeout-"));
+  const eventsPath = path.join(runDir, "events.jsonl");
+  const statePath = path.join(runDir, "state.json");
+  await fs.writeFile(eventsPath, "", "utf8");
+  await fs.writeFile(statePath, JSON.stringify({ runId: "run-timeout", status: "RUNNING", phase: "landing-planning", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, null, 2), "utf8");
+  const landingExecutor = {
+    async execute() {
+      return {
+        status: "completed",
+        outputText: JSON.stringify({
+          strategy: "cherry-pick",
+          targetBranch: "main",
+          candidateSha,
+          sourceBranch: "factory/task-timeout",
+          reasoning: ["safe single commit"],
+          verification: ["lint"],
+          risk: "low",
+          expectedFiles: ["index.html"],
+          recoveryPlan: "Open a PR if direct landing fails.",
+        }),
+        events: [],
+      };
+    },
+  };
+
+  const result = await runLandingFlow({
+    runDir,
+    runId: "run-timeout",
+    eventsPath,
+    statePath,
+    goal: "Add candidate feature",
+    mergeCwd: root,
+    taskType: "general",
+    config: {
+      git: { baseBranch: "main", pullRequest: { enabled: true, provider: "github", cli: "gh", draft: false } },
+      approval: { finalMerge: "required" },
+      runtime: { limits: { toolTimeoutMs: 20 } },
+      models: { repair: undefined, landing: { provider: "openai-codex", model: "gpt-test" }, reviewer: { provider: "openai-codex", model: "gpt-test" } },
+    },
+    completedTasks: [{
+      taskId: "task-1",
+      targetBranch: "main",
+      sourceBranch: "factory/task-timeout",
+      commitSha: candidateSha,
+      changedFiles: ["index.html"],
+      workspaceMode: "created",
+      worktreePath: root,
+    }],
+    candidateSha,
+    candidateBranch: "factory/task-timeout",
+    verificationPlan: {
+      cwd: root,
+      cwdResolution: "default-root",
+      commands: { lint: `node -e "setTimeout(() => {}, 2000)"` },
+      selectionSource: "deterministic",
+      skill: { id: "test", version: "1.0.0", mode: "verification", selectionReasons: [] },
+      evidence: { rootCwd: root, configuredCommands: {}, allowedCommands: [], rootScripts: [], candidateCwds: [], commandDecisions: [] },
+    },
+    verification: { cwd: root, cwdResolution: "default-root", commands: [], overallStatus: "passed" },
+    verificationFailureClassification: undefined,
+    contractCanComplete: true,
+    controllerInput: { cwd: root, goal: "Add candidate feature", landingExecutor },
+    repairGuidanceText: undefined,
+  });
+
+  assert.equal(result.status, "COMPLETED");
+  assert.equal(result.phase, "complete");
+  const finalMerge = JSON.parse(await fs.readFile(path.join(runDir, "final-merge.json"), "utf8"));
+  assert.equal(finalMerge.status, "landed");
+  assert.equal(finalMerge.postLandingVerification.status, "failed");
+  const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+  assert.equal(state.phase, "post-landing-verification");
+  const events = await fs.readFile(eventsPath, "utf8");
+  assert.match(events, /landing\.post_verification_started/);
+  assert.match(events, /landing\.post_verification_completed/);
+  const attempts = (await fs.readFile(path.join(runDir, "landing-attempts.jsonl"), "utf8")).trim().split(/\n+/).map((line) => JSON.parse(line));
+  assert.ok(attempts.some((entry) => entry.stage === "finalized"));
+});
+
 test('successful PR recovery completes the run instead of leaving landing blocked', async () => {
   const root = await initRepo();
   await git(root, ["switch", "-c", "factory/candidate"]);

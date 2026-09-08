@@ -195,6 +195,7 @@ export async function runVerificationCommands(input: {
   cwd: string;
   commands: VerificationCommandConfig;
   env?: Record<string, string>;
+  timeoutMs?: number;
 }): Promise<VerificationRunResult> {
   const resolved = await resolveVerificationCwd(input.cwd, input.commands.cwd);
 
@@ -235,6 +236,7 @@ export async function runVerificationCommands(input: {
         cwd: resolved.cwd,
         windowsHide: true,
         env: input.env ? { ...process.env, ...input.env } : process.env,
+        timeout: input.timeoutMs,
       });
       results.push({
         name,
@@ -249,14 +251,17 @@ export async function runVerificationCommands(input: {
         code?: number;
         stdout?: string;
         stderr?: string;
+        killed?: boolean;
+        signal?: NodeJS.Signals;
       };
+      const timedOut = Boolean(input.timeoutMs && (execError.killed || execError.signal));
       results.push({
         name,
         command,
         status: "failed",
         exitCode: typeof execError.code === "number" ? execError.code : undefined,
         stdout: execError.stdout,
-        stderr: execError.stderr,
+        stderr: execError.stderr || (timedOut ? `Command timed out after ${input.timeoutMs}ms` : undefined),
       });
     }
   }

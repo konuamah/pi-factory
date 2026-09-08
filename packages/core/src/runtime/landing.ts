@@ -1,5 +1,5 @@
 import { appendModelLedgerEntry } from "../runs/model-ledger.js";
-import { appendFactoryRunEvent } from "../runs/store.js";
+import { appendFactoryRunEvent, updateFactoryRunState } from "../runs/store.js";
 import { buildRepairPrompt } from "./prompts.js";
 import { classifyVerificationFailure, isIgnorableBaselineFailure, type VerificationFailureClassification } from "./failure-classification.js";
 import { createRecoveryPullRequest, type RecoveryPullRequestResult } from "../git/pull-request.js";
@@ -53,6 +53,7 @@ export async function runLandingFlow(input: {
   runDir: string;
   runId: string;
   eventsPath: string;
+  statePath?: string;
   goal: string;
   mergeCwd: string;
   taskType: string;
@@ -216,8 +217,9 @@ export async function runLandingFlow(input: {
         repairAttempted: postLandingVerification.repairAttempted,
       },
     });
+    await markPostLandingVerificationStarted(input, plan, verificationCommands, targetHeadAfter);
     try {
-      verificationResult = await rerunLandingVerification(input.mergeCwd, input.verificationPlan, verificationCommands);
+      verificationResult = await rerunLandingVerification(input.mergeCwd, input.verificationPlan, verificationCommands, input.config.runtime.limits?.toolTimeoutMs);
       postLandingVerification = { overallStatus: verificationResult.overallStatus, commands: verificationCommands, repairAttempted };
       if (verificationResult.overallStatus === "failed") {
         const failedCommandNames = verificationResult.commands
@@ -249,12 +251,32 @@ export async function runLandingFlow(input: {
             },
           });
         } else {
-          repairAttempted = true;
-          await attemptLandingRepair(input.controllerInput, input.goal, input.mergeCwd, verificationResult, input.repairGuidanceText, input.config.models.repair, input.config.runtime.limits);
-          verificationResult = await rerunLandingVerification(input.mergeCwd, input.verificationPlan, verificationCommands);
-          postLandingVerification = { overallStatus: verificationResult.overallStatus, commands: verificationCommands, repairAttempted };
+          repairAttempted = await attemptLandingRepair(input.controllerInput, input.goal, input.mergeCwd, verificationResult, input.repairGuidanceText, input.config.models.repair, input.config.runtime.limits);
+          if (repairAttempted) {
+            verificationResult = await rerunLandingVerification(input.mergeCwd, input.verificationPlan, verificationCommands, input.config.runtime.limits?.toolTimeoutMs);
+            postLandingVerification = { overallStatus: verificationResult.overallStatus, commands: verificationCommands, repairAttempted };
+          } else {
+            postLandingVerification = {
+              overallStatus: verificationResult.overallStatus,
+              commands: verificationCommands,
+              reason: "Post-landing verification failed and no repair executor was configured.",
+              repairAttempted: false,
+            };
+          }
         }
       }
+      await appendFactoryRunEvent(input.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "landing.post_verification_completed",
+        data: {
+          overallStatus: postLandingVerification.overallStatus,
+          commands: verificationCommands,
+          reason: postLandingVerification.reason,
+          repairAttempted: postLandingVerification.repairAttempted,
+          targetBranch: plan.targetBranch,
+          targetHeadAfter,
+        },
+      });
     } catch (error) {
       postLandingVerification = {
         overallStatus: "error",
@@ -328,6 +350,35 @@ export async function runLandingFlow(input: {
           repairAttempted: postLandingVerification.repairAttempted,
         }
       : { status: verificationResult.overallStatus, commands: verificationCommands, repairAttempted },
+  });
+}
+
+async function markPostLandingVerificationStarted(
+  input: Parameters<typeof runLandingFlow>[0],
+  plan: LandingPlan,
+  commands: string[],
+  targetHeadAfter?: string,
+): Promise<void> {
+  if (input.statePath) {
+    await updateFactoryRunState({
+      statePath: input.statePath,
+      patch: { status: "RUNNING", phase: "post-landing-verification" },
+    });
+  }
+  await appendFactoryRunEvent(input.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "landing.post_verification_started",
+    data: {
+      commands,
+      targetBranch: plan.targetBranch,
+      targetHeadAfter,
+    },
+  });
+  await input.controllerInput.onProgress?.({
+    runId: input.runId,
+    phase: "post-landing-verification",
+    status: "RUNNING",
+    message: "Candidate landed; running post-landing verification",
   });
 }
 
@@ -552,9 +603,9 @@ async function attemptLandingRepair(
   repairGuidanceText?: string,
   model?: ModelSelection,
   limits?: EffectiveFactoryConfig["runtime"]["limits"],
-): Promise<void> {
+): Promise<boolean> {
   const repairExecutor = controllerInput.repairExecutor;
-  if (!repairExecutor) return;
+  if (!repairExecutor) return false;
   await repairExecutor.execute({
     executionId: `landing-repair-${Date.now()}`,
     cwd,
@@ -564,6 +615,7 @@ async function attemptLandingRepair(
     limits,
     metadata: { role: "repair", stage: "landing-repair" },
   });
+  return true;
 }
 
 function classifyLandingRepairReason(cwd: string, result: VerificationRunResult): string | undefined {
@@ -580,10 +632,11 @@ function classifyLandingRepairReason(cwd: string, result: VerificationRunResult)
   })?.reason;
 }
 
-async function rerunLandingVerification(cwd: string, plan: VerificationPlan, commandNames: string[]): Promise<VerificationRunResult> {
+async function rerunLandingVerification(cwd: string, plan: VerificationPlan, commandNames: string[], timeoutMs?: number): Promise<VerificationRunResult> {
   return runVerificationCommands({
     cwd,
     commands: pickVerificationCommands(plan.commands, commandNames),
+    timeoutMs,
   });
 }
 

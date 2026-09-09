@@ -17,7 +17,7 @@ export const verificationPlanningSkill: SkillContract = {
   },
   constitutionDependencies: [1, 2, 3, 18, 73, 76],
   evidence: {
-    required: ["candidate package roots", "configured verification commands", "package manifests", "package scripts"],
+    required: ["candidate package roots", "configured verification commands", "package manifests", "package script bodies", "dependency versions"],
     optional: ["constitution summary", "repo learnings", "recent verification failures"],
   },
   permissions: {
@@ -32,6 +32,9 @@ export const verificationPlanningSkill: SkillContract = {
       constraints: [
         "Do not invent missing package scripts.",
         "Prefer the weakest valid plan that matches repository structure.",
+        "Treat configured commands as intent; verify the selected cwd and package manager from candidate evidence.",
+        "Adapt package-script commands to the selected package manager when the script exists in the chosen root.",
+        "Do not select scripts marked stale by framework/version evidence; use a provided replacement command when available.",
         "Ignore transient/generated workspace content.",
       ],
     },
@@ -45,7 +48,9 @@ export const verificationPlanningSkill: SkillContract = {
   validation: {
     assertions: [
       "chosen cwd must be one of the discovered candidates or a configured override",
-      "selected commands must come from configured verification commands",
+      "selected commands must be valid for the selected cwd",
+      "configured package-script commands may be adapted to an equivalent discovered package-manager command",
+      "stale framework scripts such as Next.js 16 next lint must be rejected in favor of evidence-backed replacements",
       "missing/non-authoritative commands should be omitted rather than invented",
     ],
   },

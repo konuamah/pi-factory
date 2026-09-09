@@ -63,6 +63,12 @@ export interface ContextCompileRequest {
   failures?: FailureContext[];
   constitutionAreas?: number[];
   fileHints?: string[];
+  planIntent?: {
+    targetFiles?: string[];
+    nonGoals?: string[];
+    blockers?: string[];
+    risks?: Array<{ risk: string; mitigation?: string }>;
+  };
   maxChars?: number;
   grantedCapabilities?: string[];
   deniedCapabilities?: string[];
@@ -181,6 +187,22 @@ function renderInstructions(
 
   if (input.fileHints?.length) {
     instructions.push(`Likely files: ${input.fileHints.join(", ")}`);
+  }
+
+  if (input.planIntent) {
+    const { targetFiles, nonGoals, blockers, risks } = input.planIntent;
+    if (targetFiles?.length) {
+      instructions.push(`Target files:\n${targetFiles.map((file) => `- ${file}`).join("\n")}`);
+    }
+    if (nonGoals?.length) {
+      instructions.push(`Non-goals (do not do):\n${nonGoals.map((item) => `- ${item}`).join("\n")}`);
+    }
+    if (risks?.length) {
+      instructions.push(`Known risks:\n${risks.map((r) => `- ${r.risk}${r.mitigation ? ` (mitigation: ${r.mitigation})` : ""}`).join("\n")}`);
+    }
+    if (blockers?.length) {
+      instructions.push(`Blockers:\n${blockers.map((item) => `- ${item}`).join("\n")}`);
+    }
   }
 
   if (input.grantedCapabilities?.length) {

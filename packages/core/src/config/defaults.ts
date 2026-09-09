@@ -29,6 +29,7 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
   repair: {
     enabled: true,
     maxAttempts: 3,
+    maxTotalAttempts: 10,
   },
   constitution: {
     enabled: false,

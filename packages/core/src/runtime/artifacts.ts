@@ -25,6 +25,12 @@ export interface PrototypeTaskArtifact {
   workspacePath?: string;
   workspaceMode?: "existing" | "created" | "in-place";
   workspaceBranch?: string;
+  controllerHandled?: boolean;
+  artifactRefs?: {
+    discoveryExecutionPath?: string;
+    interviewExecutionPath?: string;
+    plannerExecutionPath?: string;
+  };
 }
 
 export interface PrototypePlanArtifact {
@@ -32,6 +38,13 @@ export interface PrototypePlanArtifact {
   summary: string;
   discoveryText?: string;
   planText?: string;
+  implementationContract?: {
+    targetFiles?: string[];
+    nonGoals?: string[];
+    verificationChecks?: Array<{ name: string; command?: string; reason?: string }>;
+    risks?: Array<{ risk: string; mitigation?: string }>;
+    blockers?: string[];
+  };
   workflowStages: Array<{
     name: string;
     dependsOn: string[];
@@ -100,6 +113,15 @@ export interface PrototypeVerificationArtifact {
       reason: string;
       packageName?: string;
       scripts: string[];
+      scriptCommands?: Record<string, string>;
+      packageManager?: string;
+      dependencyVersions?: Record<string, string>;
+      staleScripts?: Array<{
+        script: string;
+        command: string;
+        reason: string;
+        replacementCommand?: string;
+      }>;
     }>;
     selectedCandidate?: {
       path: string;
@@ -107,6 +129,15 @@ export interface PrototypeVerificationArtifact {
       reason: string;
       packageName?: string;
       scripts: string[];
+      scriptCommands?: Record<string, string>;
+      packageManager?: string;
+      dependencyVersions?: Record<string, string>;
+      staleScripts?: Array<{
+        script: string;
+        command: string;
+        reason: string;
+        replacementCommand?: string;
+      }>;
     };
     commandDecisions?: Array<{
       name: string;
@@ -150,12 +181,21 @@ export interface PrototypeVerificationArtifact {
     reason: string;
     retryable: boolean;
     suggestedPhase: string;
+    classificationSource?: string;
+    deterministicClassification?: {
+      kind: string;
+      reason: string;
+      retryable: boolean;
+      suggestedPhase: string;
+      perCommand?: Array<{ commandName: string; category: string; reason: string; retryable: boolean; suggestedAction: string }>;
+    };
     perCommand?: Array<{
       commandName: string;
       category: string;
       reason: string;
       retryable: boolean;
       suggestedAction: string;
+      implicatedFiles?: string[];
     }>;
   };
 }

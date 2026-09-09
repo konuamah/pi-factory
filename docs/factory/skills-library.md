@@ -44,6 +44,10 @@ Use `skills/` for Factory-bundled or internal source skills.
 
 Use `.codex/skills` or `.claude/skills` only when targeting that harness specifically.
 
+## Bundled Skills
+
+Factory bundles the interview skill in `skills/grilling` with a thin `skills/grill-me` alias for compatibility. Use the bundled skill directly when authoring workflows; no external install is needed.
+
 ## Authoring Rules
 
 - Keep skill bodies focused.

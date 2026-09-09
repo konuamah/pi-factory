@@ -18,6 +18,8 @@ export interface LatestFactoryRunPlan {
     stage?: string;
     status?: string;
     dependsOn?: string[];
+    controllerHandled?: boolean;
+    artifactRefs?: { discoveryExecutionPath?: string; interviewExecutionPath?: string; plannerExecutionPath?: string };
   }>;
 }
 
@@ -59,7 +61,7 @@ export async function readLatestFactoryRunPlan(runsDir: string): Promise<LatestF
     ? plan.tasks
         .flatMap((task) => {
           if (!task || typeof task !== "object") return [];
-          const value = task as { id?: unknown; title?: unknown; stage?: unknown; status?: unknown; dependsOn?: unknown };
+          const value = task as { id?: unknown; title?: unknown; stage?: unknown; status?: unknown; dependsOn?: unknown; controllerHandled?: unknown; artifactRefs?: unknown };
           return [{
             id: typeof value.id === "string" ? value.id : undefined,
             title: typeof value.title === "string" ? value.title : undefined,
@@ -67,6 +69,10 @@ export async function readLatestFactoryRunPlan(runsDir: string): Promise<LatestF
             status: typeof value.status === "string" ? value.status : undefined,
             dependsOn: Array.isArray(value.dependsOn)
               ? value.dependsOn.filter((item): item is string => typeof item === "string")
+              : undefined,
+            controllerHandled: typeof value.controllerHandled === "boolean" ? value.controllerHandled : undefined,
+            artifactRefs: value.artifactRefs && typeof value.artifactRefs === "object"
+              ? (value.artifactRefs as { discoveryExecutionPath?: string; interviewExecutionPath?: string; plannerExecutionPath?: string })
               : undefined,
           }];
         })

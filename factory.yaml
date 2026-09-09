@@ -1,0 +1,33 @@
+defaultWorkflowId: grilled-feature
+workflows:
+  - id: grilled-feature
+    name: "Grilled Feature Work"
+    description: "Interview the user first, then plan, build, and ask before completion."
+    stages:
+      - name: discover
+        type: agent
+        role: discovery
+      - name: interview
+        description: "Grill the user about the plan before any implementation."
+        type: interview
+        role: planner
+        dependsOn: [discover]
+        skills:
+          require: [grilling]
+      - name: plan
+        description: "Produce a scoped plan from the interview answers."
+        type: agent
+        role: planner
+        dependsOn: [interview]
+      - name: build
+        description: "Implement the approved change."
+        type: agent
+        role: builder
+        dependsOn: [plan]
+        skills:
+          require: [implementation-task]
+          prefer: [repo-interpretation]
+      - name: approval
+        description: "Ask before final merge or completion."
+        type: approval
+        dependsOn: [build]

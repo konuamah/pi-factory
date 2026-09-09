@@ -57,6 +57,14 @@ export interface FactoryRunLogsByIdResult {
     optionId?: string;
     feedback?: string;
   }>;
+  interviewDecisions?: Array<{
+    stage: string;
+    role: string;
+    question: string;
+    optionId: string;
+    answer?: string;
+    decisionRequestId: string;
+  }>;
 }
 
 export async function readFactoryRunLogs(
@@ -101,7 +109,20 @@ export async function readFactoryRunLogs(
     integrationFailure,
     verificationContext,
     decisions: await readRunDecisions(runDir),
+    interviewDecisions: await readInterviewDecisions(runDir),
   };
+}
+
+async function readInterviewDecisions(runDir: string): Promise<NonNullable<FactoryRunLogsByIdResult["interviewDecisions"]>> {
+  try {
+    const raw = await fs.readFile(path.join(runDir, "interview-decisions.json"), "utf8");
+    return JSON.parse(raw) as NonNullable<FactoryRunLogsByIdResult["interviewDecisions"]>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    return [];
+  }
 }
 
 async function readRunDecisions(runDir: string): Promise<NonNullable<FactoryRunLogsByIdResult["decisions"]>> {

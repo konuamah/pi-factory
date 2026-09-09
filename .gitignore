@@ -4,3 +4,4 @@ node_modules/
 *.tsbuildinfo
 .factory/runs/
 .worktrees/
+harbor/jobs/

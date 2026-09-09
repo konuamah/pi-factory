@@ -100,6 +100,7 @@ export interface FactoryBuiltInDefaults {
   repair: {
     enabled: boolean;
     maxAttempts: number;
+    maxTotalAttempts: number;
   };
   constitution: {
     enabled: boolean;
@@ -209,6 +210,7 @@ export interface ProjectFactoryConfig {
   repair?: {
     enabled?: boolean;
     maxAttempts?: number;
+    maxTotalAttempts?: number;
   };
   constitution?: {
     enabled?: boolean;
@@ -284,6 +286,7 @@ export interface EffectiveFactoryConfig {
   repair: {
     enabled: boolean;
     maxAttempts: number;
+    maxTotalAttempts: number;
   };
   constitution: {
     enabled: boolean;

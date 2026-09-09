@@ -378,6 +378,86 @@ test('DSML tool markup is bridged through executable session tools', async () =>
   assert.equal(result.events.some((event) => event.type === 'executor.dsml_tool_completed'), true);
 });
 
+test('model timeout fails a silent SDK turn with a clear watchdog error', async () => {
+  let aborted = false;
+  const session = {
+    async prompt() {
+      await new Promise(() => {});
+    },
+    subscribe() {
+      return () => {};
+    },
+    async abort() {
+      aborted = true;
+    },
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: {
+      async create() {
+        return { session };
+      },
+    },
+  });
+
+  const result = await executor.execute({
+    executionId: 'exec-silent-timeout',
+    cwd: process.cwd(),
+    prompt: 'build',
+    limits: {
+      modelTimeoutMs: 20,
+      totalRunTimeoutMs: 1000,
+    },
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(aborted, true);
+  assert.match(result.errorMessage, /made no progress.*model-timeout/);
+  const timeoutEvent = result.events.find((event) => event.type === 'executor.timeout');
+  assert.equal(timeoutEvent?.data?.timeoutType, 'model-timeout');
+});
+
+test('model timeout watchdog resets when SDK events arrive', async () => {
+  const session = {
+    listener: undefined,
+    async prompt() {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      this.listener?.({ type: 'message_update', text: 'working ' });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      this.listener?.({ type: 'message_update', text: 'done' });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {
+      throw new Error('should not abort while progress is flowing');
+    },
+    async dispose() {},
+  };
+  const executor = new PiAgentExecutor({
+    sessionFactory: {
+      async create() {
+        return { session };
+      },
+    },
+  });
+
+  const result = await executor.execute({
+    executionId: 'exec-progress-timeout-reset',
+    cwd: process.cwd(),
+    prompt: 'build',
+    limits: {
+      modelTimeoutMs: 25,
+      totalRunTimeoutMs: 1000,
+    },
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.outputText, 'working done');
+  assert.equal(result.events.some((event) => event.type === 'executor.timeout'), false);
+});
+
 test('configured model without provider throws a loud provider resolution error', async () => {
   const sdkFactory = createPiSdkSessionFactory({
     sdkLoader: async () => ({

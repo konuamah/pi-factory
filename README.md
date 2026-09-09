@@ -68,6 +68,7 @@ Local path installs are references, not copies, so edits in this checkout are pi
 - targeted vs full constitution refresh strategy
 - latest run plan inspection via `/factory plan`
 - runtime and constitution regression tests
+- Harbor seed task for quality-testing setup under `harbor/`
 
 ## Precedence
 
@@ -183,3 +184,22 @@ Behavior:
 - optional SDK package override: `FACTORY_PI_SDK_PACKAGE`
 
 Planner-only and full end-to-end real SDK validation are now both healthy. Further work there is optional performance tuning rather than basic runtime validation.
+
+## Harbor quality testing
+
+This repo now includes a small Harbor starter under `harbor/` so we can grow toward repeated quality evals for real agent tasks.
+
+Start with:
+
+```bash
+npm run harbor:version
+npm run harbor:task:smoke:config
+```
+
+For a new task scaffold on Windows:
+
+```bash
+npm run harbor:task:init -- local/my-new-task --task --output-dir harbor/tasks
+```
+
+The wrapped init command sets `PYTHONIOENCODING=utf-8` to avoid a Windows console encoding crash observed with Harbor's default Unicode success output.

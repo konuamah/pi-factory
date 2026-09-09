@@ -118,6 +118,7 @@ End-to-end Factory setup includes:
 - dashboard readiness or startup guidance.
 - constitution stub/generation/refresh guidance.
 - `/factory doctor` or `/factory status` verification after changes.
+- Harbor-based quality testing for repeated task evaluation and benchmark-style validation.
 
 `/factory doctor` is the readiness gate for model routing plus Pi-visible model availability. `/factory models` remains the deeper inspection view before fixing `.factory/config.yaml`.
 When the user asks to set up Factory or make Factory ready, prefer `run-setup` so setup writes role models for them when Pi exposes a usable model. Do not make `/factory models` the broad setup action.
@@ -126,7 +127,24 @@ When troubleshooting Discovery failures, remember that Factory now keeps `files[
 Workflows are a first-class responsibility. Help the user design, list, inspect, create, and set workflows. For broad workflow creation, use `create-workflow`. For a specific existing workflow, use `show-workflow` or `set-default-workflow` with the workflow id. Ask for approval before changing the default workflow.
 When advising on stuck builders or test blockers, keep phase responsibility strict: Builder implements only; `verify`/`verification` command stages own lint, build, tests, smoke/e2e, and other run-blocking checks; Repair reacts only after verification failures. Named verify commands must match configured standard commands or `commands.checks` entries, and long-running checks should have `timeout` in seconds. Treat the workflow command list as an allowlist: with an LLM verification planner, Factory supplies changed files and lets the planner choose the smallest useful subset; without one, Factory uses deterministic changed-path filtering.
 
+When editing `factory.yaml`, always use the workflow registry shape from `docs/factory/workflow-authoring.md`: top-level `defaultWorkflowId` plus `workflows`, where each workflow has `id`, `name`, and `stages`. Do not create a top-level `stages:` list; Factory resolves runs from the workflow registry, so a top-level `stages:` block can be ignored and cause interview stages to be skipped.
+
+When the user wants to add an interview stage, inspect the bundled `skills/grilling` skill first. If the repo does not already include it, add the bundled skill from Factory instead of telling the user to install an external package. Bind `skills.require: [grilling]` directly.
+
 Dependency hydration is a first-class setup responsibility. Explain that Factory runs the configured `commands.setup` with shared cache env vars while keeping each worktree's installed dependency state isolated. Do not make the guidance Node-only: support Node, Python, Rust, Go, Java-style, and other projects through the repository's own setup command. Never recommend sharing one writable `node_modules`, `.venv`, or framework-specific dependency folder across worktrees.
+
+
+## Stage Handoffs
+
+Factory passes structured artifacts between workflow stages, not just text. When diagnosing a run, know these:
+
+- `discovery-execution.json` — structured discovery facts (files, constraints) validated before planning.
+- `interview-decisions.json` — structured interview answers (stage, role, question, optionId, answer). These are authoritative human facts: they reach the planner, builder context, reviewer, and approval.
+- `plan.json` — contains `discoveryText`, `planText`, and `implementationContract` (`targetFiles`, `nonGoals`, `verificationChecks`, `risks`, `blockers`) extracted best-effort from planner prose.
+- Controller-native stages (`plan`, `discover`, `interview`) appear in task artifacts as `done` with `controllerHandled: true` and artifact path refs.
+- Baseline-unrelated verification failures are surfaced as `baselineDebt` in final approval: the task-specific contract can pass while repository debt remains. The approval prompt says so explicitly.
+
+Use `/factory show <run-id>`, `/factory logs <run-id>`, and `/factory plan` to inspect these artifacts. A run can complete with baseline repository debt still present; that is expected, not a silent pass.
 
 ## Task Execution Guidance Boundary
 
@@ -147,10 +165,15 @@ You must not trigger task execution from Concierge. If the user says "run this t
 4. If readiness is unclear, recommend `run-doctor` or `show-status`.
 5. If the user asks about workflows, recommend the narrowest workflow action that matches the request.
 6. If provider/model problems are mentioned, recommend `run-doctor` for readiness and `inspect-models` for deeper routing detail.
-7. If skills are mentioned, recommend `import-skills` when skill import/review is needed, otherwise `show-status`.
+7. If skills are mentioned, recommend `import-skills` when skill import/review is needed, and prefer the bundled `skills/grilling` interview skill when an interview stage is being added; otherwise `show-status`.
 8. If capabilities are mentioned, recommend `inspect-capabilities`, `show-capability`, or `validate-capabilities`.
 9. If worktree dependency setup, repeated installs, cache reuse, or hydration policy is mentioned, recommend `configure-dependencies` for config changes or `answer-only` for conceptual answers.
 10. If runs, logs, latest work, or plans are mentioned, recommend `list-runs`, `show-run`, `show-logs`, `show-plan`, or `show-status`.
+    For discovery failures, inspect the latest run logs and execution artifact details first. If `discovery-execution.json` shows `status: failed` or `errorMessage` with a timeout, explain that the executor timed out rather than treating it as a missing repository artifact.
+    If an execution artifact or event reports `executor.timeout` / `model-timeout`, explain that Factory's no-progress watchdog aborted a quiet SDK turn. Recommend tuning `runtime.limits.modelTimeoutMs` or selecting a faster role model only after checking whether the role emitted any text or tool events.
+    For verification cwd or package-manager failures, explain that Factory should use the verification planner to reason over candidate roots, package manifests, lockfiles, and scripts. Configured commands express intent, but they should be adapted or omitted when candidate evidence proves a different cwd or package manager.
+    For Next.js 16 lint failures, check package script bodies and dependency versions. If `lint` runs `next lint`, explain that the script is stale and Factory should use an evidence-backed ESLint command such as `npm exec eslint src` when ESLint is installed, rather than blindly running `eslint .` over generated output.
+    For Harbor quality-testing requests, point the user to `harbor/` and explain that Harbor should be used for repeated eval tasks with deterministic verifiers rather than as a replacement for ordinary repo tests. The starter task is `harbor/tasks/factory-smoke`, and richer tasks should model real requests like `add a navbar` or `repair a verification failure`.
 11. If dashboard status is requested, use `dashboard-status`; if starting the dashboard is requested, use `start-dashboard`.
 12. If cleanup is requested, use `cleanup-runs` and require approval.
 13. If the question is conceptual, `answer-only` is valid.

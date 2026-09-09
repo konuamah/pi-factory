@@ -12,6 +12,7 @@
 - Prioritize using the Pi SDK as the primary execution and integration layer for agent sessions, tools, and lifecycle events. Prefer native SDK primitives (session.abort, waitForIdle, lifecycle events, tool signal/timeout, SettingsManager) over custom replacements, while keeping Factory policy authoritative for hard limits.
 - Timeout policy is deterministic harness code; what to do after a timeout is LLM decision. The LLM cannot extend or override resource limits. Tool timeouts, total runtime, and max turns are enforced by Factory, not by model output.
 - Prefer project-adaptive behavior over repo-specific hard-coding.
+- Verification, setup, and command execution must adapt to the target workspace structure: infer the package/app root, package manager, scripts, and generated-output ignores from evidence instead of assuming the repository root, pnpm, npm, or a single-package layout.
 - Deterministic scanning should provide evidence; AI should decide ambiguous execution strategy.
 - Ignore generated or transient workspace content when selecting repo guidance.
 - Fail loud instead of using silent fallbacks, especially for model routing, skill execution, interview UI, workflow semantics, and verification commands. If the required capability is unavailable, surface the exact missing piece and stop.

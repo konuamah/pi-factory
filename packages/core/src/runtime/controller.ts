@@ -150,6 +150,7 @@ export interface RunFactoryControllerInput {
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
   requestAcceptance?: AcceptanceFn;
+  onAcceptanceRevise?: (feedback?: string) => Promise<RunFactoryControllerResult>;
   requestDependencyRemediation?: (candidate: import("./dependencies.js").DependencyHydrationRemediationCandidate) => Promise<boolean | import("./dependencies.js").RemediationDecision>;
   requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
   failureRecovery?: FailureRecoveryConfig;

@@ -57,6 +57,9 @@ export async function runAcceptancePhase(
   }
   await appendFactoryRunEvent(run.eventsPath, { timestamp: new Date().toISOString(), type: decision.decision === "accept" ? "acceptance.accepted" : decision.decision === "revise" ? "acceptance.revise_requested" : "acceptance.rejected", data: { candidateSha, feedback: decision.feedback, landingStatus: landingResult.landingStatus, evidence } });
   if (decision.decision === "revise") {
+    if (input.onAcceptanceRevise) {
+      return input.onAcceptanceRevise(decision.feedback);
+    }
     return finalizeAcceptance(
       state,
       "BLOCKED",

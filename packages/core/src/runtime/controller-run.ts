@@ -364,7 +364,13 @@ export async function runFactoryControllerInner(
   const completedTasks = buildCompletedTasks(implementationRun.taskWorkspaces, loaded.effectiveConfig.git.baseBranch);
   const finalResult = await runFinalPhases({
     run,
-    input,
+    input: {
+      ...input,
+      onAcceptanceRevise: async (feedback) => runFactoryControllerInner({
+        ...input,
+        goal: [input.goal, feedback ? `Acceptance revision requested:\n${feedback}` : "Acceptance revision requested; inspect the acceptance evidence and fix the remaining issue."].join("\n\n"),
+      }),
+    },
     loaded,
     executionCwd,
     worktree,

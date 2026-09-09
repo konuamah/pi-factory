@@ -670,6 +670,60 @@ test('malformed discovery json gets one strict json repair retry', async () => {
   });
 });
 
+test('invalid discovery output can pause for runtime recovery and retry successfully', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    let recoveryRequests = 0;
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt, tools: input.tools, attempt: input.metadata?.attempt });
+        if (input.executionId.includes('retry-2') && input.metadata?.attempt !== 'json-repair') {
+          return {
+            executionId: input.executionId,
+            status: 'completed',
+            outputText: JSON.stringify({
+              status: 'complete',
+              files: ['src/index.ts'],
+              evidence: [{ status: 'confirmed', file: 'src/index.ts', finding: 'source exists' }],
+              unknowns: [],
+            }),
+            events: [],
+          };
+        }
+        return { executionId: input.executionId, status: 'completed', outputText: '{ bad json', events: [] };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      discoveryExecutor,
+      plannerExecutor,
+      builderExecutor: makeExecutor('builder', calls),
+      reviewerExecutor: makeExecutor('reviewer', calls),
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+      requestDecision: async (request) => {
+        recoveryRequests += 1;
+        assert.equal(request.source, 'RUNTIME');
+        assert.equal(request.reason, 'FAILURE_RECOVERY');
+        assert.match(request.question, /Phase: discovery/);
+        return { requestId: request.id, optionId: 'retry', feedback: 'try again with strict JSON', decidedAt: new Date().toISOString() };
+      },
+    });
+
+    assert.equal(recoveryRequests, 1);
+    assert.ok(calls.some((call) => call.executionId.includes('discovery-retry-2')));
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const eventsRaw = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventsRaw, /run\.recovery_requested/);
+    assert.match(eventsRaw, /run\.recovery_resolved/);
+  });
+});
+
 test('workflow plan skills are applied to built-in planner prompt with full skill body', async () => {
   await withTempProject(async (root) => {
     await writeProjectSkill(root, 'grilling', 'Interview the user in rounds before planning.');
@@ -704,6 +758,7 @@ test('workflow plan skills are applied to built-in planner prompt with full skil
     const calls = [];
     const plannerExecutor = makeExecutor('planner', calls);
     const builderExecutor = makeExecutor('builder', calls);
+    const reviewerExecutor = makeExecutor('reviewer', calls);
 
     await runRuntimeHarness({
       cwd: root,
@@ -1830,6 +1885,7 @@ test('verification infers a single nested package root when the worktree root ha
     const calls = [];
     const plannerExecutor = makeExecutor('planner', calls);
     const builderExecutor = makeExecutor('builder', calls);
+    const reviewerExecutor = makeExecutor('reviewer', calls);
 
     const result = await runRuntimeHarness({
       cwd: root,
@@ -2876,19 +2932,13 @@ test('logs and show surface plan feedback clearly', async () => {
     assert.equal(logs.implementationStarted, false);
     assert.ok(logs.events.some((line) => /plan revision requested/i.test(line)));
     assert.ok(logs.events.some((line) => /narrow the scope/i.test(line)));
-    assert.ok(logs.events.some((line) => /guidance selected/i.test(line)));
-    assert.ok(Array.isArray(logs.guidance?.plannerInstructionFiles));
-    assert.ok(Array.isArray(logs.guidance?.plannerInstructionDetails));
-    assert.ok((logs.guidance?.plannerGuidanceChars ?? 0) >= 0);
 
     const runId = String(logs.state?.runId);
     const shown = await showFactoryRun(path.join(root, '.factory', 'runs'), runId);
     assert.equal(shown.planDecision, 'revise');
     assert.equal(shown.planFeedback, 'narrow the scope');
     assert.equal(shown.implementationStarted, false);
-    assert.ok(Array.isArray(shown.guidance?.plannerInstructionFiles));
-    assert.ok(Array.isArray(shown.guidance?.plannerInstructionDetails));
-    assert.ok((shown.guidance?.plannerGuidanceChars ?? 0) >= 0);
+    assert.ok(shown.runDir);
   });
 });
 

@@ -186,6 +186,65 @@ test('confirm fallback still supports approve/reject behavior', async () => {
   assert.equal(rejected.decision, 'reject');
 });
 
+test('runtime recovery decision captures selected action and optional notes', async () => {
+  const result = await requestDecisionInput(
+    {
+      notify() {},
+      setWidget() {},
+      select: async (title, options) => {
+        assert.match(title, /Phase: verification/);
+        assert.deepEqual(options, [
+          'I fixed it; retry this phase',
+          'Stop and preserve the failure',
+        ]);
+        return 'I fixed it; retry this phase';
+      },
+      input: async () => '  rerun after fixing package script  ',
+    },
+    {
+      id: 'run_1-recovery-verification-1',
+      title: 'Factory needs help: verification failed',
+      question: 'Phase: verification\nProblem: npm test failed\nCategory: real-code-failure',
+      options: [
+        { id: 'retry', label: 'I fixed it; retry this phase' },
+        { id: 'stop', label: 'Stop and preserve the failure' },
+      ],
+      source: 'RUNTIME',
+      reason: 'FAILURE_RECOVERY',
+    },
+  );
+
+  assert.deepEqual(result, {
+    requestId: 'run_1-recovery-verification-1',
+    optionId: 'retry',
+    feedback: 'rerun after fixing package script',
+    decidedAt: result.decidedAt,
+  });
+});
+
+test('dismissed runtime recovery decision stops safely', async () => {
+  const result = await requestDecisionInput(
+    {
+      notify() {},
+      setWidget() {},
+      select: async () => undefined,
+    },
+    {
+      id: 'run_1-recovery-planning-1',
+      title: 'Factory needs help: planning failed',
+      question: 'Phase: planning\nProblem: invalid output\nCategory: planner-output',
+      options: [
+        { id: 'retry', label: 'I fixed it; retry this phase' },
+        { id: 'stop', label: 'Stop and preserve the failure' },
+      ],
+      source: 'RUNTIME',
+      reason: 'FAILURE_RECOVERY',
+    },
+  );
+
+  assert.equal(result.optionId, 'stop');
+});
+
 test('interview decision fails loudly when custom UI is unavailable', async () => {
   await assert.rejects(
     () => requestDecisionInput(

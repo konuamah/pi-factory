@@ -14,6 +14,7 @@ import { writePrototypeVerificationArtifact, writePrototypeRepairExecutionArtifa
 import { appendFactoryRunEvent, updateFactoryRunState, createFactoryRun } from "../runs/store.js";
 import { appendRepoLearning } from "../learnings/store.js";
 import { emitProgress, movePhase, wait, requestHumanDecision, loadConstitutionConflicts } from "./phase-plumbing.js";
+import { requestFailureRecovery } from "./failure-recovery.js";
 import { uniqueStrings, taskWorkspacesChangedFiles } from "./task-utils.js";
 import { loadPlanContract } from "./scope-check.js";
 import { renderSkillBundleForPrompt } from "./prompts.js";
@@ -151,79 +152,102 @@ if (impactResult.skipped.length > 0) {
 }
 const filteredVerificationCommands = impactResult.commands;
 let verificationPlan: VerificationPlan;
-try {
-  verificationPlan = await planVerificationExecution({
-    cwd: executionCwd,
-    goal: input.goal,
-    commands: filteredVerificationCommands,
-    constitutionContext: repairGuidance.text,
-    executor: input.verificationPlannerExecutor,
-    model: loaded.effectiveConfig.models.planner,
-    runId: run.runId,
-    allowDeterministicFallback: !input.verificationPlannerExecutor,
-    limits: loaded.effectiveConfig.runtime.limits,
-  });
-} catch (error) {
-  const reason = error instanceof Error ? error.message : String(error);
-  const executionPath = path.join(run.runDir, "verification-planner-execution.json");
-  if (error instanceof VerificationPlanningError && error.execution) {
-    await fs.writeFile(executionPath, JSON.stringify(error.execution, null, 2), "utf8");
-  }
-  await appendFactoryRunEvent(run.eventsPath, {
-    timestamp: new Date().toISOString(),
-    type: "verification.plan_failed",
-    data: {
-      reason,
-      verificationPlannerExecutionPath: error instanceof VerificationPlanningError && error.execution ? executionPath : undefined,
-    },
-  });
-  await appendFactoryRunEvent(run.eventsPath, {
-    timestamp: new Date().toISOString(),
-    type: "run.failed",
-    data: { reason },
-  });
-  const failedState = await updateFactoryRunState({
-    statePath: run.statePath,
-    patch: { status: "FAILED", phase: "verification-failed" },
-  });
-  await emitProgress(input, {
-    runId: run.runId,
-    phase: failedState.phase,
-    status: "FAILED",
-    message: reason,
-  });
-  const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
-    runId: run.runId,
-    goal: input.goal,
-    status: "FAILED",
-    phase: failedState.phase,
-    approved: false,
-    planPath,
-    taskPaths,
-    discoveryExecutionPath,
-    plannerExecutionPath,
-    builderExecutionPaths,
-    integrationPath,
-    repairExecutionPaths,
-    verificationPath: path.join(run.runDir, "verification.json"),
-    verificationStatus: "incomplete",
-  });
+for (let recoveryAttempt = 1; ; recoveryAttempt += 1) {
+  try {
+    verificationPlan = await planVerificationExecution({
+      cwd: executionCwd,
+      goal: input.goal,
+      commands: filteredVerificationCommands,
+      constitutionContext: repairGuidance.text,
+      executor: input.verificationPlannerExecutor,
+      model: loaded.effectiveConfig.models.planner,
+      runId: run.runId,
+      allowDeterministicFallback: !input.verificationPlannerExecutor,
+      limits: loaded.effectiveConfig.runtime.limits,
+    });
+    break;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    const executionPath = path.join(run.runDir, "verification-planner-execution.json");
+    if (error instanceof VerificationPlanningError && error.execution) {
+      await fs.writeFile(executionPath, JSON.stringify(error.execution, null, 2), "utf8");
+    }
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "verification.plan_failed",
+      data: {
+        reason,
+        verificationPlannerExecutionPath: error instanceof VerificationPlanningError && error.execution ? executionPath : undefined,
+      },
+    });
+    const recovery = await requestFailureRecovery({
+      controllerInput: input,
+      runDir: run.runDir,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      runId: run.runId,
+      context: {
+        phase: "verification-planning",
+        title: "verification planning failed",
+        reason,
+        category: "verification-planning",
+        retryable: true,
+        canRevise: true,
+        evidenceRefs: error instanceof VerificationPlanningError && error.execution ? [executionPath] : [],
+        attempt: recoveryAttempt,
+      },
+    });
+    if (recovery.action === "retry" || recovery.action === "revise") {
+      continue;
+    }
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "run.failed",
+      data: { reason },
+    });
+    const failedState = await updateFactoryRunState({
+      statePath: run.statePath,
+      patch: { status: "FAILED", phase: "verification-failed" },
+    });
+    await emitProgress(input, {
+      runId: run.runId,
+      phase: failedState.phase,
+      status: "FAILED",
+      message: reason,
+    });
+    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+      runId: run.runId,
+      goal: input.goal,
+      status: "FAILED",
+      phase: failedState.phase,
+      approved: false,
+      planPath,
+      taskPaths,
+      discoveryExecutionPath,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      verificationPath: path.join(run.runDir, "verification.json"),
+      verificationStatus: "incomplete",
+    });
 
-  return buildRunFailureResult({
-    run,
-    executionCwd,
-    worktree,
-    phases,
-    planPath,
-    taskPaths,
-    discoveryExecutionPath,
-    plannerExecutionPath,
-    builderExecutionPaths,
-    integrationPath,
-    repairExecutionPaths,
-    verificationPath: path.join(run.runDir, "verification.json"),
-    summaryPath,
-  });
+    return buildRunFailureResult({
+      run,
+      executionCwd,
+      worktree,
+      phases,
+      planPath,
+      taskPaths,
+      discoveryExecutionPath,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      verificationPath: path.join(run.runDir, "verification.json"),
+      summaryPath,
+    });
+  }
 }
 await appendFactoryRunEvent(run.eventsPath, {
   timestamp: new Date().toISOString(),

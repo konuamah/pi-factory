@@ -13,6 +13,17 @@ import type { AutonomyLevel } from "../capabilities/index.js";
 import type { ModelSelection, EffectiveFactoryConfig, CapabilityPolicy } from "@factory/schemas";
 import type { ModelRole } from "@factory/schemas";
 
+export type ImplementationTasksResult =
+  | { ok: true; taskWorkspaces: TaskWorkspaceSelection[] }
+  | {
+      ok: false;
+      failedTask: PlannerTask;
+      failedPhase: string;
+      failureKind: BuilderOutcomeKind;
+      failureReason: string;
+      taskWorkspaces: TaskWorkspaceSelection[];
+    };
+
 export async function runImplementationTasks(input: {
   runId: string;
   runDir: string;
@@ -42,17 +53,7 @@ export async function runImplementationTasks(input: {
   onProgress: (event: FactoryRunProgressEvent) => Promise<void>;
   delayMs: number;
   builderExecutionPaths: string[];
-}): Promise<
-  | { ok: true; taskWorkspaces: TaskWorkspaceSelection[] }
-  | {
-      ok: false;
-      failedTask: PlannerTask;
-      failedPhase: string;
-      failureKind: BuilderOutcomeKind;
-      failureReason: string;
-      taskWorkspaces: TaskWorkspaceSelection[];
-    }
-> {
+}): Promise<ImplementationTasksResult> {
   if (input.tasks.length === 0) {
     return { ok: true, taskWorkspaces: [] };
   }
@@ -144,6 +145,7 @@ export async function runImplementationTasks(input: {
       pending.delete(result.task.id);
       taskWorkspaces.push(result.workspace);
       if (result.ok) {
+        result.task.status = "done";
         completed.add(result.task.id);
         continue;
       }

@@ -10,6 +10,7 @@ import { resolveModelForRole } from "../models/index.js";
 import { sanitizePlannerOutput, validatePlannerOutput, validatePlannerOutputWithLLM } from "./planner-validate.js";
 import { attachDiscoveryFileHintsToBuildTasks } from "./controller.js";
 import { movePhase, wait } from "./phase-plumbing.js";
+import { requestFailureRecovery } from "./failure-recovery.js";
 import { loadEffectiveConfig } from "../config/loader.js";
 import type { RunFactoryControllerInput, InterviewDecisionRecord, RunFactoryControllerResult } from "./controller.js";
 import path from "node:path";
@@ -86,41 +87,56 @@ if (input.plannerExecutor) {
     provider: plannerModel.model.provider,
     modelSource: plannerModel.source,
   });
-  const plannerResult = await input.plannerExecutor.execute({
-    executionId: `${run.runId}-planner`,
-    cwd: executionCwd,
-    prompt: buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text, renderSkillBundleForPrompt(plannerSkills), discoveryOutputText, interviewContext),
-    model: plannerModel.model,
-    tools: ["read", "grep", "find", "ls"],
-    limits: loaded.effectiveConfig.runtime.limits,
-    metadata: {
-      role: "planner",
-      runId: run.runId,
-      taskType: runTaskType.id,
-    },
-  });
-  plannerOutputText = sanitizePlannerOutput(plannerResult.outputText);
-  plannerExecutionPath = await writePrototypePlannerExecutionArtifact(run.runDir, plannerResult);
-  let plannerValidation = validatePlannerOutput(plannerOutputText);
-  const deterministicPlannerBlock = !plannerValidation.ok
-    && (/^Planner delegated broad discovery to Builder/.test(plannerValidation.reason)
-      || /^Interview answers were skipped and planning needs clarification/.test(plannerValidation.reason));
-  if (!plannerValidation.ok && !deterministicPlannerBlock && input.plannerExecutor) {
-    // Deterministic check failed — try LLM context-aware validation
-    const llmValidation = await validatePlannerOutputWithLLM({
-      plannerOutput: plannerOutputText ?? "",
-      executor: input.plannerExecutor,
+  let recoveryFeedback = "";
+  for (let recoveryAttempt = 1; ; recoveryAttempt += 1) {
+    const plannerResult = await input.plannerExecutor.execute({
+      executionId: `${run.runId}-planner${recoveryAttempt > 1 ? `-retry-${recoveryAttempt}` : ""}`,
+      cwd: executionCwd,
+      prompt: [
+        buildPlannerPrompt(input.goal, loaded.effectiveConfig, plannerGuidance.text, renderSkillBundleForPrompt(plannerSkills), discoveryOutputText, interviewContext),
+        recoveryFeedback ? `Runtime recovery guidance from the user:\n${recoveryFeedback}` : undefined,
+      ].filter(Boolean).join("\n\n"),
       model: plannerModel.model,
-      runId: run.runId,
+      tools: ["read", "grep", "find", "ls"],
       limits: loaded.effectiveConfig.runtime.limits,
+      metadata: {
+        role: "planner",
+        runId: run.runId,
+        taskType: runTaskType.id,
+      },
     });
-    if (llmValidation.ok) {
-      plannerValidation = { ok: true };
-    } else {
-      plannerValidation = llmValidation;
+    plannerOutputText = sanitizePlannerOutput(plannerResult.outputText);
+    plannerExecutionPath = await writePrototypePlannerExecutionArtifact(run.runDir, plannerResult);
+    let plannerValidation = validatePlannerOutput(plannerOutputText);
+    const deterministicPlannerBlock = !plannerValidation.ok
+      && (/^Planner delegated broad discovery to Builder/.test(plannerValidation.reason)
+        || /^Interview answers were skipped and planning needs clarification/.test(plannerValidation.reason));
+    if (!plannerValidation.ok && !deterministicPlannerBlock) {
+      // Deterministic check failed — try LLM context-aware validation
+      const llmValidation = await validatePlannerOutputWithLLM({
+        plannerOutput: plannerOutputText ?? "",
+        executor: input.plannerExecutor,
+        model: plannerModel.model,
+        runId: run.runId,
+        limits: loaded.effectiveConfig.runtime.limits,
+      });
+      if (llmValidation.ok) {
+        plannerValidation = { ok: true };
+      } else {
+        plannerValidation = llmValidation;
+      }
     }
-  }
-  if (!plannerValidation.ok) {
+    if (plannerValidation.ok) {
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "planning.executor_completed",
+        data: {
+          plannerExecutionPath,
+          plannerStatus: plannerResult.status,
+        },
+      });
+      break;
+    }
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
       type: "planning.invalid_output",
@@ -129,20 +145,33 @@ if (input.plannerExecutor) {
         reason: plannerValidation.reason,
       },
     });
+    const recovery = await requestFailureRecovery({
+      controllerInput: input,
+      runDir: run.runDir,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      runId: run.runId,
+      context: {
+        phase: "planning",
+        title: "planner output was not usable",
+        reason: plannerValidation.reason,
+        category: deterministicPlannerBlock ? "planner-blocked" : "planner-output",
+        retryable: true,
+        canRevise: true,
+        evidenceRefs: plannerExecutionPath ? [plannerExecutionPath] : [],
+        attempt: recoveryAttempt,
+      },
+    });
+    if (recovery.action === "retry" || recovery.action === "revise") {
+      recoveryFeedback = recovery.feedback ?? "";
+      continue;
+    }
     await updateFactoryRunState({
       statePath: run.statePath,
       patch: { status: "FAILED", phase: "planning-failed" },
     });
     throw new Error(`Planning failed: ${plannerValidation.reason}`);
   }
-  await appendFactoryRunEvent(run.eventsPath, {
-    timestamp: new Date().toISOString(),
-    type: "planning.executor_completed",
-    data: {
-      plannerExecutionPath,
-      plannerStatus: plannerResult.status,
-    },
-  });
 }
 
 const plan = buildPlanArtifact({

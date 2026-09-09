@@ -14,6 +14,7 @@ import { appendFactoryRunEvent, updateFactoryRunState, createFactoryRun } from "
 import { appendModelLedgerEntry } from "../runs/model-ledger.js";
 import { writePrototypeDiscoveryExecutionArtifact } from "./artifacts.js";
 import { emitProgress, movePhase } from "./phase-plumbing.js";
+import { requestFailureRecovery } from "./failure-recovery.js";
 import { resolveModelForRole } from "../models/index.js";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -241,50 +242,61 @@ if (discoveryExecutor) {
       truncated: discoveryEvidence.truncated,
     },
   });
-  let discoveryResult = await discoveryExecutor.execute({
-    executionId: `${run.runId}-discovery`,
-    cwd: executionCwd,
-    prompt: buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills), discoveryEvidence),
-    model: discoveryModel.model,
-    tools: ["read", "grep", "find", "ls"],
-    limits: loaded.effectiveConfig.runtime.limits,
-    metadata: {
-      role: "discovery",
-      runId: run.runId,
-      taskType: runTaskType.id,
-    },
-  });
-  discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, discoveryResult);
-  let discoveryValidation = await validateDiscoveryOutput(discoveryResult.outputText, executionCwd, discoveryEvidence);
-  if (discoveryResult.status === "completed" && !discoveryValidation.ok && shouldRetryDiscoveryJsonRepair(discoveryValidation.reason, discoveryResult.outputText)) {
-    const invalidDiscoveryExecutionPath = path.join(run.runDir, "discovery-execution-invalid.json");
-    await fs.writeFile(invalidDiscoveryExecutionPath, JSON.stringify(discoveryResult, null, 2), "utf8");
-    await appendFactoryRunEvent(run.eventsPath, {
-      timestamp: new Date().toISOString(),
-      type: "discovery.json_repair_retrying",
-      data: {
-        discoveryExecutionPath: invalidDiscoveryExecutionPath,
-        reason: discoveryValidation.reason,
-      },
-    });
-    discoveryResult = await discoveryExecutor.execute({
-      executionId: `${run.runId}-discovery-json-repair`,
+  let discoveryValidation: Awaited<ReturnType<typeof validateDiscoveryOutput>>;
+  let discoveryFeedback = "";
+  let discoveryStatus: string | undefined;
+  for (let recoveryAttempt = 1; ; recoveryAttempt += 1) {
+    let discoveryResult = await discoveryExecutor.execute({
+      executionId: `${run.runId}-discovery${recoveryAttempt > 1 ? `-retry-${recoveryAttempt}` : ""}`,
       cwd: executionCwd,
-      prompt: buildDiscoveryJsonRepairPrompt(discoveryResult.outputText),
+      prompt: [
+        buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills), discoveryEvidence),
+        discoveryFeedback ? `Runtime recovery guidance from the user:\n${discoveryFeedback}` : undefined,
+      ].filter(Boolean).join("\n\n"),
       model: discoveryModel.model,
-      tools: [],
+      tools: ["read", "grep", "find", "ls"],
       limits: loaded.effectiveConfig.runtime.limits,
       metadata: {
         role: "discovery",
         runId: run.runId,
         taskType: runTaskType.id,
-        attempt: "json-repair",
       },
     });
     discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, discoveryResult);
+    discoveryStatus = discoveryResult.status;
     discoveryValidation = await validateDiscoveryOutput(discoveryResult.outputText, executionCwd, discoveryEvidence);
-  }
-  if (!discoveryValidation.ok) {
+    if (discoveryResult.status === "completed" && !discoveryValidation.ok && shouldRetryDiscoveryJsonRepair(discoveryValidation.reason, discoveryResult.outputText)) {
+      const invalidDiscoveryExecutionPath = path.join(run.runDir, "discovery-execution-invalid.json");
+      await fs.writeFile(invalidDiscoveryExecutionPath, JSON.stringify(discoveryResult, null, 2), "utf8");
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "discovery.json_repair_retrying",
+        data: {
+          discoveryExecutionPath: invalidDiscoveryExecutionPath,
+          reason: discoveryValidation.reason,
+        },
+      });
+      discoveryResult = await discoveryExecutor.execute({
+        executionId: `${run.runId}-discovery-json-repair${recoveryAttempt > 1 ? `-${recoveryAttempt}` : ""}`,
+        cwd: executionCwd,
+        prompt: buildDiscoveryJsonRepairPrompt(discoveryResult.outputText),
+        model: discoveryModel.model,
+        tools: [],
+        limits: loaded.effectiveConfig.runtime.limits,
+        metadata: {
+          role: "discovery",
+          runId: run.runId,
+          taskType: runTaskType.id,
+          attempt: "json-repair",
+        },
+      });
+      discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, discoveryResult);
+      discoveryStatus = discoveryResult.status;
+      discoveryValidation = await validateDiscoveryOutput(discoveryResult.outputText, executionCwd, discoveryEvidence);
+    }
+    if (discoveryValidation.ok) {
+      break;
+    }
     const reason = discoveryResult.status === "completed"
       ? discoveryValidation.reason
       : discoveryResult.errorMessage?.trim() || `Discovery executor ${discoveryResult.status}`;
@@ -298,6 +310,27 @@ if (discoveryExecutor) {
         errorMessage: discoveryResult.errorMessage,
       },
     });
+    const recovery = await requestFailureRecovery({
+      controllerInput: input,
+      runDir: run.runDir,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      runId: run.runId,
+      context: {
+        phase: "discovery",
+        title: "discovery output was not usable",
+        reason,
+        category: "discovery-output",
+        retryable: true,
+        canRevise: true,
+        evidenceRefs: discoveryExecutionPath ? [discoveryExecutionPath] : [],
+        attempt: recoveryAttempt,
+      },
+    });
+    if (recovery.action === "retry" || recovery.action === "revise") {
+      discoveryFeedback = recovery.feedback ?? "";
+      continue;
+    }
     await updateFactoryRunState({
       statePath: run.statePath,
       patch: { status: "FAILED", phase: "discovery-failed" },
@@ -316,7 +349,7 @@ if (discoveryExecutor) {
     type: "discovery.executor_completed",
     data: {
       discoveryExecutionPath,
-      discoveryStatus: discoveryResult.status,
+      discoveryStatus,
     },
   });
 }

@@ -2,7 +2,8 @@
 
 import { appendFactoryRunEvent, updateFactoryRunState, createFactoryRun } from "../runs/store.js";
 import { writePrototypeSummaryArtifact } from "./artifacts.js";
-import { runImplementationTasks } from "./implementation.js";
+import { runImplementationTasks, type ImplementationTasksResult } from "./implementation.js";
+import { requestFailureRecovery } from "./failure-recovery.js";
 import { movePhase, wait, emitProgress, loadRunDecisions } from "./phase-plumbing.js";
 import { isExecutableWorkflowNode } from "./task-utils.js";
 import { loadEffectiveConfig } from "../config/loader.js";
@@ -50,59 +51,100 @@ export async function runImplementationPhase(state: ImplementationPhaseState): P
 await movePhase(run.statePath, run.eventsPath, run.runId, input, "implementation", "Executing task artifacts");
 
 const implementationTasks = plan.tasks.filter((task) => isExecutableWorkflowNode(task));
-const implementationRun = await runImplementationTasks({
-  runId: run.runId,
-  runDir: run.runDir,
-  statePath: run.statePath,
-  eventsPath: run.eventsPath,
-  goal: input.goal,
-  executionCwd,
-  executionBranch: worktree.branch,
-  worktreeLocation: worktree.location ?? loaded.effectiveConfig.git.worktreeDir,
-  allowTaskWorktrees: false,
-  tasks: implementationTasks,
-  maxParallelAgents: 1,
-  projectRoot,
-  dependencyTasks: plan.tasks,
-  planIntent: plan.implementationContract,
-  roleExecutors: {
-    planner: input.plannerExecutor,
-    builder: input.builderExecutor,
-    reviewer: input.reviewerExecutor,
-    repair: input.repairExecutor,
-  },
-  roleModels: loaded.effectiveConfig.models,
-  roleSkills: {
-    planner: plannerSkills,
-    builder: builderSkills,
-    reviewer: reviewerSkills,
-    repair: repairSkills,
-  },
-  autonomy: loaded.effectiveConfig.defaults.autonomy as AutonomyLevel,
-  projectCapabilityPolicy: loaded.effectiveConfig.capabilities,
-  workflowCapabilityPolicy: loaded.effectiveConfig.resolvedWorkflow?.capabilityPolicy,
-  runTaskType: runTaskType.id,
-  runModelOverrides: input.modelOverrides,
-  runDecisions: [
-    ...(await loadRunDecisions(run.runDir)),
-    ...interviewDecisions.map((decision) => ({
-      requestId: decision.decisionRequestId,
-      question: decision.question,
-      optionId: decision.optionId,
-      ...(decision.answer ? { feedback: decision.answer } : {}),
-    })),
-  ],
-  config: loaded.effectiveConfig,
-  requestDependencyRemediation: input.requestDependencyRemediation,
-  onProgress: async (event) => emitProgress(input, event),
-  delayMs,
-  builderExecutionPaths,
-});
+let implementationRun: ImplementationTasksResult;
+for (let recoveryAttempt = 1; ; recoveryAttempt += 1) {
+  implementationRun = await runImplementationTasks({
+    runId: run.runId,
+    runDir: run.runDir,
+    statePath: run.statePath,
+    eventsPath: run.eventsPath,
+    goal: input.goal,
+    executionCwd,
+    executionBranch: worktree.branch,
+    worktreeLocation: worktree.location ?? loaded.effectiveConfig.git.worktreeDir,
+    allowTaskWorktrees: false,
+    tasks: implementationTasks,
+    maxParallelAgents: 1,
+    projectRoot,
+    dependencyTasks: plan.tasks,
+    planIntent: plan.implementationContract,
+    roleExecutors: {
+      planner: input.plannerExecutor,
+      builder: input.builderExecutor,
+      reviewer: input.reviewerExecutor,
+      repair: input.repairExecutor,
+    },
+    roleModels: loaded.effectiveConfig.models,
+    roleSkills: {
+      planner: plannerSkills,
+      builder: builderSkills,
+      reviewer: reviewerSkills,
+      repair: repairSkills,
+    },
+    autonomy: loaded.effectiveConfig.defaults.autonomy as AutonomyLevel,
+    projectCapabilityPolicy: loaded.effectiveConfig.capabilities,
+    workflowCapabilityPolicy: loaded.effectiveConfig.resolvedWorkflow?.capabilityPolicy,
+    runTaskType: runTaskType.id,
+    runModelOverrides: input.modelOverrides,
+    runDecisions: [
+      ...(await loadRunDecisions(run.runDir)),
+      ...interviewDecisions.map((decision) => ({
+        requestId: decision.decisionRequestId,
+        question: decision.question,
+        optionId: decision.optionId,
+        ...(decision.answer ? { feedback: decision.answer } : {}),
+      })),
+    ],
+    config: loaded.effectiveConfig,
+    requestDependencyRemediation: input.requestDependencyRemediation,
+    onProgress: async (event) => emitProgress(input, event),
+    delayMs,
+    builderExecutionPaths,
+  });
+  if (implementationRun.ok) break;
+  const blocked = isImplementationBlocked(implementationRun);
+  const recovery = await requestFailureRecovery({
+    controllerInput: input,
+    runDir: run.runDir,
+    statePath: run.statePath,
+    eventsPath: run.eventsPath,
+    runId: run.runId,
+    checkpoint: {
+      runId: run.runId,
+      goal: input.goal,
+      phase: "implementation",
+      executionCwd,
+      projectRoot,
+      worktree,
+      planPath,
+      taskPaths,
+      discoveryExecutionPath,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      repairExecutionPaths,
+      verificationPath: path.join(run.runDir, "verification.json"),
+    },
+    context: {
+      phase: "implementation",
+      title: blocked ? "implementation is blocked" : "implementation failed",
+      reason: implementationRun.failureReason ?? `implementation task failed: ${implementationRun.failedTask.id}`,
+      category: implementationRun.failureKind,
+      retryable: implementationRun.failureKind !== "contract-noop",
+      canRepair: Boolean(input.repairExecutor && loaded.effectiveConfig.repair.enabled && implementationRun.failureKind !== "contract-noop"),
+      canRevise: true,
+      evidenceRefs: builderExecutionPaths,
+      attempt: recoveryAttempt,
+    },
+  });
+  if (recovery.action === "retry" || recovery.action === "repair" || recovery.action === "revise") {
+    continue;
+  }
+  break;
+}
 
 if (!implementationRun.ok) {
-  const blocked = implementationRun.failureKind === "contract-noop"
-    || implementationRun.failureKind === "contract-blocked"
-    || implementationRun.failedPhase === "implementation-blocked";
+  const blocked = isImplementationBlocked(implementationRun);
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: blocked ? "run.blocked" : "run.failed",
@@ -162,4 +204,12 @@ await wait(delayMs);
 
 
   return { implementationRun, builderExecutionPaths, integrationPath };
+}
+
+function isImplementationBlocked(result: ImplementationTasksResult): boolean {
+  return !result.ok && (
+    result.failureKind === "contract-noop"
+    || result.failureKind === "contract-blocked"
+    || result.failedPhase === "implementation-blocked"
+  );
 }

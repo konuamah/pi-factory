@@ -7,13 +7,15 @@ import { loadEffectiveConfig } from "../config/loader.js";
 import { appendFactoryRunEvent, updateFactoryRunState } from "../runs/store.js";
 import { writePrototypeReviewerExecutionArtifact, writePrototypeSummaryArtifact } from "./artifacts.js";
 import { buildReviewerPrompt, renderSkillBundleForPrompt } from "./prompts.js";
-import { emitProgress, movePhase, wait } from "./phase-plumbing.js";
+import { emitProgress, movePhase, requestHumanDecision, wait } from "./phase-plumbing.js";
 import { readGitHeadSha } from "./git-ops.js";
 import { buildRunFailureResult } from "./controller-helpers.js";
+import { requestFailureRecovery } from "./failure-recovery.js";
 import { runLandingFlow } from "./landing.js";
 import { nonGoalViolations, loadPlanContract } from "./scope-check.js";
 import { buildDeterministicReviewerText, buildReviewSurface, evaluateDeterministicReview, classifyReviewerVerdict, type ReviewerVerdict } from "./review-surface.js";
-import type { RunFactoryControllerInput, RunFactoryControllerResult } from "./controller.js";
+import { parseFindings } from "../verification/providers/review.js";
+import type { FinalApprovalDecision, RunFactoryControllerInput, RunFactoryControllerResult } from "./controller.js";
 import type { AgentExecutionResult } from "./interfaces.js";
 import type { VerificationRunResult } from "./verification.js";
 import type { VerificationFailureClassification } from "./failure-classification.js";
@@ -68,6 +70,33 @@ await movePhase(run.statePath, run.eventsPath, run.runId, input, "verified", "Ca
 // Contract completion gate: the run only proceeds to review/approval if the
 // contract verification can complete. Otherwise it is BLOCKED.
 if (!contractResult.canComplete) {
+  const failingRequirements = contractResult.results
+    .filter((result) => result.blocking && result.status !== "PASS" && result.status !== "NOT_APPLICABLE")
+    .map((result) => `${result.requirementId}: ${result.reason ?? result.status}`);
+  if (!contractResult.results.some((result) => result.decision)) {
+    const recovery = await requestFailureRecovery({
+      controllerInput: input,
+      runDir: run.runDir,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      runId: run.runId,
+      checkpoint: buildFinalPhaseCheckpoint(state, "verification-blocked", candidateSha, finalMergePath),
+      context: {
+        phase: "verification-blocked",
+        title: "contract verification is blocked",
+        reason: failingRequirements.join("; ") || "Contract verification cannot complete.",
+        category: "contract-verification",
+        retryable: true,
+        canRepair: Boolean(input.repairExecutor && loaded.effectiveConfig.repair.enabled),
+        canRevise: true,
+        evidenceRefs: [verificationPath],
+        attempt: nextRecoveryAttempt(state, "verification-blocked"),
+      },
+    });
+    if (recovery.action === "retry" || recovery.action === "repair" || recovery.action === "revise") {
+      return runFinalPhases(state);
+    }
+  }
   const blockedState = await updateFactoryRunState({
     statePath: run.statePath,
     patch: { status: "BLOCKED", phase: "verification-blocked" },
@@ -193,6 +222,28 @@ if (deterministicReview.eligible) {
     statePath: run.statePath,
     patch: { status: "FAILED", phase: "review-unavailable" },
   });
+  const recovery = await requestFailureRecovery({
+    controllerInput: input,
+    runDir: run.runDir,
+    statePath: run.statePath,
+    eventsPath: run.eventsPath,
+    runId: run.runId,
+    checkpoint: buildFinalPhaseCheckpoint(state, "review", candidateSha, finalMergePath),
+    context: {
+      phase: "review",
+      title: "review is unavailable",
+      reason,
+      category: "review-unavailable",
+      retryable: true,
+      canRepair: false,
+      canRevise: true,
+      evidenceRefs: [planPath, verificationPath],
+      attempt: nextRecoveryAttempt(state, "review-unavailable"),
+    },
+  });
+  if (recovery.action === "retry" || recovery.action === "revise") {
+    return runFinalPhases(state);
+  }
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "review.unavailable",
@@ -248,6 +299,23 @@ if (deterministicReview.eligible) {
 }
 
 reviewerExecutionPath = await writePrototypeReviewerExecutionArtifact(run.runDir, reviewerResult);
+if (!deterministicReview.eligible) {
+  const decision = parseFindings(reviewerResult.outputText).find((finding) => finding.decision)?.decision;
+  if (decision) {
+    await requestHumanDecision({
+      controllerInput: input,
+      runDir: run.runDir,
+      statePath: run.statePath,
+      eventsPath: run.eventsPath,
+      runId: run.runId,
+      request: {
+        ...decision,
+        id: `${run.runId}-reviewer-${decision.id}`,
+        evidenceRefs: [reviewerExecutionPath],
+      },
+    });
+  }
+}
 reviewerVerdict = deterministicReview.eligible
   ? { verdict: "pass", summary: reviewerResult.outputText }
   : { verdict: classifyReviewerVerdict(reviewerResult.outputText), summary: reviewerResult.outputText.slice(0, 1200) };
@@ -293,6 +361,28 @@ await emitProgress(input, {
 });
 
 if (reviewerResult.status === "failed") {
+  const recovery = await requestFailureRecovery({
+    controllerInput: input,
+    runDir: run.runDir,
+    statePath: run.statePath,
+    eventsPath: run.eventsPath,
+    runId: run.runId,
+    checkpoint: buildFinalPhaseCheckpoint(state, "review", candidateSha, finalMergePath),
+    context: {
+      phase: "review",
+      title: "review failed",
+      reason: reviewerResult.outputText || "Reviewer executor failed.",
+      category: "review-failed",
+      retryable: true,
+      canRepair: false,
+      canRevise: true,
+      evidenceRefs: [reviewerExecutionPath, verificationPath].filter((item): item is string => Boolean(item)),
+      attempt: nextRecoveryAttempt(state, "review-failed"),
+    },
+  });
+  if (recovery.action === "retry" || recovery.action === "revise") {
+    return runFinalPhases(state);
+  }
   const failedState = await updateFactoryRunState({
     statePath: run.statePath,
     patch: { status: "FAILED", phase: "review-failed" },
@@ -385,6 +475,28 @@ if (scopeWarnings?.length) {
   });
 }
 if (!input.requestApproval) {
+  const recovery = await requestFailureRecovery({
+    controllerInput: input,
+    runDir: run.runDir,
+    statePath: run.statePath,
+    eventsPath: run.eventsPath,
+    runId: run.runId,
+    checkpoint: buildFinalPhaseCheckpoint(state, "approval-ready", candidateSha, finalMergePath),
+    context: {
+      phase: "approval-ready",
+      title: "final approval is unavailable",
+      reason: "No final approval handler configured; refusing to auto-approve.",
+      category: "approval-unavailable",
+      retryable: false,
+      canRepair: false,
+      canRevise: true,
+      evidenceRefs: [planPath, verificationPath, reviewerExecutionPath].filter((item): item is string => Boolean(item)),
+      attempt: nextRecoveryAttempt(state, "approval-unavailable"),
+    },
+  });
+  if (recovery.action === "revise") {
+    return runFinalPhases(state);
+  }
   // No final-approval handler configured: fail loud instead of silently
   // approving the merge (a real deployment must not auto-approve).
   const unavailableState = await updateFactoryRunState({
@@ -440,7 +552,7 @@ if (!input.requestApproval) {
     summaryPath,
   });
 }
-const approved = await input.requestApproval({
+const approvalDecision = normalizeFinalApprovalDecision(await input.requestApproval({
   runId: run.runId,
   goal: input.goal,
   candidateSha,
@@ -449,14 +561,37 @@ const approved = await input.requestApproval({
   verificationStatus: verification.overallStatus,
   scopeWarnings,
   reviewerVerdict,
-});
+}));
+const approved = approvalDecision.approved;
 await appendFactoryRunEvent(run.eventsPath, {
   timestamp: new Date().toISOString(),
   type: approved ? "approval.approved" : "approval.rejected",
-  data: { goal: input.goal, candidateSha },
+  data: { goal: input.goal, candidateSha, feedback: approvalDecision.feedback },
 });
 
 if (!approved) {
+  const recovery = await requestFailureRecovery({
+    controllerInput: input,
+    runDir: run.runDir,
+    statePath: run.statePath,
+    eventsPath: run.eventsPath,
+    runId: run.runId,
+    checkpoint: buildFinalPhaseCheckpoint(state, "approval-ready", candidateSha, finalMergePath),
+    context: {
+      phase: "approval-ready",
+      title: "final approval was rejected",
+      reason: approvalDecision.feedback ?? "The human approver rejected the candidate.",
+      category: "approval-rejected",
+      retryable: false,
+      canRepair: false,
+      canRevise: true,
+      evidenceRefs: [planPath, verificationPath, reviewerExecutionPath].filter((item): item is string => Boolean(item)),
+      attempt: nextRecoveryAttempt(state, "approval-rejected"),
+    },
+  });
+  if (recovery.action === "revise") {
+    return runFinalPhases(state);
+  }
   const cancelledState = await updateFactoryRunState({
     statePath: run.statePath,
     patch: { status: "CANCELLED", phase: "approval-rejected" },
@@ -619,4 +754,47 @@ return {
   verificationPath,
   summaryPath,
 };
+}
+
+function normalizeFinalApprovalDecision(value: boolean | FinalApprovalDecision): FinalApprovalDecision {
+  return typeof value === "boolean"
+    ? { approved: value, decision: value ? "approve" : "reject" }
+    : {
+        approved: value.approved,
+        decision: value.decision ?? (value.approved ? "approve" : "reject"),
+        feedback: value.feedback?.trim() || undefined,
+      };
+}
+
+function nextRecoveryAttempt(state: FinalPhasesState, key: string): number {
+  const holder = state as FinalPhasesState & { recoveryAttempts?: Record<string, number> };
+  holder.recoveryAttempts ??= {};
+  holder.recoveryAttempts[key] = (holder.recoveryAttempts[key] ?? 0) + 1;
+  return holder.recoveryAttempts[key];
+}
+
+function buildFinalPhaseCheckpoint(
+  state: FinalPhasesState,
+  phase: "verification-blocked" | "review" | "approval-ready" | "landing-planning" | "post-landing-verification",
+  candidateSha?: string,
+  finalMergePath?: string,
+) {
+  return {
+    runId: state.run.runId,
+    goal: state.input.goal,
+    phase,
+    executionCwd: state.executionCwd,
+    projectRoot: state.executionCwd,
+    worktree: state.worktree,
+    planPath: state.planPath,
+    taskPaths: state.taskPaths,
+    discoveryExecutionPath: state.discoveryExecutionPath,
+    plannerExecutionPath: state.plannerExecutionPath,
+    builderExecutionPaths: state.builderExecutionPaths,
+    integrationPath: state.integrationPath,
+    repairExecutionPaths: state.repairExecutionPaths,
+    verificationPath: state.verificationPath,
+    finalMergePath,
+    candidateSha,
+  };
 }

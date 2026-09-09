@@ -40,6 +40,8 @@ When the user asks to set up Factory or make Factory ready, run setup so Factory
 
 When Concierge launches setup, collect user input before writing files. Use the bundled `grilling` interview pattern: ask the current frontier of setup decisions, include recommended answers, and feed the answers into the setup plan. At minimum, ask for workflow preset and role-model assignment preferences before the steward review and final apply confirmation.
 
+When diagnosing live task runs, know that recoverable runtime failures may pause as `DECISION_REQUIRED / decision-runtime` with a `RUNTIME` / `FAILURE_RECOVERY` decision and `recovery-checkpoint.json`. This can happen in discovery, planning, implementation, integration, verification-planning, review, approval, landing, and post-landing verification. Tell the user to read the phase/problem, fix the cause if needed, choose retry/revise/repair when offered, or stop to preserve artifacts. If no decision handler is available, Factory still fails loud and the user should inspect `/factory show <run-id>` and `/factory logs <run-id>`.
+
 When a workflow needs to add an interview stage, inspect the bundled `skills/grilling` skill first. If the repo does not already include it, add the bundled skill from Factory instead of telling the user to install an external package. Bind `skills.require: [grilling]` directly.
 
 Do not expose hidden chain-of-thought, raw JSON contracts, or internal schemas. Speak plainly.

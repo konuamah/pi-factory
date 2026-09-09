@@ -14,7 +14,8 @@ export type DecisionReason =
   | "MISSING_AUTHORITY"
   | "SCOPE_CHOICE"
   | "IRREVERSIBLE_CHOICE"
-  | "USER_PREFERENCE";
+  | "USER_PREFERENCE"
+  | "FAILURE_RECOVERY";
 
 export interface DecisionOption {
   id: string;

@@ -68,6 +68,12 @@ The failure is best-effort: whatever phase artifacts existed before the throw (d
 
 FAILED runs have their worktree + branch pruned by default (debugging relies on artifacts). To keep a FAILED run's git isolation for live debugging, set `git.cleanup.preserveFailedRuns: true` in `.factory/config.yaml` (default `false`).
 
+## Interactive Runtime Recovery
+
+When a live Pi run has a decision UI available, recoverable runtime problems can pause as `DECISION_REQUIRED / decision-runtime` before Factory writes a terminal failure. The prompt names the phase, problem category, artifact references, and choices such as `I fixed it; retry this phase`, `Revise with my guidance`, or `Stop and preserve the failure`. Optional recovery notes are recorded in `decisions.jsonl`, `recovery-checkpoint.json` records the phase context, and the run retries only the affected phase when that retry is safe. This covers discovery, planning, implementation, integration, verification-planning, review, approval, landing, and post-landing verification gates.
+
+This does not bypass safety: missing decision handlers, exhausted recovery attempts, hard resource limits, permission/capability denials, and unrecoverable states still fail loud with `summary.json`, `events.jsonl`, and the relevant phase artifact.
+
 ## Setup Fails Before A Run Record Exists
 
 Symptom: config load, worktree creation, or run creation fails and the user previously saw a raw stack trace with no run artifact.

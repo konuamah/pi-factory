@@ -397,7 +397,7 @@ export async function runFactoryControllerInner(
     // ...", "Interview failed: ...") already set FAILED state + throw to fail
     // loud — preserve that contract and re-throw them unchanged.
     const reason = error instanceof Error ? error.message : String(error);
-    if (/^(Discovery|Planning|Interview|Verification) failed:/.test(reason)) {
+    if (/^(Discovery|Planning|Interview|Verification) failed:/.test(reason) || /^Decision required /.test(reason)) {
       throw error;
     }
     return buildPhaseFailureResult({

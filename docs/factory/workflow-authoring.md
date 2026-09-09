@@ -78,6 +78,8 @@ Options:
 
 When `Options:` is present, the Pi interview UI prefers Pi's built-in selection UI and includes the current question in the select title plus a built-in `Custom answer…` path; if that UI is unavailable, Factory falls back to its custom overlay selector. The selected choice is recorded both in the human-readable interview answer text and in structured per-question fields inside `interview-decisions.json`; open-ended questions without `Options:` keep the existing free-text flow.
 
+Runtime recovery uses the same decision ledger idea for problems that appear after planning. A recoverable discovery, planning, implementation, integration, verification-planning, review, approval, landing, or post-landing verification problem can pause as a `RUNTIME` / `FAILURE_RECOVERY` decision with multiple-choice actions and optional notes. These recovery gates are controller-owned, not workflow stages, so workflow authors do not need to add them manually.
+
 Stage dependencies are resolved by stage name into task ids. A task with `dependsOn: [plan]` includes the planner task as dependency context for the builder, and direct task ids also work.
 
 Planner output is also extracted into `plan.json` `implementationContract` fields: `targetFiles`, `implementationSteps`, `verificationChecks`, `nonGoals`, `risks`, and `blockers`. Builder context treats that contract as authoritative and should not broadly rediscover target files when the planner named concrete files and ordered steps. The planner should also state a `CHANGE REQUIREMENT` section (`Status: required | not-required | uncertain` with `Baseline gap:` and `Required change:` bullets) so a plan that finds the behavior already implemented records that fact explicitly instead of forcing builder edits.

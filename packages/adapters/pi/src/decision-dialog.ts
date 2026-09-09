@@ -24,6 +24,9 @@ export async function requestDecisionInput(
   if (request.source === "INTERVIEW") {
     return requestInterviewDecision(ui, request);
   }
+  if (request.source === "RUNTIME" && request.reason === "FAILURE_RECOVERY") {
+    return requestRuntimeRecoveryDecision(ui, request);
+  }
 
   // Try the custom dialog first.
   if (ui.custom) {
@@ -110,5 +113,28 @@ export async function requestDecisionInput(
   }
 
   throw new Error(`No decision UI available for decision '${request.id}'.`);
+}
+
+async function requestRuntimeRecoveryDecision(
+  ui: FactoryPiUi,
+  request: DecisionRequest,
+): Promise<DecisionResult> {
+  const choice = ui.select
+    ? await ui.select(request.question, request.options.map((option) => option.label))
+    : undefined;
+  const option = request.options.find((candidate) => candidate.label === choice)
+    ?? (choice ? undefined : request.options.find((candidate) => candidate.id === "stop"));
+  if (!option) {
+    throw new Error(`Recovery decision '${request.id}' returned an unknown option.`);
+  }
+  const feedback = ui.input
+    ? await ui.input("Recovery notes (optional)", "Tell Factory what you fixed or want changed")
+    : undefined;
+  return {
+    requestId: request.id,
+    optionId: option.id,
+    ...(feedback?.trim() ? { feedback: feedback.trim() } : {}),
+    decidedAt: new Date().toISOString(),
+  };
 }
 

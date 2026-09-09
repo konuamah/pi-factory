@@ -207,3 +207,6 @@ workflows:
 Use `prefer: [grilling]` when the planner should see the skill instructions but does not need to interrupt the run. Use `type: interview` plus `require: [grilling]` when Factory must stop and collect answers before planning.
 
 After editing, run `/factory doctor`.
+Runtime policy is a controller boundary, not a workflow-stage concern. Models
+may select the next policy action, but workflows cannot bypass Factory's hard
+limits, evidence checks, repair capability checks, or Git safety invariants.

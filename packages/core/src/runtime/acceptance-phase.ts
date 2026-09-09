@@ -5,6 +5,7 @@ import { buildRunFailureResult } from "./controller-helpers.js";
 import type { AcceptanceEvidence, AcceptanceDecision, RunFactoryControllerInput, RunFactoryControllerResult } from "./controller.js";
 import type { LandingResult } from "./landing-types.js";
 import type { FinalPhasesState } from "./controller-final-phases.js";
+import { requestRuntimePolicy } from "./policy.js";
 
 export async function runAcceptancePhase(
   state: FinalPhasesState & {
@@ -41,6 +42,20 @@ export async function runAcceptancePhase(
     } } : {}),
   };
   const handler = input.requestAcceptance;
+  if (input.policyExecutor) {
+    const decision = await requestRuntimePolicy({
+      controllerInput: input, runDir: run.runDir, statePath: run.statePath, eventsPath: run.eventsPath, runId: run.runId,
+      context: {
+        runId: run.runId, goal: input.goal, currentPhase: "acceptance", evidence: evidence as unknown as Record<string, unknown>,
+        attempt: 0, maxAttempts: input.policy?.maxAttempts ?? 3, allowedNextPhases: [],
+        constraints: { retryable: true, repairEnabled: false, hasRepairExecutor: false, completedTasksRerunnable: true },
+      },
+    });
+    await appendFactoryRunEvent(run.eventsPath, { timestamp: new Date().toISOString(), type: decision.action === "continue" ? "acceptance.accepted" : decision.action === "revise" ? "acceptance.revise_requested" : "acceptance.rejected", data: { candidateSha, feedback: decision.feedback, evidence } });
+    if (decision.action === "continue") return finalizeAcceptance(state, "COMPLETED", landingResult.landingStatus === "pull-request" ? "accepted-with-pr" : "accepted", true);
+    if (decision.action === "revise" && input.onAcceptanceRevise) return input.onAcceptanceRevise(decision.feedback);
+    return finalizeAcceptance(state, decision.action === "abort" ? "CANCELLED" : "BLOCKED", decision.action === "abort" ? "rejected" : "acceptance-revise-requested", false, decision.feedback ?? "Policy did not accept the run.");
+  }
   if (!handler) {
     return finalizeAcceptance(state, "FAILED", "acceptance-blocked", false, "No acceptance handler configured; refusing to auto-accept.");
   }

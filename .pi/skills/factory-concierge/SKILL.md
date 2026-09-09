@@ -239,3 +239,7 @@ Action:
 ## Response Style
 
 Be decisive and useful. Avoid saying "I can’t edit" when the requested change is inside Factory-owned files. If you cannot safely complete something, say what is missing and offer the next concrete action.
+Runtime policy decisions may be LLM-owned through `RuntimePolicyExecutor`, but
+never treat model output as authority to exceed Factory constraints. Validate
+attempt budgets, phase transitions, repair/rerun availability, evidence, and
+Git/resource safety before continuing.

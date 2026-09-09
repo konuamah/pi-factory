@@ -5,6 +5,7 @@ import { writeRecoveryCheckpoint, type RecoveryCheckpointInput } from "./recover
 import type { RunFactoryControllerInput } from "./controller.js";
 import { fallbackRecoveryNarration, narrateRecovery, type RecoveryOptionId } from "./recovery-narrator.js";
 import type { AgentExecutionInput, AgentExecutor } from "./interfaces.js";
+import { requestRuntimePolicy } from "./policy.js";
 
 export type FailureRecoveryAction = "retry" | "repair" | "revise" | "stop";
 
@@ -28,7 +29,7 @@ export interface FailureRecoveryResolution {
 }
 
 export function shouldUseInteractiveRecovery(input: RunFactoryControllerInput): boolean {
-  return input.failureRecovery?.enabled !== false && Boolean(input.requestDecision);
+  return input.failureRecovery?.enabled !== false && Boolean(input.policyExecutor || input.requestDecision);
 }
 
 export async function buildFailureRecoveryRequest(runId: string, context: FailureRecoveryContext, narrator?: { executor?: AgentExecutor; model?: { provider?: string; model: string }; limits?: AgentExecutionInput["limits"]; disableNarrator?: boolean }): Promise<DecisionRequest> {
@@ -78,6 +79,35 @@ export async function requestFailureRecovery(input: {
     return { action: "stop", requestId: "" };
   }
   const context = { ...input.context, maxAttempts };
+  if (input.controllerInput.policyExecutor) {
+    const decision = await requestRuntimePolicy({
+      controllerInput: input.controllerInput,
+      runDir: input.runDir,
+      statePath: input.statePath,
+      eventsPath: input.eventsPath,
+      runId: input.runId,
+      context: {
+        runId: input.runId,
+        goal: input.controllerInput.goal,
+        currentPhase: context.phase,
+        evidence: { title: context.title, reason: context.reason, category: context.category, evidenceRefs: context.evidenceRefs ?? [] },
+        attempt: context.attempt,
+        maxAttempts,
+        allowedNextPhases: context.canRevise ? ["revise"] : [],
+        constraints: {
+          retryable: context.retryable,
+          repairEnabled: context.canRepair === true,
+          hasRepairExecutor: Boolean(input.controllerInput.repairExecutor),
+          completedTasksRerunnable: true,
+        },
+      },
+    });
+    const action: FailureRecoveryAction = decision.action === "retry" || decision.action === "continue"
+      ? "retry"
+      : decision.action === "repair" ? "repair"
+        : decision.action === "revise" ? "revise" : "stop";
+    return { action, feedback: decision.feedback, requestId: `policy-${input.runId}-${context.phase}-${context.attempt}` };
+  }
   const request = await buildFailureRecoveryRequest(input.runId, context, {
     executor: input.controllerInput.failureClassifierExecutor ?? input.controllerInput.reviewerExecutor,
     model: input.controllerInput.failureRecovery?.narratorModel,

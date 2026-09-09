@@ -6,7 +6,8 @@ export type DecisionSource =
   | "CONSTITUTION"
   | "INTERVIEW"
   | "CAPABILITY"
-  | "RUNTIME";
+  | "RUNTIME"
+  | "POLICY";
 
 export type DecisionReason =
   | "CONFLICT"

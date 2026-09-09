@@ -79,3 +79,9 @@
 - Acceptance is the single terminal user decision after landing; landing guards and post-landing verification are evidence.
 - Landing recovery consumes the `revise` action for guard, execution, and post-landing failures: user feedback is passed to the next landing-plan or repair attempt instead of falling through immediately to PR fallback. Attempts remain bounded by `failureRecovery.maxAttempts`.
 - Factory must mark approval/acceptance workflow nodes as controller-handled, land multi-commit candidates by branch merge rather than cherry-picking only the latest SHA, and generate fresh recovery request ids when a phase is re-entered.
+## LLM-owned policy, Factory-owned constraints
+
+Normalize recovery, approval, and acceptance choices through one policy
+executor when available. Keep the executor responsible for choosing the next
+action, while Factory deterministically validates attempts, phase transitions,
+repair/rerun capability, persistence, and resource/Git safety limits.

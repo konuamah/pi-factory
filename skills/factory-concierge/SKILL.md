@@ -200,3 +200,7 @@ You must not trigger task execution from Concierge. If the user says "run this t
 ## Output format
 
 Return JSON only. No prose outside the JSON object.
+Runtime policy decisions may be LLM-owned through `RuntimePolicyExecutor`, but
+never treat model output as authority to exceed Factory constraints. Validate
+attempt budgets, phase transitions, repair/rerun availability, evidence, and
+Git/resource safety before continuing.

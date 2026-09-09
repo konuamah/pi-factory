@@ -97,6 +97,7 @@ export function mergeConfigLayers(input: {
         ...project?.runtime?.limits,
         ...runOverrides?.runtime?.limits,
       }),
+      policy: project?.runtime?.policy ?? runOverrides?.runtime?.policy ?? builtIns.runtime.policy,
     },
     ui: {
       showWorkerDetails:

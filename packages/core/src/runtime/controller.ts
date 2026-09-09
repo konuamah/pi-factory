@@ -65,6 +65,7 @@ import { runIntegrationPhase, classifyIntegrationFailure } from "./integration-p
 import { runFinalMergePhase } from "./final-merge.js";
 import { buildContractArtifact, failureSignature, resolveRunTaskTypeWithPaths, gitChangedFiles, filterVerificationByImpact, getChangedFilesFromBase } from "./verification-planning.js";
 import type { LandingTerminalPhase } from "./landing-types.js";
+import type { RuntimePolicyConfig, RuntimePolicyExecutor } from "./policy.js";
 
 export interface InterviewDecisionRecord {
   stage: string;
@@ -154,6 +155,8 @@ export interface RunFactoryControllerInput {
   requestDependencyRemediation?: (candidate: import("./dependencies.js").DependencyHydrationRemediationCandidate) => Promise<boolean | import("./dependencies.js").RemediationDecision>;
   requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
   failureRecovery?: FailureRecoveryConfig;
+  policy?: RuntimePolicyConfig;
+  policyExecutor?: RuntimePolicyExecutor;
   delayMs?: number;
 }
 

@@ -2,6 +2,7 @@ import { runFactoryController, type AcceptanceFn, type PlanApprovalResult } from
 import type { AgentExecutor } from "./interfaces.js";
 import type { ModelRole } from "@factory/schemas";
 import type { DecisionRequest, DecisionResult } from "../decisions/types.js";
+import type { RuntimePolicyConfig, RuntimePolicyExecutor } from "./policy.js";
 
 export interface RuntimeHarnessResult {
   runId: string;
@@ -32,6 +33,8 @@ export async function runRuntimeHarness(input: {
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: Array<{ id: string; title: string; stage: string; status: "pending" | "done"; dependsOn: string[]; type?: string; role?: string; commands?: string[]; requiresApproval?: boolean }> }) => Promise<PlanApprovalResult>;
   requestAcceptance?: AcceptanceFn;
   requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
+  policy?: RuntimePolicyConfig;
+  policyExecutor?: RuntimePolicyExecutor;
 }): Promise<RuntimeHarnessResult> {
   const result = await runFactoryController({
     cwd: input.cwd,
@@ -49,6 +52,8 @@ export async function runRuntimeHarness(input: {
     requestPlanApproval: input.requestPlanApproval ?? (async () => ({ decision: "approve" })),
     requestAcceptance: input.requestAcceptance ?? (async () => ({ decision: "accept" as const })),
     requestDecision: input.requestDecision,
+    policy: input.policy,
+    policyExecutor: input.policyExecutor,
   });
 
   return {

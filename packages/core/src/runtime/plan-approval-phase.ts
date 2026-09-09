@@ -9,6 +9,7 @@ import type { RunFactoryControllerInput, RunFactoryControllerResult } from "./co
 import type { PlannerArtifact } from "./planner.js";
 import { runImplementationTasks } from "./implementation.js";
 import path from "node:path";
+import { requestRuntimePolicy } from "./policy.js";
 
 export interface PlanApprovalPhaseState {
   run: Awaited<ReturnType<typeof createFactoryRun>>;
@@ -51,6 +52,24 @@ await emitProgress(input, {
   status: "RUNNING",
   message: "Waiting for human plan approval",
 });
+
+if (input.policyExecutor) {
+  const decision = await requestRuntimePolicy({
+    controllerInput: input, runDir: run.runDir, statePath: run.statePath, eventsPath: run.eventsPath, runId: run.runId,
+    context: {
+      runId: run.runId, goal: input.goal, currentPhase: "plan-approval",
+      evidence: { planPath, taskCount: plan.tasks.length, workflowStages: plan.workflowStages?.map((stage) => stage.name) ?? [], summary: plan.summary },
+      attempt: 0, maxAttempts: input.policy?.maxAttempts ?? 3, allowedNextPhases: [],
+      constraints: { retryable: true, repairEnabled: false, hasRepairExecutor: false, completedTasksRerunnable: true },
+    },
+  });
+  await appendFactoryRunEvent(run.eventsPath, { timestamp: new Date().toISOString(), type: decision.action === "continue" ? "plan.approved" : decision.action === "revise" ? "plan.revision_requested" : "plan.rejected", data: { goal: input.goal, planPath, feedback: decision.feedback } });
+  if (decision.action === "continue") return undefined;
+  if (decision.action === "revise") return { decision: "revise", feedback: decision.feedback };
+  const nextPhase = "plan-approval-rejected";
+  await updateFactoryRunState({ statePath: run.statePath, patch: { status: "CANCELLED", phase: nextPhase } });
+  return buildRunFailureResult({ run, executionCwd, worktree, phases, planPath, taskPaths, discoveryExecutionPath, plannerExecutionPath, builderExecutionPaths, integrationPath, repairExecutionPaths, verificationPath: path.join(run.runDir, "verification.json"), summaryPath: await writePrototypeSummaryArtifact(run.runDir, { runId: run.runId, goal: input.goal, status: "CANCELLED", phase: nextPhase, approved: false, planPath, taskPaths, discoveryExecutionPath, plannerExecutionPath, builderExecutionPaths, integrationPath, repairExecutionPaths, verificationPath: path.join(run.runDir, "verification.json"), verificationStatus: "incomplete" }) });
+}
 
 if (!input.requestPlanApproval) {
   // No approval handler configured: fail loud instead of silently approving

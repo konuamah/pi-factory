@@ -132,6 +132,7 @@ export interface FactoryBuiltInDefaults {
   runtime: {
     maxParallelAgents: number;
     limits?: ExecutionLimits;
+    policy?: RuntimePolicyConfig;
   };
   ui: {
     showWorkerDetails: boolean;
@@ -185,6 +186,13 @@ export interface FactoryBuiltInDefaults {
 
 export type DependencyHydrationMode = "auto" | "always" | "never";
 
+export interface RuntimePolicyConfig {
+  enabled?: boolean;
+  policyModel?: ModelSelection;
+  maxPolicyAttempts?: number;
+  allowedPhasesByPhase?: Record<string, string[]>;
+}
+
 export interface GlobalFactoryConfig {
   models?: Partial<Record<ModelRole, ModelSelection>> & {
     provider?: string;
@@ -193,6 +201,7 @@ export interface GlobalFactoryConfig {
   runtime?: {
     maxParallelAgents?: number;
     limits?: ExecutionLimits;
+    policy?: RuntimePolicyConfig;
   };
   ui?: {
     showWorkerDetails?: boolean;
@@ -251,6 +260,7 @@ export interface ProjectFactoryConfig {
   runtime?: {
     maxParallelAgents?: number;
     limits?: ExecutionLimits;
+    policy?: RuntimePolicyConfig;
   };
   git?: {
     baseBranch?: string;
@@ -311,6 +321,7 @@ export interface RunOverrides {
   runtime?: {
     maxParallelAgents?: number;
     limits?: ExecutionLimits;
+    policy?: RuntimePolicyConfig;
   };
   approval?: {
     finalMerge?: "required" | "not-required";
@@ -326,6 +337,7 @@ export interface EffectiveFactoryConfig {
   runtime: {
     maxParallelAgents: number;
     limits?: ExecutionLimits;
+    policy?: RuntimePolicyConfig;
   };
   ui: {
     showWorkerDetails: boolean;

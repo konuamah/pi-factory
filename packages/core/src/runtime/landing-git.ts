@@ -12,6 +12,9 @@ import type {
   LandingPlan,
   LandingStrategy,
 } from "./landing-types.js";
+import { parseGitAction } from "./git-command-parser.js";
+import { classifyEffects } from "./git-command-effects.js";
+import { executeLandingPlan } from "./git-execution.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,6 +22,15 @@ export async function readDirtyFiles(cwd: string): Promise<string[]> {
   try {
     const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd, windowsHide: true });
     return stdout.split(/\r?\n/).filter(Boolean).map((line) => line.slice(3).trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export async function readGitRemotes(cwd: string): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync("git", ["remote"], { cwd, windowsHide: true });
+    return stdout.split(/\r?\n/).map((remote) => remote.trim()).filter(Boolean);
   } catch {
     return [];
   }
@@ -55,6 +67,7 @@ export async function validateLandingPlan(input: {
   nonGoals?: string[];
   /** True when scope.landing is "block": a violation blocks the merge. */
   scopeGuardBlocking?: boolean;
+  allowedRemotes?: string[];
 }): Promise<LandingGuardVerdict> {
   const reasons: string[] = [];
   const notes: string[] = [];
@@ -68,9 +81,23 @@ export async function validateLandingPlan(input: {
   if (currentBranch && currentBranch !== input.plan.targetBranch && input.dirtyUnrelatedFiles.length > 0) {
     reasons.push(`Cannot switch from ${currentBranch} to ${input.plan.targetBranch} while unrelated files are dirty: ${input.dirtyUnrelatedFiles.join(", ")}`);
   }
-  if (input.finalMergePolicy === "required" && input.plan.strategy === "skip") {
-    reasons.push("Landing plan cannot skip while final merge policy is required.");
+  const actions = input.plan.actions ?? [];
+  if (input.finalMergePolicy === "required" && actions.length === 0) reasons.push("EMPTY_PLAN");
+  for (const action of actions) {
+    if (action.kind === "pull-request") {
+      if (action.provider !== "github" || !action.sourceBranch || !action.targetBranch) reasons.push("Invalid pull-request action.");
+      continue;
+    }
+    const parsed = parseGitAction({ args: action.step.args });
+    if (!parsed.ok) {
+      reasons.push(`PARSE_FAILED: ${parsed.reason}`);
+      continue;
+    }
+    const effects = classifyEffects(parsed.command, { repoRoot: input.mergeCwd });
+    if (effects.mayDiscardChanges && (input.dirtyRelevantFiles.length > 0 || input.dirtyUnrelatedFiles.length > 0)) reasons.push("WOULD_DESTROY_DIRTY_WORK");
+    if (effects.modifiesRemoteRefs && !effects.remotes.every((remote) => (input.allowedRemotes ?? []).includes(remote))) reasons.push("UNAUTHORIZED_REMOTE");
   }
+  if (input.finalMergePolicy === "required" && input.plan.strategy === "skip") reasons.push("Landing plan cannot skip while final merge policy is required.");
   // Risk is model-assessed evidence for the landing strategy, not a
   // deterministic command to abandon the candidate. Safety invariants below
   // still prevent invalid refs and unsafe checkout mutations.
@@ -78,10 +105,10 @@ export async function validateLandingPlan(input: {
   // check failed. The human approval gate already sees verificationStatus and
   // baseline debt, and post-landing verification blocks a candidate whose
   // contract cannot complete — blocking here too made approval meaningless.
-  if (["cherry-pick", "rebase"].includes(input.plan.strategy) && !input.plan.candidateSha) {
+  if (input.plan.strategy && ["cherry-pick", "rebase"].includes(input.plan.strategy) && !input.plan.candidateSha) {
     reasons.push(`Strategy ${input.plan.strategy} requires a candidate SHA.`);
   }
-  if (["merge", "merge-no-ff"].includes(input.plan.strategy) && !input.plan.sourceBranch) {
+  if (input.plan.strategy && ["merge", "merge-no-ff"].includes(input.plan.strategy) && !input.plan.sourceBranch) {
     reasons.push(`Strategy ${input.plan.strategy} requires a source branch.`);
   }
   if (!await gitRefExists(input.mergeCwd, input.plan.targetBranch)) {
@@ -115,14 +142,15 @@ export async function executeLandingStrategy(input: {
   cwd: string;
   plan: LandingPlan;
 }): Promise<LandingExecutionResult> {
+  if (input.plan.actions?.length) return executeLandingPlan({ cwd: input.cwd, plan: input.plan });
   if (input.plan.strategy === "block") {
-    return { status: "blocked", outcome: "unsafe-plan", reason: input.plan.reasoning.join("; ") };
+    return { status: "blocked", outcome: "unsafe-plan", reason: input.plan.rationale };
   }
   if (input.plan.strategy === "pull-request") {
     return { status: "blocked", outcome: "pull-request-failed", reason: "Landing planner selected pull-request; publish the candidate through the PR recovery path." };
   }
   if (input.plan.strategy === "skip") {
-    return { status: "skipped", outcome: "policy-skipped", reason: input.plan.reasoning.join("; ") };
+    return { status: "skipped", outcome: "policy-skipped", reason: input.plan.rationale };
   }
   try {
     await execFileAsync("git", ["checkout", input.plan.targetBranch], { cwd: input.cwd, windowsHide: true });
@@ -132,9 +160,9 @@ export async function executeLandingStrategy(input: {
     await runGitLandingCommand(input.cwd, input.plan);
     return { status: "landed", outcome: "landed" };
   } catch (error) {
-    await abortGitOperation(input.cwd, input.plan.strategy);
+    await abortGitOperation(input.cwd, input.plan.strategy ?? "merge");
     const reason = error instanceof Error ? error.message : String(error);
-    return { status: "blocked", outcome: classifyLandingOperationFailure(input.plan.strategy, reason), reason };
+    return { status: "blocked", outcome: classifyLandingOperationFailure(input.plan.strategy ?? "merge", reason), reason };
   }
 }
 

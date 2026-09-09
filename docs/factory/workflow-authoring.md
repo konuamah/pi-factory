@@ -226,6 +226,10 @@ workflows:
 Use `prefer: [grilling]` when the planner should see the skill instructions but does not need to interrupt the run. Use `type: interview` plus `require: [grilling]` when Factory must stop and collect answers before planning.
 
 After editing, run `/factory doctor`.
+
+## Composed landing plans
+
+Landing is an LLM-owned ordered plan of typed Git actions (or a GitHub pull-request action). Factory parses and validates every Git argv, classifies destructive and remote effects, and then executes the exact validated argv without replacing the model's choice. Plans that can discard dirty work, invoke external processes, or push to an unauthorized remote are rejected. Recovery must produce a new plan that is validated again.
 Runtime policy is a controller boundary, not a workflow-stage concern. Models
 may select the next policy action, but workflows cannot bypass Factory's hard
 limits, evidence checks, repair capability checks, or Git safety invariants.

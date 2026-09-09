@@ -7,6 +7,7 @@ import type {
 import type { VerificationRunResult } from "./verification.js";
 import type { EffectiveFactoryConfig, ModelSelection } from "@factory/schemas";
 import type { LandingPlan } from "./landing-types.js";
+import type { LandingAction } from "./landing-types.js";
 
 export function resolveLandingModel(
   config: EffectiveFactoryConfig,
@@ -111,16 +112,16 @@ export function buildLandingPlannerPrompt(input: {
   return [
     "You are the Factory landing planner.",
     "Return STRICT JSON only. No markdown.",
-    "Choose what Factory should do to land the candidate safely.",
-    "This is a model decision, not a deterministic verification gate. Baseline-unrelated verification debt is not a reason to abandon a valid candidate. If direct landing is unsafe or cannot complete, choose pull-request so the candidate is published for human review; use block only when no safe delivery path exists.",
-    'Allowed strategy: "cherry-pick" | "merge" | "merge-no-ff" | "rebase" | "pull-request" | "skip" | "block".',
+    "Choose an ordered composed landing plan. Deterministic code will validate and execute your exact Git argv; it will never rewrite the plan.",
+    "Return actions[] with git steps or a GitHub pull-request action. Prefer a branch merge for multiple commits. Use pull-request when direct landing is unsafe; do not stop when a safe delivery path exists.",
+    "Git actions must not use --exec, -c, --upload-pack, --receive-pack, --config-env, shell metacharacters, or path traversal.",
     'Allowed risk: "low" | "medium" | "high".',
     JSON.stringify({
-      strategy: "cherry-pick",
+      actions: [{ kind: "git", step: { program: "git", args: ["merge", "--no-ff", input.candidateBranch ?? "candidate"], intent: "land candidate branch" } }],
       targetBranch: input.baseBranch,
       candidateSha: input.candidateSha,
       sourceBranch: input.candidateBranch,
-      reasoning: ["short reason"],
+      rationale: "short reason",
       verification: ["test"],
       risk: "low",
       expectedFiles: ["src/file.ts"],
@@ -192,19 +193,37 @@ function sanitizeLandingPlan(
   parsed: Record<string, unknown>,
   input: { baseBranch: string; candidateSha?: string; candidateBranch?: string; completedTasks: PrototypeCompletedTaskArtifact[] },
 ): LandingPlan {
-  const strategy = pick(parsed.strategy, ["cherry-pick", "merge", "merge-no-ff", "rebase", "pull-request", "skip", "block"]) ?? "pull-request";
   const risk = pick(parsed.risk, ["low", "medium", "high"]) ?? "high";
+  const actions = sanitizeActions(parsed.actions);
   return {
-    strategy,
+    actions,
     targetBranch: typeof parsed.targetBranch === "string" && parsed.targetBranch.trim() ? parsed.targetBranch : input.baseBranch,
     candidateSha: typeof parsed.candidateSha === "string" ? parsed.candidateSha : input.candidateSha ?? input.completedTasks[0]?.commitSha,
     sourceBranch: typeof parsed.sourceBranch === "string" ? parsed.sourceBranch : input.candidateBranch ?? input.completedTasks[0]?.sourceBranch,
-    reasoning: coerceStringArray(parsed.reasoning, ["Landing planner returned no reasoning."]),
+    rationale: typeof parsed.rationale === "string" ? parsed.rationale : "Landing planner returned no rationale.",
     verification: coerceStringArray(parsed.verification, []),
     risk,
     expectedFiles: coerceStringArray(parsed.expectedFiles, input.completedTasks.flatMap((task) => task.changedFiles)),
     recoveryPlan: typeof parsed.recoveryPlan === "string" ? parsed.recoveryPlan : undefined,
   };
+}
+
+function sanitizeActions(value: unknown): LandingAction[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): LandingAction[] => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    if (record.kind === "git" && record.step && typeof record.step === "object") {
+      const step = record.step as Record<string, unknown>;
+      if (step.program === "git" && Array.isArray(step.args) && step.args.every((arg) => typeof arg === "string")) {
+        return [{ kind: "git", step: { program: "git", args: step.args as string[], intent: typeof step.intent === "string" ? step.intent : "landing step" } }];
+      }
+    }
+    if (record.kind === "pull-request" && record.provider === "github" && typeof record.sourceBranch === "string" && typeof record.targetBranch === "string") {
+      return [{ kind: "pull-request", provider: "github", sourceBranch: record.sourceBranch, targetBranch: record.targetBranch, title: typeof record.title === "string" ? record.title : "Factory candidate", body: typeof record.body === "string" ? record.body : "Review the Factory candidate.", draft: record.draft === true }];
+    }
+    return [];
+  });
 }
 
 function sanitizeLandingDiagnosis(

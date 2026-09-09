@@ -6,15 +6,17 @@ import { classifyVerificationFailure, isIgnorableBaselineFailure, type Verificat
 import { createRecoveryPullRequest, type RecoveryPullRequestResult } from "../git/pull-request.js";
 import { runVerificationCommands, type VerificationPlan, type VerificationRunResult } from "./verification.js";
 import {
+  type PrototypeCompletedTaskArtifact,
+  type PrototypeLandingDiagnosisArtifact,
+  type PrototypeLandingPlanArtifact,
+} from "./artifacts.js";
+import {
   appendPrototypeLandingAttemptArtifact,
   writePrototypeCompletedTasksArtifact,
   writePrototypeFinalMergeArtifact,
   writePrototypeLandingDiagnosisArtifact,
   writePrototypeLandingPlanArtifact,
-  type PrototypeCompletedTaskArtifact,
-  type PrototypeLandingDiagnosisArtifact,
-  type PrototypeLandingPlanArtifact,
-} from "./artifacts.js";
+} from "./artifact-writers.js";
 import {
   buildLandingPlan,
   diagnoseLandingFailure,
@@ -25,12 +27,13 @@ import {
   executeLandingStrategy,
   mapDiagnosisToOutcome,
   readDirtyFiles,
+  readGitRemotes,
   validateLandingPlan,
 } from "./landing-git.js";
 import type { EffectiveFactoryConfig, ModelSelection } from "@factory/schemas";
 import type { TaskWorkspaceSelection, RunFactoryControllerInput } from "./controller.js";
 import type { PlanContract } from "./scope-check.js";
-import type { LandingPlan, LandingResult } from "./landing-types.js";
+import { derivedLandingStrategy, type LandingPlan, type LandingResult } from "./landing-types.js";
 import { readGitHeadSha } from "./git-ops.js";
 import { requestFailureRecovery, shouldUseInteractiveRecovery, type FailureRecoveryResolution } from "./failure-recovery.js";
 
@@ -96,6 +99,7 @@ export async function runLandingFlow(input: {
     verificationStatus: input.verification.overallStatus,
     nonGoals: input.planContract?.nonGoals,
     scopeGuardBlocking: input.config.scope?.landing === "block",
+    allowedRemotes: await readGitRemotes(input.mergeCwd),
   });
   let landingPlanArtifact: PrototypeLandingPlanArtifact = { ...plan, guardVerdict };
   await writePrototypeLandingPlanArtifact(input.runDir, landingPlanArtifact);
@@ -135,18 +139,11 @@ export async function runLandingFlow(input: {
       verificationStatus: input.verification.overallStatus,
       nonGoals: input.planContract?.nonGoals,
       scopeGuardBlocking: input.config.scope?.landing === "block",
+      allowedRemotes: await readGitRemotes(input.mergeCwd),
     });
     landingPlanArtifact = { ...plan, guardVerdict };
     await writePrototypeLandingPlanArtifact(input.runDir, landingPlanArtifact);
     await appendFactoryRunEvent(input.eventsPath, { timestamp: new Date().toISOString(), type: "landing.plan_selected", data: landingPlanArtifact as unknown as Record<string, unknown> });
-  }
-
-  // A branch with multiple task commits must be landed as a branch merge;
-  // cherry-picking only candidateSha would silently omit earlier task commits.
-  if (plan.strategy === "cherry-pick" && input.completedTasks.length > 1 && plan.sourceBranch) {
-    plan = { ...plan, strategy: "merge", reasoning: [...plan.reasoning, "Converted cherry-pick to branch merge so all completed task commits are landed."] };
-    landingPlanArtifact = { ...plan, guardVerdict };
-    await writePrototypeLandingPlanArtifact(input.runDir, landingPlanArtifact);
   }
 
   const targetHeadBefore = await readGitHeadSha(input.mergeCwd);
@@ -164,6 +161,7 @@ export async function runLandingFlow(input: {
   });
 
   let execution = await executeLandingStrategy({ cwd: input.mergeCwd, plan });
+  await recordLandingSteps(input.eventsPath, execution);
   while (execution.status === "blocked") {
     const recovery = await landingRecovery(input, "landing-execution", "landing execution failed", execution.reason ?? execution.outcome, true);
     if (recovery.action !== "retry" && recovery.action !== "revise") break;
@@ -175,6 +173,7 @@ export async function runLandingFlow(input: {
       });
     }
     execution = await executeLandingStrategy({ cwd: input.mergeCwd, plan });
+    await recordLandingSteps(input.eventsPath, execution);
   }
   const targetHeadAfter = execution.status === "landed" ? await readGitHeadSha(input.mergeCwd) : undefined;
   let diagnosis: PrototypeLandingDiagnosisArtifact | undefined;
@@ -197,7 +196,7 @@ export async function runLandingFlow(input: {
       timestamp: new Date().toISOString(),
       type: "landing.applied",
       data: {
-        strategy: plan.strategy,
+        strategy: derivedLandingStrategy(plan),
         candidateSha: plan.candidateSha,
         sourceBranch: plan.sourceBranch,
         targetBranch: plan.targetBranch,
@@ -212,7 +211,7 @@ export async function runLandingFlow(input: {
       mergeCwd: input.mergeCwd,
       targetBranch: plan.targetBranch,
       sourceBranch: plan.sourceBranch,
-      strategy: plan.strategy,
+      strategy: derivedLandingStrategy(plan),
       status: "landed",
       outcome: "landed",
       reason: execution.reason,
@@ -416,6 +415,17 @@ export async function runLandingFlow(input: {
   });
 }
 
+async function recordLandingSteps(eventsPath: string, execution: { steps?: Array<{ index: number; args: string[]; status: string; exitCode?: number; stderr?: string }> }): Promise<void> {
+  if (!execution.steps) return;
+  for (const step of execution.steps) {
+    await appendFactoryRunEvent(eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: step.status === "applied" ? "landing.step_applied" : "landing.step_blocked",
+      data: step,
+    });
+  }
+}
+
 async function markPostLandingVerificationStarted(
   input: Parameters<typeof runLandingFlow>[0],
   plan: LandingPlan,
@@ -470,11 +480,11 @@ async function diagnoseOrFallback(input: {
 
 function buildBlockingLandingPlan(input: Parameters<typeof runLandingFlow>[0], reason: string): LandingPlan {
   return {
-    strategy: "block",
+    actions: [],
     targetBranch: input.config.git.baseBranch,
     candidateSha: input.candidateSha,
     sourceBranch: input.candidateBranch,
-    reasoning: [reason],
+    rationale: reason,
     verification: [],
     risk: "high",
     expectedFiles: input.completedTasks.flatMap((task) => task.changedFiles),
@@ -592,7 +602,7 @@ async function finishLanding(
     mergeCwd: input.mergeCwd,
     targetBranch: plan.targetBranch,
     sourceBranch: plan.sourceBranch,
-    strategy: plan.strategy,
+    strategy: derivedLandingStrategy(plan),
     status: pullRequest?.status === "created"
       ? "pull-request-created"
       : pullRequest?.status === "existing"
@@ -695,7 +705,7 @@ async function buildLandingPlanWithRecovery(
         });
       return {
         plan: feedback
-          ? { ...builtPlan, reasoning: [...builtPlan.reasoning, `Recovery guidance applied: ${feedback.slice(0, 8000)}`] }
+          ? { ...builtPlan, rationale: `${builtPlan.rationale}\nRecovery guidance applied: ${feedback.slice(0, 8000)}` }
           : builtPlan,
         lastRecovery,
       };

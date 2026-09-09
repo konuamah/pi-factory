@@ -20,16 +20,52 @@ export type LandingOutcome =
   | "pull-request-failed";
 export type LandingTerminalPhase = "complete" | "merge-blocked" | "pull-request-opened" | "accepted" | "accepted-with-pr" | "acceptance-blocked";
 
+export interface GitAction {
+  program: "git";
+  args: string[];
+  intent: string;
+}
+
+export interface LandingActionGit {
+  kind: "git";
+  step: GitAction;
+}
+
+export interface LandingActionPullRequest {
+  kind: "pull-request";
+  provider: "github";
+  sourceBranch: string;
+  targetBranch: string;
+  title: string;
+  body: string;
+  draft: boolean;
+}
+
+export type LandingAction = LandingActionGit | LandingActionPullRequest;
+
 export interface LandingPlan {
-  strategy: LandingStrategy;
+  actions: LandingAction[];
   targetBranch: string;
   candidateSha?: string;
   sourceBranch?: string;
-  reasoning: string[];
+  rationale: string;
   verification: string[];
   risk: LandingRisk;
   expectedFiles: string[];
   recoveryPlan?: string;
+  /** Derived display value; execution uses actions only. */
+  strategy?: LandingStrategy;
+}
+
+export function derivedLandingStrategy(plan: Pick<LandingPlan, "actions">): LandingStrategy {
+  const first = plan.actions[0];
+  if (!first) return "block";
+  if (first.kind === "pull-request") return "pull-request";
+  if (first.step.args[0] === "merge" && first.step.args.includes("--no-ff")) return "merge-no-ff";
+  if (first.step.args[0] === "merge") return "merge";
+  if (first.step.args[0] === "cherry-pick") return "cherry-pick";
+  if (first.step.args[0] === "rebase") return "rebase";
+  return "block";
 }
 
 export interface LandingGuardVerdict {
@@ -43,6 +79,7 @@ export interface LandingExecutionResult {
   status: LandingStatus;
   outcome: string;
   reason?: string;
+  steps?: Array<{ index: number; args: string[]; status: "applied" | "blocked"; exitCode?: number; stderr?: string }>;
 }
 
 export interface LandingResult {

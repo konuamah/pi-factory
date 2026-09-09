@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { LandingGuardVerdict, LandingPlan } from "./landing-types.js";
 
 export interface PrototypeTaskArtifact {
   id: string;
@@ -270,12 +271,51 @@ export interface PrototypeIntegrationArtifact {
   }>;
 }
 
+export interface PrototypeCompletedTaskArtifact {
+  taskId: string;
+  targetBranch: string;
+  sourceBranch?: string;
+  commitSha: string;
+  changedFiles: string[];
+  workspaceMode?: "existing" | "created" | "in-place";
+  worktreePath?: string;
+}
+
+export type PrototypeLandingPlanArtifact = LandingPlan & { guardVerdict: LandingGuardVerdict };
+
+export interface PrototypeLandingDiagnosisArtifact {
+  kind: string;
+  reasoning: string[];
+  retryable: boolean;
+  recoveryAction: string;
+  risk: "low" | "medium" | "high";
+  recoveryHint: string;
+}
+
+export interface PrototypeLandingAttemptArtifact {
+  attempt: number;
+  stage: string;
+  plan: PrototypeLandingPlanArtifact;
+  execution: Record<string, unknown>;
+  verification: Record<string, unknown>;
+  diagnosis?: PrototypeLandingDiagnosisArtifact;
+}
+
 export interface PrototypeFinalMergeArtifact {
   mergeBaseBranch: string;
   candidateBranch?: string;
   candidateSha?: string;
   mergeCwd: string;
-  status: "merged" | "skipped";
+  status: string;
+  outcome?: string;
+  strategy?: string;
+  sourceBranch?: string;
+  targetBranch?: string;
+  pullRequest?: { status: string; url?: string; sourceBranch: string; targetBranch: string; reason: string };
+  recoveryHint?: string;
+  targetHeadBefore?: string;
+  targetHeadAfter?: string;
+  postLandingVerification?: Record<string, unknown>;
   reason?: string;
 }
 

@@ -15,3 +15,4 @@
 - Builder must stay implementation-only: authoritative lint/build/test/smoke checks belong to verification command stages with bounded timeouts, and repair should only run after verification classifies a failure.
 - Workflow verify commands are an allowlist, not always the exact run set: when a verification planner executor exists, give it the goal, changed files, and allowed checks so it can choose the smallest useful subset; use deterministic changed-path filtering only as fallback.
 - Interview stages are DAG nodes: classify them from validated dependency edges, run post-verification interviews only after a passed verification contract, and keep their decisions out of planning while forwarding them to review and approval.
+- Landing should be an LLM-owned composed action list: parse and classify exact Git argv, enforce hard safety invariants deterministically, and revalidate any recovery plan instead of rewriting a rejected strategy.

@@ -247,3 +247,8 @@ Runtime policy decisions may be LLM-owned through `RuntimePolicyExecutor`, but
 never treat model output as authority to exceed Factory constraints. Validate
 attempt budgets, phase transitions, repair/rerun availability, evidence, and
 Git/resource safety before continuing.
+
+Landing plans are composed `actions[]` selected by the landing model. Explain
+that Factory validates each exact Git argv and rejects unsafe effects; it does
+not rewrite a rejected action into another strategy. Recovery produces a new
+plan and revalidates it.

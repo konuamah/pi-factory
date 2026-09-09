@@ -1,4 +1,5 @@
-import type { PlanApprovalDecision, PlanApprovalResult } from "@factory/core";
+import type { AcceptanceDecision, AcceptanceEvidence, PlanApprovalDecision, PlanApprovalResult } from "@factory/core";
+import { charWidth } from "./types.js";
 import type { FactoryPiUi } from "./types.js";
 
 type PiThemeLike = {
@@ -295,6 +296,32 @@ function normalizeFeedback(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+export async function requestAcceptanceDecision(
+  ui: FactoryPiUi,
+  input: { runId: string; goal: string; candidateSha?: string; evidence: AcceptanceEvidence },
+): Promise<AcceptanceDecision> {
+  const evidence = input.evidence;
+  const landing = evidence.landingOutcome;
+  const lines = [
+    `Factory acceptance — ${input.runId}`,
+    `Goal: ${input.goal}`,
+    `Verification: ${evidence.verificationStatus}`,
+    `Landing: ${landing.status}${landing.reason ? ` (${landing.reason})` : ""}`,
+    `Post-landing verification: ${evidence.postLandingVerification?.overallStatus ?? "not run"}`,
+    evidence.reviewVerdict?.verdict === "block" ? "Reviewer blocking verdict: accepting overrides this finding." : "",
+  ].filter(Boolean).join("\n");
+  if (ui.select) {
+    const choice = await ui.select(lines, ["Accept — finalize the run", "Revise — return to planning", "Reject — cancel the run"]);
+    if (choice?.startsWith("Revise")) {
+      const feedback = ui.input ? await ui.input("Acceptance feedback", "What should change?") : undefined;
+      return { decision: "revise", feedback: feedback?.trim() ?? "" };
+    }
+    return choice?.startsWith("Accept") ? { decision: "accept" } : { decision: "reject", feedback: "Acceptance dismissed." };
+  }
+  if (ui.confirm) return (await ui.confirm("Accept Factory candidate?", lines)) ? { decision: "accept" } : { decision: "reject" };
+  throw new Error("Acceptance decision requires Pi select or confirm UI.");
+}
+
 export function isPlanApprovalDecision(value: string | undefined): value is PlanApprovalDecision {
   return value === "approve" || value === "reject" || value === "revise";
 }
@@ -377,32 +404,4 @@ function ansiAwareParts(value: string): Array<{ text: string; ansi: boolean }> {
 
 function resetAnsi(value: string): string {
   return /\u001b\[[0-?]*[ -/]*m/.test(value) ? "\u001b[0m" : "";
-}
-
-function charWidth(char: string): number {
-  const codePoint = char.codePointAt(0) ?? 0;
-  if (codePoint === 0) {
-    return 0;
-  }
-  if (codePoint < 32 || (codePoint >= 0x7f && codePoint < 0xa0)) {
-    return 0;
-  }
-  if (
-    codePoint >= 0x1100 && (
-      codePoint <= 0x115f ||
-      codePoint === 0x2329 ||
-      codePoint === 0x232a ||
-      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
-      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
-      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
-      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
-      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
-      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
-      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
-      (codePoint >= 0x1f300 && codePoint <= 0x1faff)
-    )
-  ) {
-    return 2;
-  }
-  return 1;
 }

@@ -1,0 +1,4 @@
+# Factory run state and worktrees
+.factory/runs/
+.factory/dependencies/
+.worktrees/

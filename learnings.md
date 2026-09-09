@@ -1,5 +1,7 @@
 # learnings.md
 
+- Dashboard run details should expose normalized acceptance evidence, especially reviewer blocking verdict summaries and the user's final decision, without making the read-only surface appear actionable.
+
 - When repository topology is ambiguous, use deterministic discovery to gather candidate roots/scripts, then use a reasoning step to choose execution strategy.
 - Verification failures should be separated into harness/config selection issues versus real project code issues.
 - Do not treat transient worktree content as authoritative long-term project guidance.

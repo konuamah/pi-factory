@@ -1,7 +1,8 @@
-import { runFactoryController, type PlanApprovalResult } from "./controller.js";
+import { runFactoryController, type AcceptanceFn, type PlanApprovalResult } from "./controller.js";
 import type { AgentExecutor } from "./interfaces.js";
 import type { ModelRole } from "@factory/schemas";
 import type { DecisionRequest, DecisionResult } from "../decisions/types.js";
+import type { RuntimePolicyConfig, RuntimePolicyExecutor } from "./policy.js";
 
 export interface RuntimeHarnessResult {
   runId: string;
@@ -30,8 +31,10 @@ export async function runRuntimeHarness(input: {
   verificationPlannerExecutor?: AgentExecutor;
   failureClassifierExecutor?: AgentExecutor;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: Array<{ id: string; title: string; stage: string; status: "pending" | "done"; dependsOn: string[]; type?: string; role?: string; commands?: string[]; requiresApproval?: boolean }> }) => Promise<PlanApprovalResult>;
-  requestApproval?: (input: { runId: string; goal: string; baselineDebt?: Array<{ commandName: string; category: string; reason: string; suggestedAction: string; implicatedFiles?: string[] }>; contractComplete: boolean; verificationStatus?: string }) => Promise<boolean>;
+  requestAcceptance?: AcceptanceFn;
   requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
+  policy?: RuntimePolicyConfig;
+  policyExecutor?: RuntimePolicyExecutor;
 }): Promise<RuntimeHarnessResult> {
   const result = await runFactoryController({
     cwd: input.cwd,
@@ -47,8 +50,10 @@ export async function runRuntimeHarness(input: {
     verificationPlannerExecutor: input.verificationPlannerExecutor,
     failureClassifierExecutor: input.failureClassifierExecutor,
     requestPlanApproval: input.requestPlanApproval ?? (async () => ({ decision: "approve" })),
-    requestApproval: input.requestApproval ?? (async () => true),
+    requestAcceptance: input.requestAcceptance ?? (async () => ({ decision: "accept" as const })),
     requestDecision: input.requestDecision,
+    policy: input.policy,
+    policyExecutor: input.policyExecutor,
   });
 
   return {

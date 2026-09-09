@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   defaultWorkflowDefinition,
+  defaultWorkflowTemplate,
   normalizeWorkflowConfig,
   readWorkflowRegistry,
   resolveWorkflowDefinition,
@@ -17,7 +18,27 @@ test('normalizeWorkflowConfig fills in a default workflow when empty', () => {
   const config = normalizeWorkflowConfig();
   assert.equal(config.defaultWorkflowId, 'default-dev');
   assert.equal(config.workflows.length, 1);
-  assert.deepEqual(config.workflows[0].stages.map((stage) => stage.name), ['discover', 'plan', 'implementation', 'verification', 'approval']);
+  assert.deepEqual(config.workflows[0].stages.map((stage) => stage.name), ['discover', 'plan', 'implementation', 'verification', 'review', 'approval']);
+  const approvalStage = config.workflows[0].stages.find((stage) => stage.name === 'approval');
+  assert.ok(approvalStage);
+  assert.deepEqual(approvalStage.dependsOn, ['review']);
+  assert.ok(config.workflows[0].stages.some((stage) => stage.name === 'review' && stage.role === 'reviewer'));
+});
+
+test('setup workflow templates put review before final approval', () => {
+  const fast = defaultWorkflowTemplate('fast');
+  const safe = defaultWorkflowTemplate('safe');
+  const balanced = defaultWorkflowTemplate('balanced');
+  for (const [name, content] of [['fast', fast], ['safe', safe], ['balanced', balanced]]) {
+    const reviewIndex = content.indexOf('name: review');
+    const approvalIndex = content.indexOf('name: approval');
+    assert.ok(reviewIndex >= 0, `${name} template must contain a reviewer stage`);
+    assert.ok(approvalIndex >= 0, `${name} template must contain an approval stage`);
+    assert.ok(reviewIndex < approvalIndex, `${name} template must place review before approval`);
+    assert.match(content, /role: reviewer/, `${name} template must role a reviewer`);
+    const afterApproval = content.slice(content.indexOf('type: approval'));
+    assert.ok(afterApproval.startsWith('type: approval\n        dependsOn: [review]'), `${name} template approval must depend on review`);
+  }
 });
 
 test('normalizeWorkflowConfig preserves multi-workflow registry', () => {

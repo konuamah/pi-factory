@@ -1,10 +1,53 @@
-export type ModelRole = "discovery" | "planner" | "builder" | "reviewer" | "repair";
+export type ModelRole = "discovery" | "planner" | "builder" | "reviewer" | "repair" | "landing";
+
+/**
+ * Sentinel value for git/project baseBranch config: resolve to the branch
+ * checked out in the project root at run start instead of a hard-coded name.
+ * Resolved by the config loader (packages/core/src/config/loader.ts); must
+ * never survive into the effective config. See docs/factory/ configuration
+ * reference.
+ */
+export const CURRENT_BRANCH_SENTINEL = "@current";
 
 export interface ExecutionLimits {
-  totalRunTimeoutMs?: number;
-  modelTimeoutMs?: number;
+  /**
+   * Hard ceiling for one agent turn (model + tool activity combined).
+   * Replaces the ambiguous `totalRunTimeoutMs` (which was actually per-turn).
+   */
+  turnTimeoutMs?: number;
+  /**
+   * Fires when the model/provider emits no activity (SDK events) for this long.
+   * Text events count as activity and keep this timer reset.
+   */
+  modelIdleTimeoutMs?: number;
+  /**
+   * Hard ceiling for a single tool execution. The model idle watchdog is paused
+   * while a tool owns execution.
+   */
   toolTimeoutMs?: number;
+  /**
+   * Hard ceiling across all turns/phases of one Factory run (controller-owned).
+   */
+  runTimeoutMs?: number;
+  /**
+   * Absolute wall-clock deadline (ms epoch) for the whole run, established by
+   * the controller when the run starts and shared across all agent turns.
+   */
+  runDeadlineAt?: number;
+  /**
+   * Optional deterministic grace for model reasoning pauses. At most one
+   * extension per turn; never extends tool or turn/run hard ceilings.
+   */
+  adaptiveGrace?: {
+    enabled?: boolean;
+    durationMs?: number;
+    maxExtensionsPerTurn?: number;
+  };
   maxTurns?: number;
+  /** @deprecated Alias for `modelIdleTimeoutMs`. */
+  modelTimeoutMs?: number;
+  /** @deprecated Alias for `turnTimeoutMs` (was misnamed as a run timeout). */
+  totalRunTimeoutMs?: number;
 }
 
 export interface ModelSelection {
@@ -20,7 +63,7 @@ export interface SetupCommandStep {
 
 export type SetupCommandConfig = string | SetupCommandStep[];
 
-export type WorkflowNodeType = "agent" | "command" | "approval" | "task-graph" | "interview";
+export type WorkflowNodeType = "agent" | "command" | "acceptance" | "task-graph" | "interview";
 
 export type Capability =
   | "repo.read"
@@ -89,6 +132,7 @@ export interface FactoryBuiltInDefaults {
   runtime: {
     maxParallelAgents: number;
     limits?: ExecutionLimits;
+    policy?: RuntimePolicyConfig;
   };
   ui: {
     showWorkerDetails: boolean;
@@ -108,11 +152,23 @@ export interface FactoryBuiltInDefaults {
   approval: {
     finalMerge: "required" | "not-required";
   };
+  scope: {
+    verification: "warn" | "block";
+    landing: "warn" | "block";
+  };
   git: {
     cleanup: {
       retainRuns: number;
       pruneWorktrees: boolean;
       pruneBranches: boolean;
+      preserveFailedRuns: boolean;
+    };
+    pullRequest: {
+      enabled: boolean;
+      provider: "github";
+      cli: "gh";
+      draft: boolean;
+      baseBranch?: string;
     };
   };
   dashboard: {
@@ -130,6 +186,13 @@ export interface FactoryBuiltInDefaults {
 
 export type DependencyHydrationMode = "auto" | "always" | "never";
 
+export interface RuntimePolicyConfig {
+  enabled?: boolean;
+  policyModel?: ModelSelection;
+  maxPolicyAttempts?: number;
+  allowedPhasesByPhase?: Record<string, string[]>;
+}
+
 export interface GlobalFactoryConfig {
   models?: Partial<Record<ModelRole, ModelSelection>> & {
     provider?: string;
@@ -138,6 +201,7 @@ export interface GlobalFactoryConfig {
   runtime?: {
     maxParallelAgents?: number;
     limits?: ExecutionLimits;
+    policy?: RuntimePolicyConfig;
   };
   ui?: {
     showWorkerDetails?: boolean;
@@ -196,6 +260,7 @@ export interface ProjectFactoryConfig {
   runtime?: {
     maxParallelAgents?: number;
     limits?: ExecutionLimits;
+    policy?: RuntimePolicyConfig;
   };
   git?: {
     baseBranch?: string;
@@ -205,6 +270,14 @@ export interface ProjectFactoryConfig {
       retainRuns?: number;
       pruneWorktrees?: boolean;
       pruneBranches?: boolean;
+      preserveFailedRuns?: boolean;
+    };
+    pullRequest?: {
+      enabled?: boolean;
+      provider?: "github";
+      cli?: "gh";
+      draft?: boolean;
+      baseBranch?: string;
     };
   };
   repair?: {
@@ -217,6 +290,12 @@ export interface ProjectFactoryConfig {
   };
   approval?: {
     finalMerge?: "required" | "not-required";
+  };
+  scope?: {
+    /** Whether a plan non-goal violation fails verification ("block") or only warns ("warn"). */
+    verification?: "warn" | "block";
+    /** Whether a landing scope violation blocks the merge ("block") or only notes it ("warn"). */
+    landing?: "warn" | "block";
   };
   models?: Partial<Record<ModelRole, ModelSelection>> & {
     provider?: string;
@@ -242,9 +321,14 @@ export interface RunOverrides {
   runtime?: {
     maxParallelAgents?: number;
     limits?: ExecutionLimits;
+    policy?: RuntimePolicyConfig;
   };
   approval?: {
     finalMerge?: "required" | "not-required";
+  };
+  scope?: {
+    verification?: "warn" | "block";
+    landing?: "warn" | "block";
   };
 }
 
@@ -253,6 +337,7 @@ export interface EffectiveFactoryConfig {
   runtime: {
     maxParallelAgents: number;
     limits?: ExecutionLimits;
+    policy?: RuntimePolicyConfig;
   };
   ui: {
     showWorkerDetails: boolean;
@@ -281,6 +366,14 @@ export interface EffectiveFactoryConfig {
       retainRuns: number;
       pruneWorktrees: boolean;
       pruneBranches: boolean;
+      preserveFailedRuns: boolean;
+    };
+    pullRequest: {
+      enabled: boolean;
+      provider: "github";
+      cli: "gh";
+      draft: boolean;
+      baseBranch?: string;
     };
   };
   repair: {
@@ -293,6 +386,10 @@ export interface EffectiveFactoryConfig {
   };
   approval: {
     finalMerge: "required" | "not-required";
+  };
+  scope: {
+    verification: "warn" | "block";
+    landing: "warn" | "block";
   };
   dashboard: {
     enabled: boolean;

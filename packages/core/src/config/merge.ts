@@ -9,6 +9,37 @@ import type {
 } from "@factory/schemas";
 import { resolveWorkflowDefinition, normalizeWorkflowConfig } from "../workflows/registry.js";
 
+/**
+ * Canonicalize runtime limits, resolving deprecated aliases to their canonical
+ * names. Returns an object with only canonical keys so downstream code (and
+ * the executor) never has to reason about both spellings.
+ */
+export function normalizeExecutionLimits(limits?: {
+  turnTimeoutMs?: number;
+  modelIdleTimeoutMs?: number;
+  toolTimeoutMs?: number;
+  runTimeoutMs?: number;
+  adaptiveGrace?: { enabled?: boolean; durationMs?: number; maxExtensionsPerTurn?: number };
+  maxTurns?: number;
+  modelTimeoutMs?: number;
+  totalRunTimeoutMs?: number;
+}): {
+  turnTimeoutMs?: number;
+  modelIdleTimeoutMs?: number;
+  toolTimeoutMs?: number;
+  runTimeoutMs?: number;
+  adaptiveGrace?: { enabled?: boolean; durationMs?: number; maxExtensionsPerTurn?: number };
+  maxTurns?: number;
+} {
+  if (!limits) return {};
+  const { modelTimeoutMs, totalRunTimeoutMs, ...rest } = limits;
+  return {
+    ...rest,
+    modelIdleTimeoutMs: limits.modelIdleTimeoutMs ?? modelTimeoutMs,
+    turnTimeoutMs: limits.turnTimeoutMs ?? totalRunTimeoutMs,
+  };
+}
+
 export function mergeConfigLayers(input: {
   builtIns: FactoryBuiltInDefaults;
   global?: GlobalFactoryConfig;
@@ -60,12 +91,13 @@ export function mergeConfigLayers(input: {
         project?.runtime?.maxParallelAgents ??
         global?.runtime?.maxParallelAgents ??
         builtIns.runtime.maxParallelAgents,
-      limits: {
+      limits: normalizeExecutionLimits({
         ...builtIns.runtime.limits,
         ...global?.runtime?.limits,
         ...project?.runtime?.limits,
         ...runOverrides?.runtime?.limits,
-      },
+      }),
+      policy: project?.runtime?.policy ?? runOverrides?.runtime?.policy ?? builtIns.runtime.policy,
     },
     ui: {
       showWorkerDetails:
@@ -95,6 +127,14 @@ export function mergeConfigLayers(input: {
         retainRuns: project?.git?.cleanup?.retainRuns ?? builtIns.git.cleanup.retainRuns,
         pruneWorktrees: project?.git?.cleanup?.pruneWorktrees ?? builtIns.git.cleanup.pruneWorktrees,
         pruneBranches: project?.git?.cleanup?.pruneBranches ?? builtIns.git.cleanup.pruneBranches,
+        preserveFailedRuns: project?.git?.cleanup?.preserveFailedRuns ?? builtIns.git.cleanup.preserveFailedRuns,
+      },
+      pullRequest: {
+        enabled: project?.git?.pullRequest?.enabled ?? builtIns.git.pullRequest.enabled,
+        provider: project?.git?.pullRequest?.provider ?? builtIns.git.pullRequest.provider,
+        cli: project?.git?.pullRequest?.cli ?? builtIns.git.pullRequest.cli,
+        draft: project?.git?.pullRequest?.draft ?? builtIns.git.pullRequest.draft,
+        baseBranch: project?.git?.pullRequest?.baseBranch,
       },
     },
     repair: {
@@ -110,6 +150,16 @@ export function mergeConfigLayers(input: {
         runOverrides?.approval?.finalMerge ??
         project?.approval?.finalMerge ??
         builtIns.approval.finalMerge,
+    },
+    scope: {
+      verification:
+        runOverrides?.scope?.verification ??
+        project?.scope?.verification ??
+        builtIns.scope.verification,
+      landing:
+        runOverrides?.scope?.landing ??
+        project?.scope?.landing ??
+        builtIns.scope.landing,
     },
     dashboard: {
       enabled: project?.dashboard?.enabled ?? global?.dashboard?.enabled ?? builtIns.dashboard.enabled,

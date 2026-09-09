@@ -23,6 +23,12 @@ export interface VerificationContractPlannerInput {
     build?: string;
   };
   taskId?: string;
+  /** Plan-declared non-goal file paths; the changed files must not touch them. */
+  nonGoals?: string[];
+  /** Changed files from the implementation run; compared against nonGoals. */
+  changedFiles?: string[];
+  /** True when scope.verification is "block": a violation fails verification. */
+  scopeCheckBlocking?: boolean;
 }
 
 export function gatherVerificationRequirements(input: VerificationContractPlannerInput): VerificationContractPlan {
@@ -178,6 +184,24 @@ export function gatherVerificationRequirements(input: VerificationContractPlanne
         source: "CONSTITUTION",
         reason: "CONFLICT",
       },
+    });
+  }
+
+  // 6. PLAN: plan-declared non-goal files must stay untouched. Blocking is
+  // driven by config scope.verification ("warn" default -> non-blocking
+  // evidence only; "block" -> fails verification and can trigger repair).
+  const nonGoals = input.nonGoals ?? [];
+  if (nonGoals.length > 0) {
+    requirements.push({
+      id: nextId(),
+      type: "SCOPE",
+      blocking: input.scopeCheckBlocking ?? false,
+      description: "Changed files must not modify plan-declared non-goals",
+      source: "PLAN",
+      scope: "TASK",
+      taskId: input.taskId,
+      affectedFiles: input.changedFiles,
+      nonGoals,
     });
   }
 

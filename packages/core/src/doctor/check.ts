@@ -66,7 +66,7 @@ export async function runFactoryDoctor(cwd: string): Promise<FactoryDoctorResult
     checks.push({
       name: "config-load",
       ok: true,
-      detail: `baseBranch=${loaded.effectiveConfig.git.baseBranch}`,
+      detail: `baseBranch=${loaded.effectiveConfig.git.baseBranch}${loaded.baseBranchSource === "current" ? " (resolved from @current)" : ""}`,
     });
 
     const configuredCommands = Object.entries(loaded.effectiveConfig.commands)
@@ -131,7 +131,7 @@ async function buildModelReadinessChecks(
   projectRoot: string,
   config: Awaited<ReturnType<typeof loadEffectiveConfig>>["effectiveConfig"],
 ): Promise<FactoryDoctorCheck[]> {
-  const roles: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair"];
+  const roles: ModelRole[] = ["discovery", "planner", "builder", "reviewer", "repair", "landing"];
   const taskTypes = ["general", ...Object.keys(config.taskTypes ?? {})];
   const checks: FactoryDoctorCheck[] = [];
   const routingErrors = preflightModelRouting({ taskTypes, roles, config });

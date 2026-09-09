@@ -1,0 +1,3 @@
+{
+  "interview": "A1: The Credentials highlights block is a list of exactly three qualifications, each on its own line: 'M.D., University of Ghana Medical School', 'Board Certified, Family Medicine', and '12 years of clinical experience'.\n\nA2: It lives in the Experience section, directly under the existing experience heading, as an unnumbered list (ul) with each qualification as a list item.\n\nA3: The contact form and all existing sections stay exactly as they are, including their ids, wording, and behavior.\n\nA4: The only files you may modify are index.html and script.js. Do not create new files, and do not modify .factory/ or factory.yaml."
+}

@@ -11,6 +11,9 @@ Format a round like this:
 
 ```text
 Q1 - <question title>: <question body, which may be multiple paragraphs>
+Options:
+[A] <option label> — <optional short description>
+[B] <option label> — <optional short description>
 -> <your recommended answer>
 
 ---
@@ -18,6 +21,8 @@ Q1 - <question title>: <question body, which may be multiple paragraphs>
 Q2 - <question title>: <question body, which may be multiple paragraphs>
 -> <your recommended answer>
 ```
+
+Use the `Options:` block only when the question is genuinely multiple-choice. Do not emit an `Other` option; Factory renders a built-in custom-answer path automatically. If the question is open-ended, omit `Options:` and ask for free text as before.
 
 Each round, the user's answers reshape the tree: settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a later round, not this one.
 

@@ -1,18 +1,18 @@
 # Factory Agent Reference Rules
 
-Use this file before operating Factory from an agent or skill. It defines what context is authoritative, what to ignore, and how to keep future runs from rediscovering the same behavior.
+Use this file before changing Factory code or internal Factory docs. It defines what context is authoritative for maintainers, what to ignore, and how to keep future changes from rediscovering the same behavior.
 
 ## Reference Order
 
-1. Start with `docs/factory/README.md`.
-2. Read only the relevant `docs/factory/*.md` reference for the user's request.
+1. For user-facing Concierge behavior, start with the focused `.pi/skills/factory-*` operational skill.
+2. For Factory codebase changes, start with `docs/factory/README.md`, then read only the relevant `docs/factory/*.md` internal reference.
 3. Use Factory command output, setup context, config files, and tool/API contracts next.
-4. Inspect `src/` only when documentation is missing, implementation debugging is required, or the user explicitly asks about code.
+4. Inspect `src/` only when skill/docs guidance is missing, implementation debugging is required, or the user explicitly asks about code.
 5. Never use `dist/`, `node_modules/`, build output, coverage output, generated files, or transient worktrees as behavioral reference sources.
 
 ## Operational Registry Pattern
 
-Factory docs should answer the questions agents otherwise rediscover from source. Prefer operational entries with this shape:
+Factory operational skills should answer the questions Concierge otherwise rediscover from source. Internal docs may keep deeper architecture, history, and source-level notes. Prefer operational skill entries with this shape:
 
 ```markdown
 # Action Or Capability Name
@@ -38,8 +38,8 @@ Related source:
 
 ## Feedback Loop
 
-If source inspection reveals reusable Factory behavior, add or update the relevant file in `docs/factory/`. Future Concierge runs should learn that behavior from docs instead of rereading source.
+If source inspection reveals reusable Factory operations behavior, add or update the relevant `.pi/skills/factory-*` skill. Future Concierge runs should learn that behavior from skills instead of rereading source.
 
-Every Factory behavior, command, setup, workflow, capability, runtime, or agent UX change must update the matching `docs/factory/` page and relevant Factory skill instructions in the same change. Keep `skills/factory-concierge/SKILL.md`, `.pi/skills/factory-concierge/SKILL.md`, and `skills/factory-setup/SKILL.md` aligned when the change affects setup or operation.
+Every Factory behavior, command, setup, workflow, capability, runtime, or agent UX change must update the matching `.pi/skills/factory-*` operational skill and any relevant `docs/factory/` internal page in the same change. Keep `skills/factory-concierge/SKILL.md`, `.pi/skills/factory-concierge/SKILL.md`, and `skills/factory-setup/SKILL.md` aligned when the change affects setup or operation.
 
 Generated output is not a source of truth. If docs and generated output disagree, trust docs plus source, and refresh the generated output through the normal build.

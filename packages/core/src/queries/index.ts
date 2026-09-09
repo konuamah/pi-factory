@@ -9,6 +9,7 @@ import { listRegisteredCapabilities } from "../capabilities/registry.js";
 import { initializeCapabilitySystem } from "../capabilities/registry.js";
 import { getProvider } from "../capabilities/providers.js";
 import { checkExecutability } from "../capabilities/executability.js";
+import { readAcceptanceEvidence } from "../runs/show.js";
 
 export interface DashboardStatus {
   repository: { name?: string; branch?: string; commit?: string; root?: string };
@@ -37,7 +38,7 @@ export async function queryStatus(cwd: string): Promise<DashboardStatus> {
     if (run.status === "DECISION_REQUIRED" || pending) {
       needsAttention.push({ runId: run.runId, kind: "decision-required", detail: run.goal });
     } else if (run.status === "BLOCKED") {
-      needsAttention.push({ runId: run.runId, kind: "blocked", detail: run.goal });
+      needsAttention.push({ runId: run.runId, kind: "blocked", detail: run.title ?? run.goal });
     }
   }
 
@@ -60,7 +61,7 @@ export async function queryStatus(cwd: string): Promise<DashboardStatus> {
       coveredAreas: 0,
       totalAreas: 120,
     },
-    recentRuns: runs.slice(0, 8).map((run) => ({ runId: run.runId, goal: run.goal, status: run.status, phase: run.phase })),
+    recentRuns: runs.slice(0, 8).map((run) => ({ runId: run.runId, title: run.title, goal: run.goal, status: run.status, phase: run.phase })),
   };
 }
 
@@ -95,6 +96,7 @@ export async function queryRuns(cwd: string): Promise<Array<Record<string, unkno
     runId: run.runId,
     status: run.status,
     phase: run.phase,
+    title: run.title,
     goal: run.goal,
     updatedAt: run.updatedAt,
   }));
@@ -114,8 +116,9 @@ export async function queryRun(cwd: string, runId: string): Promise<Record<strin
   const verification = await readJson(path.join(runDir, "verification.json")).catch(() => undefined);
   const modelLedger = await readModelLedgerLines(runDir);
   const decisions = await readDecisionLedger(runDir).catch(() => []);
+  const acceptanceEvidence = await readAcceptanceEvidence(runDir).catch(() => undefined);
 
-  return {
+  const result: Record<string, unknown> = {
     runId,
     runDir,
     state,
@@ -126,8 +129,11 @@ export async function queryRun(cwd: string, runId: string): Promise<Record<strin
     decisions: decisions.map((entry) => (entry.type === "request" ? { type: "request", requestId: entry.request.id, question: entry.request.question } : { type: "resolution", requestId: entry.result.requestId, optionId: entry.result.optionId, feedback: entry.result.feedback })),
     status: state?.status ?? summary?.status,
     phase: state?.phase ?? summary?.phase,
+    title: summary?.title,
     goal: summary?.goal,
   };
+  if (acceptanceEvidence) result.acceptanceEvidence = acceptanceEvidence;
+  return result;
 }
 
 export async function queryConstitution(cwd: string): Promise<Record<string, unknown>> {

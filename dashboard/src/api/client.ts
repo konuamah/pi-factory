@@ -5,13 +5,14 @@ export interface DashboardStatus {
   needsAttention?: Array<{ runId: string; kind: string; detail?: string }>;
   verificationFailures?: number;
   constitution?: { coveredAreas?: number; totalAreas?: number };
-  recentRuns?: Array<{ runId: string; goal?: string; status?: string; phase?: string }>;
+  recentRuns?: Array<{ runId: string; title?: string; goal?: string; status?: string; phase?: string }>;
 }
 
 export interface RunListItem {
   runId: string;
   status?: string;
   phase?: string;
+  title?: string;
   goal?: string;
   updatedAt?: string;
 }
@@ -26,18 +27,44 @@ export interface LogEntry {
   metadata?: Record<string, unknown>;
 }
 
+export interface RunPlan {
+  summary?: string;
+  planText?: string;
+  tasks?: Array<{ id?: string; stage?: string; status?: string }>;
+  [key: string]: unknown;
+}
+
+export interface AcceptanceEvidenceView {
+  decision?: "accept" | "revise" | "reject" | null;
+  feedback?: string;
+  landingStatus?: string;
+  landingPhase?: string;
+  landingReason?: string;
+  pullRequest?: { status?: string; url?: string; sourceBranch?: string; targetBranch?: string; reason?: string };
+  targetHeadBefore?: string;
+  targetHeadAfter?: string;
+  postLandingVerification?: { overallStatus?: string; commands?: string[]; reason?: string; repairAttempted?: boolean };
+  verificationStatus?: string;
+  contractComplete?: boolean;
+  baselineDebt?: Array<{ commandName: string; category: string; reason: string; suggestedAction: string; implicatedFiles?: string[] }>;
+  scopeWarnings?: Array<{ file: string; nonGoal: string }>;
+  reviewVerdict?: { verdict: "block" | "pass" | "unknown"; summary: string };
+}
+
 export interface RunDetail {
   runId?: string;
   runDir?: string;
   status?: string;
   phase?: string;
+  title?: string;
   goal?: string;
   state?: Record<string, unknown>;
   summary?: Record<string, unknown>;
-  plan?: Record<string, unknown>;
+  plan?: RunPlan;
   verification?: Record<string, unknown>;
   models?: Array<Record<string, unknown>>;
   decisions?: Array<Record<string, unknown>>;
+  acceptanceEvidence?: AcceptanceEvidenceView;
 }
 
 export interface ConstitutionOverview {

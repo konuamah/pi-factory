@@ -6,7 +6,8 @@ export type DecisionSource =
   | "CONSTITUTION"
   | "INTERVIEW"
   | "CAPABILITY"
-  | "RUNTIME";
+  | "RUNTIME"
+  | "POLICY";
 
 export type DecisionReason =
   | "CONFLICT"
@@ -14,7 +15,8 @@ export type DecisionReason =
   | "MISSING_AUTHORITY"
   | "SCOPE_CHOICE"
   | "IRREVERSIBLE_CHOICE"
-  | "USER_PREFERENCE";
+  | "USER_PREFERENCE"
+  | "FAILURE_RECOVERY";
 
 export interface DecisionOption {
   id: string;
@@ -33,9 +35,22 @@ export interface DecisionRequest {
   reason: DecisionReason;
 }
 
+export interface InterviewQuestionDecision {
+  index: number;
+  prompt: string;
+  options?: DecisionOption[];
+  recommendation?: string;
+  selectedOptionId?: string;
+  selectedOptionLabel?: string;
+  customAnswer?: string;
+  finalAnswer: string;
+  skipped?: boolean;
+}
+
 export interface DecisionResult {
   requestId: string;
   optionId: string;
   feedback?: string;
+  interviewQuestions?: InterviewQuestionDecision[];
   decidedAt: string;
 }

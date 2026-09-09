@@ -15,6 +15,7 @@ export interface FactoryRunInspection {
   summary?: {
     runId?: string;
     goal?: string;
+    title?: string;
     status?: string;
     phase?: string;
     approved?: boolean;

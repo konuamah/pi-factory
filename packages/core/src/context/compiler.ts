@@ -4,7 +4,7 @@ import { selectConstitutionContext } from "../constitution/context.js";
 import { findFactorySkills } from "../skills/registry.js";
 import type { SkillSelectionResult } from "../skills/types.js";
 
-export type ContextRole = "discovery" | "planner" | "builder" | "reviewer" | "repair" | "verification";
+export type ContextRole = "discovery" | "planner" | "builder" | "reviewer" | "repair" | "verification" | "landing";
 
 export interface ContextFile {
   path: string;
@@ -53,6 +53,33 @@ export interface CompiledContext {
   tokenEstimate: number;
 }
 
+/**
+ * Budget priorities for the sections that make up a role's compiled context.
+ * Authoritative content (planner handoff, human decisions) must survive even a
+ * tight budget; general project guidance is truncated first. Never let a
+ * generic first-fit truncation silently drop an authoritative decision.
+ */
+export const CONTEXT_SECTION_PRIORITY = {
+  task: 100,
+  roleRules: 100,
+  dependencies: 90,
+  fileHints: 90,
+  planIntent: 100,
+  runDecisions: 100,
+  skills: 70,
+  capabilities: 80,
+  failures: 60,
+  guidance: 20,
+} as const;
+
+export type ContextSectionName = keyof typeof CONTEXT_SECTION_PRIORITY;
+
+export interface PrioritySection {
+  name: ContextSectionName;
+  priority: number;
+  text: string;
+}
+
 export interface ContextCompileRequest {
   cwd: string;
   role: ContextRole;
@@ -66,8 +93,13 @@ export interface ContextCompileRequest {
   planIntent?: {
     targetFiles?: string[];
     nonGoals?: string[];
+    implementationSteps?: string[];
+    verificationChecks?: Array<{ name: string; command?: string; reason?: string }>;
     blockers?: string[];
     risks?: Array<{ risk: string; mitigation?: string }>;
+    changeRequired?: "required" | "not-required" | "uncertain";
+    baselineFindings?: string[];
+    requiredChanges?: string[];
   };
   maxChars?: number;
   grantedCapabilities?: string[];
@@ -111,12 +143,13 @@ export async function compileAgentContext(input: ContextCompileRequest): Promise
   const approxChars = instructions.join("\n\n").length;
   const tokenEstimate = Math.ceil(approxChars / 4);
   const budget = input.maxChars ?? 8000;
+  const fitted = renderPriorityBudget(instructions, budget);
 
   return {
     role: input.role,
     goal: input.goal,
     task: input.task,
-    instructions: fitBudget(instructions, budget),
+    instructions: fitted,
     files,
     decisions,
     dependencies: dependencyContexts,
@@ -139,6 +172,7 @@ function toGuidanceRole(role: ContextRole): "planner" | "builder" | "reviewer" |
     case "builder":
       return "builder";
     case "reviewer":
+    case "landing":
       return "reviewer";
     case "verification":
       return "repair";
@@ -152,71 +186,152 @@ function renderInstructions(
   guidance: Awaited<ReturnType<typeof selectConstitutionContext>>,
   dependencies: DependencyContext[],
   skills: SkillContext[],
-): string[] {
-  const instructions: string[] = [];
+): PrioritySection[] {
+  return [
+    { name: "task", priority: CONTEXT_SECTION_PRIORITY.task, text: renderTaskSection(input.task) },
+    { name: "roleRules", priority: CONTEXT_SECTION_PRIORITY.roleRules, text: renderRoleSection(input.role) },
+    { name: "dependencies", priority: CONTEXT_SECTION_PRIORITY.dependencies, text: renderDependenciesSection(dependencies) },
+    { name: "fileHints", priority: CONTEXT_SECTION_PRIORITY.fileHints, text: renderFileHintsSection(input.fileHints) },
+    ...renderPlanIntentSections(input.planIntent),
+    { name: "runDecisions", priority: CONTEXT_SECTION_PRIORITY.runDecisions, text: renderRunDecisionsSection(input.runDecisions) },
+    { name: "skills", priority: CONTEXT_SECTION_PRIORITY.skills, text: renderSkillsSection(skills) },
+    ...renderCapabilitySections(input.grantedCapabilities, input.deniedCapabilities),
+    { name: "failures", priority: CONTEXT_SECTION_PRIORITY.failures, text: renderFailuresSection(input.failures) },
+    { name: "guidance", priority: CONTEXT_SECTION_PRIORITY.guidance, text: renderGuidanceSection(guidance.text) },
+  ].filter((section): section is PrioritySection => Boolean(section.text));
+}
 
-  if (input.task) {
-    instructions.push(`Task id: ${input.task.id}`);
-    instructions.push(`Task stage: ${input.task.stage}`);
-    instructions.push(`Task title: ${input.task.title}`);
-    if (input.task.dependsOn?.length) {
-      instructions.push(`Depends on: ${input.task.dependsOn.join(", ")}`);
+/**
+ * Greedy budget that keeps the highest-priority authoritative sections whole.
+ * Sections of equal priority keep their declaration order. When a section does
+ * not fit, it is truncated with an explicit marker instead of being silently
+ * dropped, and no lower-priority section is allowed to displace a
+ * higher-priority one that was already kept.
+ */
+export function renderPriorityBudget(sections: PrioritySection[], maxChars: number): string[] {
+  const ordered = [...sections]
+    .map((section, index) => ({ ...section, index }))
+    .sort((a, b) => b.priority - a.priority || a.index - b.index);
+  const kept: string[] = [];
+  let used = 0;
+  for (const section of ordered) {
+    const cost = section.text.length + (kept.length > 0 ? 2 : 0);
+    if (used + cost <= maxChars) {
+      kept.push(section.text);
+      used += cost;
+      continue;
     }
-  }
-
-  const roleRules = buildRoleRules(input.role);
-  if (roleRules) {
-    instructions.push(roleRules);
-  }
-
-  if (dependencies.length > 0) {
-    instructions.push(`Dependency context:\n${dependencies.map((dep) => `- ${dep.taskId} (${dep.stage}): ${dep.title}`).join("\n")}`);
-  }
-
-  if (skills.length > 0) {
-    instructions.push(`Selected skills:\n${skills.map((skill) => `- ${skill.id}@${skill.version}: ${skill.reasons.slice(0, 2).join("; ")}`).join("\n")}`);
-  }
-
-  if (input.failures?.length) {
-    instructions.push(`Prior failures:\n${input.failures.map((failure) => `- attempt ${failure.attempt}: ${failure.summary}`).join("\n")}`);
-  }
-
-  if (guidance.text) {
-    instructions.push(`Project guidance context:\n${guidance.text}`);
-  }
-
-  if (input.fileHints?.length) {
-    instructions.push(`Likely files: ${input.fileHints.join(", ")}`);
-  }
-
-  if (input.planIntent) {
-    const { targetFiles, nonGoals, blockers, risks } = input.planIntent;
-    if (targetFiles?.length) {
-      instructions.push(`Target files:\n${targetFiles.map((file) => `- ${file}`).join("\n")}`);
+    // Keep an explicit truncation marker and account for its full length so
+    // the rendered output stays within the budget.
+    const remaining = maxChars - used - (kept.length > 0 ? 2 : 0);
+    const marker = `...[truncated; ${section.text.length} chars total]`;
+    if (remaining > marker.length + 40) {
+      kept.push(`${section.text.slice(0, remaining - marker.length)}${marker}`);
     }
-    if (nonGoals?.length) {
-      instructions.push(`Non-goals (do not do):\n${nonGoals.map((item) => `- ${item}`).join("\n")}`);
-    }
-    if (risks?.length) {
-      instructions.push(`Known risks:\n${risks.map((r) => `- ${r.risk}${r.mitigation ? ` (mitigation: ${r.mitigation})` : ""}`).join("\n")}`);
-    }
-    if (blockers?.length) {
-      instructions.push(`Blockers:\n${blockers.map((item) => `- ${item}`).join("\n")}`);
-    }
+    break;
   }
+  return kept;
+}
 
-  if (input.grantedCapabilities?.length) {
-    instructions.push(`Available capabilities:\n${input.grantedCapabilities.map((capability) => `- ${capability}`).join("\n")}`);
-  }
-  if (input.deniedCapabilities?.length) {
-    instructions.push(`Unavailable capabilities (do not attempt):\n${input.deniedCapabilities.map((capability) => `- ${capability}`).join("\n")}`);
-  }
 
-  if (input.runDecisions?.length) {
-    instructions.push(`Human decisions (authoritative run facts):\n${input.runDecisions.map((decision) => `- D: ${decision.question} → ${decision.optionId}${decision.feedback ? ` (${decision.feedback})` : ""}`).join("\n")}`);
-  }
+function renderTaskSection(task: ContextCompileRequest["task"]): string | undefined {
+  if (!task) return undefined;
+  const lines = [
+    `Task id: ${task.id}`,
+    `Task stage: ${task.stage}`,
+    `Task title: ${task.title}`,
+  ];
+  if (task.dependsOn?.length) lines.push(`Depends on: ${task.dependsOn.join(", ")}`);
+  return lines.join("\n");
+}
 
-  return instructions;
+function renderRoleSection(role: ContextCompileRequest["role"]): string | undefined {
+  return buildRoleRules(role) ?? undefined;
+}
+
+function renderDependenciesSection(dependencies: DependencyContext[]): string | undefined {
+  if (dependencies.length === 0) return undefined;
+  return `Dependency context:\n${dependencies.map((dep) => `- ${dep.taskId} (${dep.stage}): ${dep.title}`).join("\n")}`;
+}
+
+function renderSkillsSection(skills: SkillContext[]): string | undefined {
+  if (skills.length === 0) return undefined;
+  return `Selected skills:\n${skills.map((skill) => `- ${skill.id}@${skill.version}: ${skill.reasons.slice(0, 2).join("; ")}`).join("\n")}`;
+}
+
+function renderFailuresSection(failures: ContextCompileRequest["failures"]): string | undefined {
+  if (!failures?.length) return undefined;
+  return `Prior failures:\n${failures.map((failure) => `- attempt ${failure.attempt}: ${failure.summary}`).join("\n")}`;
+}
+
+function renderGuidanceSection(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  return `Project guidance context:\n${text}`;
+}
+
+function renderFileHintsSection(fileHints: ContextCompileRequest["fileHints"]): string | undefined {
+  if (!fileHints?.length) return undefined;
+  return `Likely files: ${fileHints.join(", ")}`;
+}
+
+function renderPlanIntentSections(planIntent: ContextCompileRequest["planIntent"]): PrioritySection[] {
+  if (!planIntent) return [];
+  const { targetFiles, nonGoals, implementationSteps, verificationChecks, blockers, risks, changeRequired, baselineFindings, requiredChanges } = planIntent;
+  const sections: PrioritySection[] = [
+    {
+      name: "planIntent",
+      priority: CONTEXT_SECTION_PRIORITY.planIntent,
+      text: "Planner handoff (authoritative): use these file targets, ordered steps, and checks as the implementation contract. Do not re-plan or broadly rediscover target files unless a named file is missing or contradicts the handoff.",
+    },
+  ];
+  const sub: Array<{ text: string }> = [];
+  if (changeRequired) sub.push({ text: `Change requirement: ${changeRequired}` });
+  if (baselineFindings?.length) sub.push({ text: `Baseline findings (why this change is needed):\n${baselineFindings.map((item) => `- ${item}`).join("\n")}` });
+  if (requiredChanges?.length) sub.push({ text: `Required changes:\n${requiredChanges.map((item) => `- ${item}`).join("\n")}` });
+  if (targetFiles?.length) sub.push({ text: `Target files:\n${targetFiles.map((file) => `- ${file}`).join("\n")}` });
+  if (implementationSteps?.length) sub.push({ text: `Implementation sequence:\n${implementationSteps.map((step) => `- ${step}`).join("\n")}` });
+  if (verificationChecks?.length) {
+    sub.push({
+      text: `Verification contract:\n${verificationChecks.map((check) => {
+        const command = check.command ? ` — ${check.command}` : "";
+        const reason = check.reason ? ` (${check.reason})` : "";
+        return `- ${check.name}${command}${reason}`;
+      }).join("\n")}`,
+    });
+  }
+  if (nonGoals?.length) sub.push({ text: `Non-goals (do not do):\n${nonGoals.map((item) => `- ${item}`).join("\n")}` });
+  if (risks?.length) sub.push({ text: `Known risks:\n${risks.map((r) => `- ${r.risk}${r.mitigation ? ` (mitigation: ${r.mitigation})` : ""}`).join("\n")}` });
+  if (blockers?.length) sub.push({ text: `Blockers:\n${blockers.map((item) => `- ${item}`).join("\n")}` });
+  // Sub-bullets travel with the handoff as one priority-100 block so a tight
+  // budget cannot separate the contract from its details.
+  if (sub.length > 0) {
+    sections[0]!.text = [sections[0]!.text, ...sub.map((s) => s.text)].join("\n");
+  }
+  return sections;
+}
+
+function renderCapabilitySections(granted: ContextCompileRequest["grantedCapabilities"], denied: ContextCompileRequest["deniedCapabilities"]): PrioritySection[] {
+  const sections: PrioritySection[] = [];
+  if (granted?.length) {
+    sections.push({
+      name: "capabilities",
+      priority: CONTEXT_SECTION_PRIORITY.capabilities,
+      text: `Available capabilities:\n${granted.map((capability) => `- ${capability}`).join("\n")}`,
+    });
+  }
+  if (denied?.length) {
+    sections.push({
+      name: "capabilities",
+      priority: CONTEXT_SECTION_PRIORITY.capabilities,
+      text: `Unavailable capabilities (do not attempt):\n${denied.map((capability) => `- ${capability}`).join("\n")}`,
+    });
+  }
+  return sections;
+}
+
+function renderRunDecisionsSection(runDecisions: ContextCompileRequest["runDecisions"]): string | undefined {
+  if (!runDecisions?.length) return undefined;
+  return `Human decisions (authoritative run facts):\n${runDecisions.map((decision) => `- D: ${decision.question} → ${decision.optionId}${decision.feedback ? ` (${decision.feedback})` : ""}`).join("\n")}`;
 }
 
 async function selectRelevantFiles(input: ContextCompileRequest): Promise<ContextFile[]> {
@@ -239,25 +354,6 @@ function addContextFile(files: Map<string, ContextFile>, file: ContextFile): voi
   }
 }
 
-function fitBudget(sections: string[], maxChars: number): string[] {
-  const kept: string[] = [];
-  let used = 0;
-  for (const section of sections) {
-    const cost = section.length + (kept.length > 0 ? 2 : 0);
-    if (used + cost <= maxChars) {
-      kept.push(section);
-      used += cost;
-      continue;
-    }
-    const remaining = maxChars - used - (kept.length > 0 ? 2 : 0);
-    if (remaining > 80) {
-      kept.push(`${section.slice(0, remaining - 3)}...`);
-    }
-    break;
-  }
-  return kept;
-}
-
 function buildRoleRules(role: ContextRole): string | undefined {
   switch (role) {
     case "discovery":
@@ -265,9 +361,20 @@ function buildRoleRules(role: ContextRole): string | undefined {
     case "planner":
       return "Role rules:\n- Produce architecture and execution guidance only; do not implement code.\n- Do not broaden scope beyond the requested outcome.";
     case "builder":
-      return "Role rules:\n- Keep changes tightly scoped to the requested task.\n- Use the native Pi tools provided to you; do not print DSML/XML/tool-call markup as text.\n- Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.";
+      return [
+        "Role rules:",
+        "- Treat the Planner handoff as the authoritative implementation contract; do not re-plan or rediscover it.",
+        "- Edit from the contract: read only the handoff-named target files first, then their direct imports/dependencies when a change requires it, then make the required edits.",
+        "- Order of work: read the named files, then edit, then run the specified verification — no detours.",
+        "- Do not inspect README files, repository history, or architecture unless a concrete tool failure demands it.",
+        "- Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits.",
+        "- If a handoff-named file is missing or the contract cannot be executed as written, stop and return: CONTRACT_BLOCKED <exact reason>.",
+        "- Use the native Pi tools provided to you; do not print DSML/XML/tool-call markup as text.",
+      ].join("\n");
     case "reviewer":
       return "Role rules:\n- Focus on acceptance, consistency, risk, and scope control.\n- Flag unrelated edits, scope creep, missing verification, and instruction drift explicitly.";
+    case "landing":
+      return "Role rules:\n- Decide whether the candidate is safe to land and which landing strategy is appropriate.\n- Prefer explicit risk reasoning, preserve user work, and block loudly when landing is unsafe or ambiguous.";
     case "repair":
       return "Role rules:\n- Focus only on the concrete verification failures.\n- Minimize changes and avoid opportunistic refactors or unrelated doc rewrites.";
     default:

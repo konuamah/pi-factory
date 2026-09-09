@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { summarizeGuidanceEvents, type GuidanceSummary } from "./guidance.js";
+import { readRunToolActivity } from "./tool-activity.js";
 
 export interface FactoryRunLogsByIdResult {
   runDir?: string;
@@ -11,31 +13,11 @@ export interface FactoryRunLogsByIdResult {
   repairExecutionPaths: string[];
   state?: Record<string, unknown>;
   events: string[];
+  toolActivity?: string[];
   planDecision?: "approve" | "reject" | "revise";
   planFeedback?: string;
   implementationStarted?: boolean;
-  guidance?: {
-    plannerInstructionFiles: string[];
-    builderInstructionFiles: string[];
-    repairInstructionFiles: string[];
-    reviewerInstructionFiles: string[];
-    plannerInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
-    builderInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
-    repairInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
-    reviewerInstructionDetails?: Array<{ path: string; score: number; reason: string }>;
-    plannerHasConstitution: boolean;
-    builderHasConstitution: boolean;
-    repairHasConstitution: boolean;
-    reviewerHasConstitution: boolean;
-    plannerUsedConstitution: boolean;
-    builderUsedConstitution: boolean;
-    repairUsedConstitution: boolean;
-    reviewerUsedConstitution: boolean;
-    plannerGuidanceChars: number;
-    builderGuidanceChars: number;
-    repairGuidanceChars: number;
-    reviewerGuidanceChars: number;
-  };
+  guidance?: GuidanceSummary;
   integrationFailure?: {
     reason?: string;
     conflictingFiles: string[];
@@ -63,6 +45,16 @@ export interface FactoryRunLogsByIdResult {
     question: string;
     optionId: string;
     answer?: string;
+    questions?: Array<{
+      index: number;
+      prompt: string;
+      options?: Array<{ id: string; label: string; description?: string }>;
+      recommendation?: string;
+      selectedOptionId?: string;
+      selectedOptionLabel?: string;
+      customAnswer?: string;
+      finalAnswer: string;
+    }>;
     decisionRequestId: string;
   }>;
 }
@@ -102,6 +94,7 @@ export async function readFactoryRunLogs(
     repairExecutionPaths: await listRepairExecutionPaths(runDir),
     state,
     events: parsedEvents.map(formatEventLine),
+    toolActivity: await readRunToolActivity(runDir, 12),
     planDecision: planSummary.decision,
     planFeedback: planSummary.feedback,
     implementationStarted: planSummary.implementationStarted,
@@ -227,37 +220,6 @@ function summarizePlanEvents(events: Array<{ type?: string; data?: Record<string
   return { decision, feedback, implementationStarted };
 }
 
-function summarizeGuidanceEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): FactoryRunLogsByIdResult["guidance"] {
-  for (const event of events) {
-    if (event.type !== "guidance.context_selected") {
-      continue;
-    }
-    return {
-      plannerInstructionFiles: stringArray(event.data?.plannerInstructionFiles),
-      builderInstructionFiles: stringArray(event.data?.builderInstructionFiles),
-      repairInstructionFiles: stringArray(event.data?.repairInstructionFiles),
-      reviewerInstructionFiles: stringArray(event.data?.reviewerInstructionFiles),
-      plannerInstructionDetails: detailArray(event.data?.plannerInstructionDetails),
-      builderInstructionDetails: detailArray(event.data?.builderInstructionDetails),
-      repairInstructionDetails: detailArray(event.data?.repairInstructionDetails),
-      reviewerInstructionDetails: detailArray(event.data?.reviewerInstructionDetails),
-      plannerHasConstitution: Boolean(event.data?.plannerHasConstitution),
-      builderHasConstitution: Boolean(event.data?.builderHasConstitution),
-      repairHasConstitution: Boolean(event.data?.repairHasConstitution),
-      reviewerHasConstitution: Boolean(event.data?.reviewerHasConstitution),
-      plannerUsedConstitution: Boolean(event.data?.plannerUsedConstitution),
-      builderUsedConstitution: Boolean(event.data?.builderUsedConstitution),
-      repairUsedConstitution: Boolean(event.data?.repairUsedConstitution),
-      reviewerUsedConstitution: Boolean(event.data?.reviewerUsedConstitution),
-      plannerGuidanceChars: numberValue(event.data?.plannerGuidanceChars),
-      builderGuidanceChars: numberValue(event.data?.builderGuidanceChars),
-      repairGuidanceChars: numberValue(event.data?.repairGuidanceChars),
-      reviewerGuidanceChars: numberValue(event.data?.reviewerGuidanceChars),
-    };
-  }
-  return undefined;
-}
-
 function summarizeIntegrationFailureEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): FactoryRunLogsByIdResult["integrationFailure"] {
   for (const event of events) {
     if (event.type !== "integration.failed") {
@@ -301,6 +263,12 @@ function formatEventLine(event: { timestamp?: string; type?: string; data?: Reco
   }
   if (type === "plan.revision_requested") {
     return `${timestamp} plan revision requested${typeof event.data?.feedback === "string" ? ` | feedback: ${event.data.feedback}` : ""}`;
+  }
+  if (type === "acceptance.accepted" || type === "acceptance.rejected" || type === "acceptance.revise_requested") {
+    return `${timestamp} ${type.replace("acceptance.", "acceptance ")}${typeof event.data?.feedback === "string" ? ` | feedback: ${event.data.feedback}` : ""}`;
+  }
+  if (type === "landing.guard_blocked_recorded" || type === "landing.post_verification_failed_recorded") {
+    return `${timestamp} ${type} | reason: ${typeof event.data?.reason === "string" ? event.data.reason : "unknown"}`;
   }
   if (type === "run.resumed" || type === "run.resume_requested") {
     return `${timestamp} ${type}${typeof event.data?.suggestedPhase === "string" ? ` | suggested phase: ${event.data.suggestedPhase}` : ""}${typeof event.data?.nextStatus === "string" ? ` | next status: ${event.data.nextStatus}` : ""}${typeof event.data?.policyReason === "string" ? ` | policy: ${event.data.policyReason}` : ""}`;

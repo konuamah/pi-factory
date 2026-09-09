@@ -1,5 +1,7 @@
 # Dashboard
 
+Run lists should display a short deterministic `title` when present, while preserving the full user prompt as `goal` in run details and artifacts.
+
 Use this when the user asks about Factory dashboard status, startup, or configuration.
 
 ## Config
@@ -39,6 +41,7 @@ Host must be local: `127.0.0.1`, `localhost`, or `::1`.
 - `status` reports whether it is running.
 - `stop` stops the in-process server.
 - Auto-start happens when the Pi extension loads and `dashboard.enabled: true`.
+- Run detail includes a `Plan` tab that renders the human-readable `plan.planText` from `.factory/runs/<run-id>/plan.json` as preserved text. Runs that failed before planning show an empty state instead of raw JSON.
 
 ## Static Build
 

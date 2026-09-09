@@ -100,6 +100,8 @@ interface Recommendation<T> {
 
 12. **Validation.** Your output will be strictly validated. Any value outside the allowlists or with an invented key will be rejected before the deterministic writer runs.
 
+13. **Concierge setup interview.** When setup is launched from Factory Concierge, the Pi setup flow asks user-input questions using the bundled `grilling` interview pattern before files are written. Expect workflow preset and role-model preferences to override this recommendation, because the deterministic writer treats explicit user answers as authoritative.
+
 ## Workflow Shape Guardrail
 
 The deterministic writer renders custom workflows as top-level `defaultWorkflowId` plus `workflows`, where each workflow owns its `stages` array. Never recommend or describe a top-level `stages:` list as the final `factory.yaml` shape. Put interview stages inside the selected workflow's `stages` array and bind the bundled skill with `skills.require: ["grilling"]`.

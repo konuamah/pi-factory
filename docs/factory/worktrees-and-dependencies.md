@@ -2,6 +2,31 @@
 
 Use this when a user asks whether Factory runs need worktrees, why dependency setup is slow, or how to make many agent workspaces cheaper.
 
+## Base Branch Resolution
+
+Factory targets a concrete base branch for worktrees, verification diffing, landing, and pull-request recovery. The default is `main`, and an explicit branch is always respected.
+
+To target the branch that is checked out in the project root at run start, use the `@current` sentinel (quoted, because `@` is a reserved YAML character):
+
+```yaml
+git:
+  baseBranch: "@current"
+  pullRequest:
+    baseBranch: "@current"
+project:
+  baseBranch: "@current"
+```
+
+Behavior:
+
+- The config loader resolves `@current` once per load with `git branch --show-current` in the project root, before validation. All three fields (`git.baseBranch`, `project.baseBranch`, `git.pullRequest.baseBranch`) resolve to the same branch.
+- The resolved name is snapshotted in each run's `effective-config.json`, so a run remains inspectable even if you switch branches later.
+- Detached HEAD or a non-git directory is a hard error at config load: Factory refuses to start rather than silently targeting the wrong branch.
+- `@current` must never survive into the effective config; direct `validateEffectiveConfig` callers are rejected loudly.
+- Verification impact filtering diffs `origin/<base>` first and falls back to the local branch, so a local-only branch still gets impact-filtered verification.
+
+Reproducibility note: branch-dependent behavior is session-specific. If you need deterministic runs, use an explicit `baseBranch` instead.
+
 ## Worktree Policy
 
 Factory does not require every run to use a worktree. The project config controls this:

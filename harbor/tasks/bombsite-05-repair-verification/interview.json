@@ -1,0 +1,3 @@
+{
+  "interview": "A1: The success message must start with the visitor's name, followed by the existing wording. So for a visitor named 'Ama', the message reads: 'Ama, Message ready — your mail client should open to send it.' The name comes from the contact-name field.\n\nA2: Only script.js needs to change: in the submit handler, when the form is valid, build the success message from the trimmed name field value plus the existing wording.\n\nA3: Invalid input is blocked exactly as it is now: the same errors, the same mailto prevention.\n\nA4: The only files you may modify are index.html and script.js."
+}

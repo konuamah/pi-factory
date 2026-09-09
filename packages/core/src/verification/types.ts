@@ -6,7 +6,8 @@ export type VerificationRequirementType =
   | "STATIC_ANALYSIS"
   | "CONSTITUTION"
   | "REVIEW"
-  | "ARTIFACT";
+  | "ARTIFACT"
+  | "SCOPE";
 
 export type VerificationSource =
   | "SKILL"
@@ -14,7 +15,8 @@ export type VerificationSource =
   | "TASK_TYPE"
   | "WORKFLOW"
   | "USER"
-  | "FACTORY";
+  | "FACTORY"
+  | "PLAN";
 
 export type VerificationScope = "TASK" | "NODE" | "RUN";
 
@@ -81,13 +83,19 @@ export interface ArtifactRequirement extends VerificationRequirementBase {
   changed?: boolean;
 }
 
+export interface ScopeRequirement extends VerificationRequirementBase {
+  type: "SCOPE";
+  nonGoals: string[];
+}
+
 export type VerificationRequirement =
   | CommandRequirement
   | TestRequirement
   | StaticAnalysisRequirement
   | ConstitutionRequirement
   | ReviewRequirement
-  | ArtifactRequirement;
+  | ArtifactRequirement
+  | ScopeRequirement;
 
 export type VerificationStatus =
   | "PASS"

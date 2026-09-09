@@ -43,3 +43,16 @@ The dashboard is a local read-only web server for Factory status, runs, logs, co
 ## Constitution
 
 The constitution is Factory's repository memory. It records facts and conventions from evidence. Agents should use it as context, not as a replacement for inspecting relevant code.
+## Runtime policy decisions
+
+Policy decisions are LLM-owned, but execution safety is Factory-owned. A
+`RuntimePolicyExecutor` returns `continue`, `retry`, `revise`, `repair`,
+`rerunImplementation`, or `abort`, with evidence, feedback, and an attempt.
+Factory validates the decision against retry budgets, allowed phase transitions,
+available repair capability, rerunnable task state, dirty-worktree safety, and
+resource ceilings before applying it. Invalid decisions are re-prompted and
+eventually fail loud with the violated constraint recorded.
+
+The validated decision is written to the normal decision ledger and run event
+stream, so resume and audit behavior remain unchanged. Without a policy
+executor, existing human decision handlers remain available.

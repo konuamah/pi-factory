@@ -1,4 +1,4 @@
-import type { AgentExecutor } from "./interfaces.js";
+import type { AgentExecutor, AgentExecutionInput } from "./interfaces.js";
 import type {
   CommandFailureClassification,
   FailureCategory,
@@ -83,6 +83,7 @@ export async function classifyVerificationFailuresWithAI(input: {
   deterministic: VerificationFailureClassification;
   executor?: AgentExecutor;
   model?: { provider?: string; model: string };
+  limits?: AgentExecutionInput["limits"];
 }): Promise<AiClassificationResult | undefined> {
   if (!input.executor) {
     return undefined;
@@ -99,6 +100,7 @@ export async function classifyVerificationFailuresWithAI(input: {
       prompt,
       model: input.model,
       tools: ["read", "grep", "find", "ls"],
+      limits: input.limits,
       metadata: { role: "reviewer", stage: "failure-classification" },
     });
     outputText = result.outputText;
@@ -210,12 +212,20 @@ function sanitizeAiClassification(
     const action = category !== rawCategory
       ? defaultAction(category)
       : pickEnum(raw.suggestedAction, [...ALLOWED_ACTIONS]) ?? defaultAction(category);
+    // Structural invariant: baseline-unrelated means pre-existing debt not
+    // caused by the change. It is never retryable and never repaired.
+    const commandRetryable = category === "baseline-unrelated"
+      ? false
+      : typeof raw.retryable === "boolean" ? raw.retryable : retryable;
+    const commandAction = category === "baseline-unrelated"
+      ? "ignore" as const
+      : constrainAction(action, category);
     return {
       commandName: typeof raw.commandName === "string" ? raw.commandName : "command",
       category,
       reason: typeof raw.reason === "string" && raw.reason.trim() ? raw.reason.trim() : reason,
-      retryable: typeof raw.retryable === "boolean" ? raw.retryable : retryable,
-      suggestedAction: constrainAction(action, category),
+      retryable: commandRetryable,
+      suggestedAction: commandAction,
       implicatedFiles,
     };
   });

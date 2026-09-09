@@ -1,0 +1,21 @@
+# Project config for the Harbor benchmark fixture.
+# The test command includes verify-personalization.mjs, which FAILS until the
+# contact-form success message is personalized with the visitor's name (the
+# interview decides this). A correct implementation passes verification; a
+# generic-message implementation fails, which exercises Factory's repair path:
+# the run must recover (fix the check and retry) rather than stop.
+project:
+  baseBranch: main
+
+commands:
+  lint: node --check script.js
+  test: node tests/verify-page.mjs && node tests/verify-personalization.mjs
+
+runtime:
+  maxParallelAgents: 1
+  limits:
+    totalRunTimeoutMs: 600000
+    modelTimeoutMs: 90000
+
+approval:
+  finalMerge: required

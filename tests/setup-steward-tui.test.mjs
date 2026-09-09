@@ -113,7 +113,7 @@ test("LLM setup recommendation fills omitted role models from Pi-visible default
     };
 
     const rec = await recommendViaFactorySetupSkill({ cwd: root, context: ctx, executor: mockExec });
-    for (const role of ["discovery", "planner", "builder", "reviewer", "repair"]) {
+    for (const role of ["discovery", "planner", "builder", "reviewer", "repair", "landing"]) {
       assert.deepEqual(rec.models[role].value, { provider: "openai-codex", model: "gpt-5.4-mini" });
     }
   });
@@ -151,7 +151,7 @@ test("LLM setup recommendation fills partial role models from Pi-visible default
 
     const rec = await recommendViaFactorySetupSkill({ cwd: root, context: ctx, executor: mockExec });
     assert.deepEqual(rec.models.planner.value, { provider: "commandcode", model: "claude-sonnet-5" });
-    for (const role of ["discovery", "builder", "reviewer", "repair"]) {
+    for (const role of ["discovery", "builder", "reviewer", "repair", "landing"]) {
       assert.deepEqual(rec.models[role].value, { provider: "openai-codex", model: "gpt-5.4-mini" });
     }
   });
@@ -326,7 +326,7 @@ test("live SDK via your Pi default (if auth present) — skip gracefully if 401/
     assert.ok(rec.workflow);
     validateSetupRecommendation(rec, ctx);
     const slides = buildStewardSlides(ctx, rec);
-    assert.equal(slides.length, 14);
+    assert.equal(slides.length, 15);
   } catch (e) {
     const msg = String(e.message);
     if (

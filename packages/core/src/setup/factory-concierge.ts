@@ -4,6 +4,7 @@ import type { AgentExecutor } from "../runtime/interfaces.js";
 import type { FactorySetupContext } from "@factory/schemas";
 import { buildFactorySetupContext } from "./setup-context.js";
 import { validateFactorySetup } from "./validate.js";
+import { parseSkillFile } from "../skills/loader.js";
 
 export type FactoryConciergeAction =
   | "answer-only"
@@ -102,7 +103,7 @@ export async function recommendViaFactoryConciergeSkill(
   }
 
   const skillSource = await loadFactoryConciergeSkillSource(input.cwd);
-  const docsContext = await loadFactoryConciergeDocsContext(input.cwd);
+  const operationalSkillContext = await loadFactoryConciergeOperationalSkillContext(input.cwd, input.question);
   const context = input.context ?? await buildFactorySetupContext(input.cwd);
   const validation = await validateFactorySetup(input.cwd).catch((error) => ({
     readiness: "UNKNOWN",
@@ -114,7 +115,7 @@ export async function recommendViaFactoryConciergeSkill(
     context,
     validation,
     skillSource,
-    docsContext,
+    operationalSkillContext,
   });
   input.onEvent?.("Asking Factory Concierge...\n");
   const model = context.availableModels[0];
@@ -124,7 +125,7 @@ export async function recommendViaFactoryConciergeSkill(
     prompt,
     ...(model ? { model } : {}),
     tools: [],
-    metadata: { role: "planner", purpose: "factory-concierge", streaming: true, contextMode: "docs-first-dist-blind" },
+    metadata: { role: "planner", purpose: "factory-concierge", streaming: true, contextMode: "skill-orchestrated" },
   });
 
   if (result.status !== "completed") {
@@ -201,51 +202,115 @@ async function loadFactoryConciergeSkillSource(cwd: string): Promise<string> {
   );
 }
 
-async function loadFactoryConciergeDocsContext(cwd: string): Promise<string> {
-  const fs = await import("node:fs/promises");
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-  const docsDirs = [
-    path.join(cwd, "docs", "factory"),
-    path.resolve(moduleDir, "../../../../docs/factory"),
-    path.resolve(moduleDir, "../../../../../docs/factory"),
-    path.resolve(moduleDir, "../../../docs/factory"),
-  ];
-  const seen = new Set<string>();
-  for (const docsDir of docsDirs) {
-    const resolved = path.resolve(docsDir);
-    if (seen.has(resolved)) {
-      continue;
-    }
-    seen.add(resolved);
-    const agentPath = path.join(resolved, "AGENT.md");
-    const readmePath = path.join(resolved, "README.md");
-    const [agent, readme] = await Promise.all([
-      readOptionalText(fs, agentPath),
-      readOptionalText(fs, readmePath),
-    ]);
-    if (agent || readme) {
-      return [
-        agent ? `## docs/factory/AGENT.md\n${agent.slice(0, 5000)}` : undefined,
-        readme ? `## docs/factory/README.md\n${readme.slice(0, 5000)}` : undefined,
-      ].filter(Boolean).join("\n\n");
-    }
-  }
-  return [
-    "## Factory docs context unavailable",
-    "Use Factory setup context and supported command routes only. Do not inspect dist, node_modules, build output, coverage output, generated files, or transient worktrees.",
-  ].join("\n");
+interface OperationalFactorySkill {
+  id: string;
+  description: string;
+  body: string;
 }
 
-async function readOptionalText(
-  fs: typeof import("node:fs/promises"),
-  filePath: string,
-): Promise<string | undefined> {
-  try {
-    const content = await fs.readFile(filePath, "utf8");
-    return content.trim() || undefined;
-  } catch {
-    return undefined;
+const OPERATIONAL_SKILL_IDS = [
+  "factory-setup-operations",
+  "factory-workflows",
+  "factory-model-routing",
+  "factory-skills-library",
+  "factory-dashboard",
+  "factory-constitution",
+  "factory-permissions-safety",
+  "factory-troubleshooting",
+  "factory-worktrees-dependencies",
+  "factory-quality-testing",
+] as const;
+
+const OPERATIONAL_SKILL_KEYWORDS: Record<typeof OPERATIONAL_SKILL_IDS[number], string[]> = {
+  "factory-setup-operations": ["setup", "set up", "install", "ready", "readiness", "doctor", "reconcile", "configure", "configuration"],
+  "factory-workflows": ["workflow", "workflows", "stage", "stages", "approval", "interview", "grill", "grilling", "default workflow"],
+  "factory-model-routing": ["model", "models", "provider", "providers", "routing", "role", "roles", "auth", "pi default"],
+  "factory-skills-library": ["skill", "skills", "import", "library", "playbook", "concierge", "orchestrator"],
+  "factory-dashboard": ["dashboard", "ui", "port", "open", "start", "status page"],
+  "factory-constitution": ["constitution", "memory", "refresh", "repository truth"],
+  "factory-permissions-safety": ["permission", "permissions", "safe", "safety", "approval", "capability", "capabilities", "deploy", "production"],
+  "factory-troubleshooting": ["fail", "failure", "failed", "broken", "blocked", "timeout", "logs", "debug", "diagnose", "merge-blocked", "dist"],
+  "factory-worktrees-dependencies": ["worktree", "worktrees", "dependency", "dependencies", "hydrate", "hydration", "cache", "install", "node_modules", "venv"],
+  "factory-quality-testing": ["harbor", "quality", "benchmark", "eval", "evaluation", "grader", "score", "smoke"],
+};
+
+async function loadFactoryConciergeOperationalSkillContext(cwd: string, question: string): Promise<string> {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const roots = [
+    path.join(cwd, ".pi", "skills"),
+    path.resolve(moduleDir, "../../../../.pi/skills"),
+    path.resolve(moduleDir, "../../../../../.pi/skills"),
+    path.resolve(moduleDir, "../../../.pi/skills"),
+  ];
+  const skills = await loadOperationalFactorySkills(roots);
+  const selected = selectOperationalFactorySkills(question, skills);
+  const index = skills.map((skill) => `- ${skill.id}: ${skill.description}`).join("\n");
+
+  if (selected.length === 0) {
+    return [
+      "## Available Factory operational skills",
+      index || "- none found",
+      "",
+      "No focused Factory operational skill matched. Use Factory setup context and supported command routes only.",
+    ].join("\n");
   }
+
+  return [
+    "## Available Factory operational skills",
+    index,
+    "",
+    "## Selected Factory operational skills",
+    ...selected.map((skill) => [
+      `### ${skill.id}`,
+      `Description: ${skill.description}`,
+      skill.body.slice(0, 5000),
+    ].join("\n")),
+  ].join("\n\n");
+}
+
+async function loadOperationalFactorySkills(roots: string[]): Promise<OperationalFactorySkill[]> {
+  const seenRoots = new Set<string>();
+  const byId = new Map<string, OperationalFactorySkill>();
+  for (const root of roots) {
+    const resolvedRoot = path.resolve(root);
+    if (seenRoots.has(resolvedRoot)) {
+      continue;
+    }
+    seenRoots.add(resolvedRoot);
+    for (const id of OPERATIONAL_SKILL_IDS) {
+      if (byId.has(id)) {
+        continue;
+      }
+      const parsed = await parseSkillFile(path.join(resolvedRoot, id, "SKILL.md"));
+      if (parsed) {
+        byId.set(id, {
+          id: parsed.name,
+          description: parsed.description,
+          body: parsed.body,
+        });
+      }
+    }
+  }
+  return [...byId.values()];
+}
+
+function selectOperationalFactorySkills(question: string, skills: OperationalFactorySkill[]): OperationalFactorySkill[] {
+  const normalized = question.toLowerCase();
+  const scored = skills
+    .map((skill) => ({
+      skill,
+      score: (OPERATIONAL_SKILL_KEYWORDS[skill.id as keyof typeof OPERATIONAL_SKILL_KEYWORDS] ?? [])
+        .filter((keyword) => normalized.includes(keyword))
+        .length,
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.skill.id.localeCompare(b.skill.id));
+
+  if (scored.length === 0) {
+    const fallback = skills.find((skill) => skill.id === "factory-troubleshooting") ?? skills[0];
+    return fallback ? [fallback] : [];
+  }
+  return scored.slice(0, 3).map((entry) => entry.skill);
 }
 
 function buildFactoryConciergePrompt(input: {
@@ -253,7 +318,7 @@ function buildFactoryConciergePrompt(input: {
   context: FactorySetupContext;
   validation: unknown;
   skillSource: string;
-  docsContext: string;
+  operationalSkillContext: string;
 }): string {
   const compactContext = {
     repository: input.context.repository,
@@ -274,8 +339,8 @@ function buildFactoryConciergePrompt(input: {
     "# Factory Concierge Skill",
     input.skillSource.slice(0, 7000),
     "",
-    "# Factory docs reference",
-    input.docsContext.slice(0, 10000),
+    "# Factory operational skill context",
+    input.operationalSkillContext.slice(0, 14000),
     "",
     "## User question",
     input.question,

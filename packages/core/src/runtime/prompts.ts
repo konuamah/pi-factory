@@ -1,0 +1,256 @@
+// Prompt builders + skill rendering — extracted from controller.ts so the
+// runtime controller focuses on orchestration. Pure string builders; no
+// controller state.
+
+import type { CompiledContext } from "../context/compiler.js";
+import type { AgentExecutionResult } from "./interfaces.js";
+import type { SkillBundleSelection } from "../skills/index.js";
+import type { InterviewDecisionRecord } from "./controller.js";
+import type { ReviewSurface } from "./review-surface.js";
+import { taskObjectiveForPrompt } from "../runs/title.js";
+
+export function buildCompiledPrompt(goal: string, compiled: CompiledContext, workspacePath?: string): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
+  const sections = [
+    `Goal: ${taskObjective}`,
+    ...(workspacePath ? [`Working directory: ${workspacePath}`] : []),
+    ...compiled.instructions,
+    ...(compiled.role === "builder" ? [
+      "The workspace is already prepared: target files, dependencies, and git state are ready.",
+      "Begin implementing the approved plan immediately.",
+      "If the Planner handoff names target files:",
+      "- read those target files first,",
+      "- inspect only their direct imports/dependencies when a change requires it,",
+      "- make the required edits,",
+      "- run the specified verification.",
+      "Do NOT:",
+      "- inspect README files unless a concrete failure requires it,",
+      "- inspect repository history or do git archaeology,",
+      "- broadly search the repository,",
+      "- rediscover architecture or re-plan the task,",
+      "- reinstall dependencies unless a command fails because they are missing,",
+      "- create cosmetic, unrelated, verification-only, or formatting-only edits,",
+      "- modify source temporarily to work around a port, dependency, process, or environment problem,",
+      "- inspect the main checkout, compare branches, investigate unrelated processes, or create ad hoc test harnesses unless the implementation contract explicitly requires it.",
+      "Run only verification commands explicitly named in the implementation contract. The workflow's verification stage owns broad lint, build, and test checks.",
+      "If the requested behavior is already satisfied by the target files, stop and return: CONTRACT_NOOP <concise reason>.",
+      "If a named file is missing, a required command cannot run, or the contract cannot be executed safely, stop and return: CONTRACT_BLOCKED <exact reason>.",
+    ] : []),
+    `Role: ${compiled.role}`,
+  ];
+  return sections.join("\n");
+}
+
+export function buildNoChangeRetryPrompt(
+  goal: string,
+  compiled: CompiledContext,
+  previousResult?: AgentExecutionResult,
+  workspacePath?: string,
+): string {
+  const previousOutput = previousResult?.outputText?.trim();
+  const previousSummary = previousOutput
+    ? `Previous builder output:\n${previousOutput.slice(0, 2000)}`
+    : "Previous builder output: (empty)";
+  return [
+    buildCompiledPrompt(goal, compiled, workspacePath),
+    "",
+    "Factory implementation retry:",
+    "Your previous implementation turn completed without any file changes.",
+    previousSummary,
+    "",
+    "You are still in the Builder role.",
+    "Do not force a diff and do not create cosmetic or unrelated edits.",
+    "Re-read only the handoff-named target files and the specific contract step that remains unverified.",
+    "If the contract is already satisfied, return: CONTRACT_NOOP <concise reason>.",
+    "If the contract cannot be executed safely, return: CONTRACT_BLOCKED <exact reason>.",
+    "Only make edits when a concrete contract requirement is still missing.",
+    "All file paths in your tool calls must be under the working directory above.",
+  ].join("\n");
+}
+
+export function buildBuilderPrompt(
+  goal: string,
+  task: { id: string; title: string; stage: string; dependsOn: string[] },
+  constitutionContext?: string,
+  skillBundleText?: string,
+): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
+  return [
+    `Goal: ${taskObjective}`,
+    `Task id: ${task.id}`,
+    `Task stage: ${task.stage}`,
+    `Task title: ${task.title}`,
+    task.dependsOn.length > 0 ? `Depends on: ${task.dependsOn.join(", ")}` : "Depends on: none",
+    skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
+    constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    "The workspace is already prepared: target files, dependencies, and git state are ready.",
+    "Begin implementing the approved plan immediately. Read the handoff-named target files first, then their direct imports when required, then make the edits.",
+    "Do not inspect README files, repository history, or architecture unless a concrete tool failure demands it. Do not reinstall dependencies unless a command fails because they are missing.",
+    "Do not create cosmetic, unrelated, verification-only, or formatting-only edits. Run only verification commands explicitly named in the implementation contract; the workflow's verification stage owns broad lint, build, and test checks. Do not modify source temporarily to work around a port, dependency, process, or environment problem, and do not compare branches or investigate unrelated processes unless the contract explicitly requires it.",
+    "Implement only the requested task in this repository and leave the workspace ready for verification.",
+    "If the requested behavior is already satisfied by the target files, stop and return: CONTRACT_NOOP <concise reason>. If a named file is missing, a required command cannot run, or the contract cannot be executed safely, stop and return: CONTRACT_BLOCKED <exact reason>.",
+    "Do not broaden scope, rewrite unrelated docs, or make verification-stage content edits unless truly necessary for this task.",
+  ].filter(Boolean).join("\n");
+}
+
+export function buildIntegrationRepairPrompt(
+  goal: string,
+  branch: string,
+  conflictingFiles: string[],
+  constitutionContext?: string,
+  skillBundleText?: string,
+): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
+  return [
+    `Goal: ${taskObjective}`,
+    `Integration conflict while merging branch: ${branch}`,
+    `Conflicting files: ${conflictingFiles.join(", ")}`,
+    skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
+    constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    "Resolve the active git merge conflict in the current workspace.",
+    "Keep the original task scope, preserve intended changes from both sides when possible, and avoid unrelated edits.",
+    "After resolving, leave the workspace with no unresolved merge conflicts.",
+  ].filter(Boolean).join("\n");
+}
+
+export function buildRepairPrompt(
+  goal: string,
+  verification: { cwd: string; overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string; stdout?: string; stderr?: string }> },
+  constitutionContext?: string,
+  skillBundleText?: string,
+  generalFix?: string,
+): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
+  const failures = verification.commands
+    .filter((command) => command.status === "failed")
+    .map((command) => `${command.name}: ${firstNonEmpty(command.stderr, command.stdout, "failed")}`)
+    .join("\n");
+
+  return [
+    `Goal: ${taskObjective}`,
+    `Verification status: ${verification.overallStatus}`,
+    `Verification cwd: ${verification.cwd}`,
+    failures ? `Failures:\n${failures}` : "Failures: none recorded",
+    generalFix ? `General fix direction:\n${generalFix}` : undefined,
+    skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
+    constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    "Repair the code so verification can pass.",
+    "Focus only on the observed failures and avoid unrelated edits.",
+    "Aim for the general fix that resolves the root cause across all failing commands, not per-command patches.",
+  ].filter(Boolean).join("\n");
+}
+
+export function buildEnvironmentPrepPrompt(
+  cwd: string,
+  failures: Array<{ commandName: string; category: string; reason: string; suggestedAction: string }>,
+): string {
+  const issues = failures.map((f) => `  - ${f.commandName} (${f.category}): ${f.reason}`).join("\n");
+  return [
+    `The following verification commands failed because the runtime environment is not prepared:`,
+    issues,
+    `Working directory: ${cwd}`,
+    ``,
+    `Do the following in this exact directory:`,
+    `1. Inspect the repository to find how dependencies should be prepared for each failing command.`,
+    `2. For Python: create a .venv if needed, activate it, and install requirements.`,
+    `3. For Node: run npm install if node_modules is missing.`,
+    `4. For any other language: use the appropriate package manager and lockfile.`,
+    `5. Prefer project-local virtual environments and wrappers.`,
+    `6. Do NOT change source code. Do NOT modify config files.`,
+    `7. After preparation, run the failing verification command to confirm it passes.`,
+  ].join("\n");
+}
+
+export function buildReviewerPrompt(
+  goal: string,
+  verification: { overallStatus: "passed" | "failed" | "incomplete"; commands: Array<{ name: string; status: string }> },
+  constitutionContext?: string,
+  skillBundleText?: string,
+  interviewDecisions?: InterviewDecisionRecord[],
+  reviewSurface?: ReviewSurface,
+): string {
+  const taskObjective = taskObjectiveForPrompt(goal);
+  const commandStatuses = verification.commands
+    .map((command) => `${command.name}: ${command.status}`)
+    .join("\n");
+
+  return [
+    `Goal: ${taskObjective}`,
+    `Verification status: ${verification.overallStatus}`,
+    commandStatuses ? `Command results:\n${commandStatuses}` : "Command results: none",
+    reviewSurface ? renderReviewSurface(reviewSurface) : undefined,
+    interviewDecisions?.length
+      ? `Human interview decisions (authoritative):\n${interviewDecisions.map((d) => renderInterviewDecisionSummary(d)).join("\n")}`
+      : undefined,
+    skillBundleText ? `Selected skills:\n${skillBundleText}` : undefined,
+    constitutionContext ? `Project guidance context:\n${constitutionContext}` : undefined,
+    "Review the candidate and report whether it looks ready for approval.",
+    "Call out unrelated edits, scope creep, missing verification, and instruction drift explicitly.",
+    reviewSurface ? "Only read files listed above or their direct imports. Do not search or scan the repository." : undefined,
+    reviewSurface ? "If the supplied review surface is insufficient, say exactly what is missing instead of reading unrelated files." : undefined,
+  ].filter(Boolean).join("\n");
+}
+
+function renderReviewSurface(surface: ReviewSurface): string {
+  const diffSummary = `Diff summary: ${surface.diff.fileCount || surface.changedFiles.length} file(s), +${surface.diff.additions} / -${surface.diff.deletions}${surface.diff.truncated ? " (truncated)" : ""}`;
+  return [
+    "Review surface (authoritative):",
+    surface.changedFiles.length ? `Changed files:\n${surface.changedFiles.map((file) => `- ${file}`).join("\n")}` : "Changed files: none recorded",
+    diffSummary,
+    surface.directImports.length
+      ? `Direct imports/dependencies of changed files:\n${surface.directImports.map((file) => `- ${file}`).join("\n")}`
+      : "Direct imports/dependencies of changed files: none detected",
+    surface.planTargetFiles.length
+      ? `Plan target files:\n${surface.planTargetFiles.map((file) => `- ${file}`).join("\n")}`
+      : undefined,
+    surface.planNonGoals.length
+      ? `Plan non-goals:\n${surface.planNonGoals.map((file) => `- ${file}`).join("\n")}`
+      : undefined,
+    surface.nonGoalViolations.length
+      ? `Plan non-goal violations:\n${surface.nonGoalViolations.map((violation) => `- ${violation.file} matched non-goal ${violation.nonGoal}`).join("\n")}`
+      : undefined,
+    surface.highRiskFiles.length
+      ? `High-risk files changed:\n${surface.highRiskFiles.map((file) => `- ${file}`).join("\n")}`
+      : undefined,
+    ["Diff:", "```diff", surface.diff.diff || "(no diff available)", "```"].join("\n"),
+  ].filter(Boolean).join("\n");
+}
+
+function renderInterviewDecisionSummary(decision: InterviewDecisionRecord): string {
+  if (decision.questions?.length) {
+    const detail = decision.questions.map((question) => {
+      const resolved = question.selectedOptionLabel
+        ? `[${(question.selectedOptionId ?? "").toUpperCase()}] ${question.selectedOptionLabel}`
+        : question.finalAnswer;
+      return `Q${question.index}: ${question.prompt} → ${resolved}`;
+    }).join(" | ");
+    return `- ${decision.question} → ${detail}`;
+  }
+  return `- ${decision.question} → ${decision.answer ?? decision.optionId}`;
+}
+
+export function renderSkillBundleForPrompt(bundle: SkillBundleSelection): string | undefined {
+  if (bundle.selected.length === 0) {
+    return undefined;
+  }
+  return bundle.selected
+    .map((item) => {
+      const header = `## ${item.skill.id}@${item.skill.version}`;
+      const reasons = `Selection reasons: ${item.reasons.slice(0, 2).join("; ")}`;
+      const description = item.skill.description ? `Description: ${item.skill.description}` : undefined;
+      const body = item.skill.body?.trim() ? `Instructions:\n${item.skill.body.trim()}` : undefined;
+      return [header, description, reasons, body].filter(Boolean).join("\n");
+    })
+    .join("\n\n");
+}
+
+
+export function firstNonEmpty(...values: Array<string | undefined>): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return "";
+}
+

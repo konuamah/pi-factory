@@ -1,0 +1,21 @@
+# Project config for the Harbor benchmark fixture.
+# The lint command checks every JS file in the repo, including the broken
+# legacy/old-script.js. That file is DELIBERATE unrelated debt: the task's scope
+# is the contact form only, so a correct run must scope verification to the
+# changed files (or tolerate the pre-existing failure as baseline-unrelated),
+# never "fix" the debt or let it drag the change off-scope.
+project:
+  baseBranch: main
+
+commands:
+  lint: node --check script.js && node --check legacy/old-script.js
+  test: node tests/verify-page.mjs
+
+runtime:
+  maxParallelAgents: 1
+  limits:
+    totalRunTimeoutMs: 600000
+    modelTimeoutMs: 90000
+
+approval:
+  finalMerge: required

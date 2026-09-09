@@ -58,13 +58,13 @@ export function Overview({ goToRun }: { goToRun: (runId: string) => void }) {
         <h3>Recent runs</h3>
         <table>
           <thead>
-            <tr><th>Status</th><th>Goal</th><th>Phase</th><th></th></tr>
+            <tr><th>Status</th><th>Run</th><th>Phase</th><th></th></tr>
           </thead>
           <tbody>
             {(status.recentRuns ?? []).map((run) => (
               <tr key={run.runId}>
                 <td><StatusBadge status={run.status} /></td>
-                <td>{run.goal ?? run.runId}</td>
+                <td title={run.goal}>{run.title ?? run.goal ?? run.runId}</td>
                 <td>{run.phase ?? '—'}</td>
                 <td><button className="link" onClick={() => goToRun(run.runId!)}>view</button></td>
               </tr>

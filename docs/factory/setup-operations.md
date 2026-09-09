@@ -2,7 +2,7 @@
 
 Use this when a user asks to install, finish, tune, or repair Factory setup.
 
-Factory docs are the operational registry for Factory Concierge. Start with `docs/factory/AGENT.md`, then this file, then command output/setup context/config/tool contracts. Inspect `src/` only when docs are missing, implementation debugging is required, or the user explicitly asks about code. Do not use `dist/`, `node_modules/`, build output, coverage output, generated files, or transient worktrees as behavioral reference sources.
+This is internal Factory engineering documentation. User-facing Concierge setup behavior lives in `.pi/skills/factory-setup-operations/SKILL.md`; update that skill with any runtime setup rule changes. Use this page for source-level implementation context, then command output/setup context/config/tool contracts. Inspect `src/` only when docs or skills are missing, implementation debugging is required, or the user explicitly asks about code. Do not use `dist/`, `node_modules/`, build output, coverage output, generated files, or transient worktrees as behavioral reference sources.
 
 ## Default Path
 
@@ -17,6 +17,8 @@ Factory docs are the operational registry for Factory Concierge. Start with `doc
 3. If broad setup is needed, use `/factory setup`.
 4. If the user requested a specific setting, edit the specific Factory-owned file.
 5. Verify readiness.
+
+When `/factory setup` is launched from Factory Concierge, setup must collect user input before writing files. Use the bundled `grilling` interview pattern: ask the current frontier setup questions, show the recommended answer for each, and feed the answers into the setup plan. At minimum, the Concierge-launched setup asks for workflow preset and role-model assignment preferences before the steward review and final apply confirmation.
 
 `/factory doctor` is the readiness gate for model routing and Pi model availability. Use `/factory models` when the user needs the deeper per-role and per-task routing view before editing `.factory/config.yaml`.
 `CONSTITUTION.md` is also part of readiness. If it is missing, doctor should fail until the constitution is generated or refreshed.

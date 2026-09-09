@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { judgeConstitutionRefreshForTask, runConstitutionScan } from '../packages/core/dist/index.js';
+import { judgeConstitutionRefreshForTask, runConstitutionScan, routeImpactedAreas } from '../packages/core/dist/index.js';
 
 const execFile = promisify(execFileCb);
 
@@ -330,4 +330,24 @@ test('testing evaluator detects naming conventions and test doubles', async () =
       assert.equal(getArea(result, 79).status, 'INFERRED');
     },
   );
+});
+
+
+test('routeImpactedAreas routes representative files to the right areas', () => {
+  // docs + root markdown -> areas 1, 5
+  assert.deepEqual(routeImpactedAreas(['README.md', 'docs/guide.md']), [1, 5]);
+  // package.json + lockfile -> package/workspace/build/lint areas
+  assert.deepEqual(routeImpactedAreas(['package.json']), [2, 9, 10, 11, 20, 81, 83, 85]);
+  // tests under src -> src areas + test areas
+  assert.deepEqual(routeImpactedAreas(['src/foo.test.ts']), [1, 2, 3, 4, 73]);
+  // src -> areas 1, 2, 3
+  assert.deepEqual(routeImpactedAreas(['src/main.ts']), [1, 2, 3]);
+  // Dockerfile -> 21
+  assert.deepEqual(routeImpactedAreas(['Dockerfile']), [21]);
+  // .env -> 15, 16
+  assert.deepEqual(routeImpactedAreas(['.env.example']), [15, 16]);
+  // db migration under src -> src areas + db areas (40/41 are api/routes, not db)
+  assert.deepEqual(routeImpactedAreas(['src/db/migration.sql']), [1, 2, 3, 48, 50, 51]);
+  // empty -> no areas
+  assert.deepEqual(routeImpactedAreas([]), []);
 });

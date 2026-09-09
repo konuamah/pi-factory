@@ -130,3 +130,112 @@ test('compileAgentContext respects a tight budget', async () => {
     assert.ok(total <= 450, `instructions exceed budget: ${total}`);
   });
 });
+
+test('authoritative human decisions survive a tight budget even with large guidance', async () => {
+  await withTempProject(async (root) => {
+    // A long AGENTS.md guidance section would previously crowd out decisions.
+    await fs.writeFile(path.join(root, 'AGENTS.md'), `${'very long project guidance line\n'.repeat(400)}`, 'utf8');
+    const longAnswer = `Q1: placement -> A1: shared\nQ2: existing setup -> A2: reconcile\nQ3: consent behavior -> A3: keep current consent flow`.repeat(30);
+    const compiled = await compileAgentContext({
+      cwd: root,
+      role: 'builder',
+      goal: 'Add the Google tag',
+      planIntent: {
+        targetFiles: ['src/app/layout.tsx'],
+        implementationSteps: ['Step 1: edit layout'],
+      },
+      runDecisions: [
+        {
+          requestId: 'run-interview',
+          question: 'Q3 - Consent behavior: should the tag wait for consent?',
+          optionId: 'answered',
+          feedback: longAnswer,
+        },
+      ],
+      maxChars: 1500,
+    });
+    const text = compiled.instructions.join('\n');
+    // The authoritative decision must survive the budget truncation.
+    assert.match(text, /Human decisions \(authoritative run facts\):/);
+    assert.match(text, /A3: keep current consent flow/);
+    // Planner handoff also survives.
+    assert.match(text, /Planner handoff \(authoritative\):/);
+    assert.match(text, /Step 1: edit layout/);
+  });
+});
+
+test('builder context includes CONTRACT_NOOP and verification-stage ownership rules', async () => {
+  await withTempProject(async (root) => {
+    const compiled = await compileAgentContext({
+      cwd: root,
+      role: 'builder',
+      goal: 'Add the Google tag',
+      planIntent: {
+        targetFiles: ['src/app/layout.tsx'],
+        implementationSteps: ['Step 1: edit layout'],
+      },
+    });
+    const text = compiled.instructions.join('\n');
+    assert.match(text, /CONTRACT_BLOCKED/);
+  });
+});
+
+test('full builder compiled prompt carries CONTRACT_NOOP and verification-stage ownership', async () => {
+  await withTempProject(async (root) => {
+    const compiled = await compileAgentContext({
+      cwd: root,
+      role: 'builder',
+      goal: 'Add the Google tag',
+      planIntent: {
+        targetFiles: ['src/app/layout.tsx'],
+        implementationSteps: ['Step 1: edit layout'],
+      },
+    });
+    const { buildCompiledPrompt } = await import('../packages/core/dist/runtime/prompts.js');
+    const fullPrompt = buildCompiledPrompt('Add the Google tag', compiled, root);
+    assert.match(fullPrompt, /CONTRACT_NOOP/);
+    assert.match(fullPrompt, /verification stage owns broad lint, build, and test checks/);
+    assert.match(fullPrompt, /modify source temporarily/i);
+  });
+});
+
+test('builder context carries CHANGE REQUIREMENT status when the planner provided one', async () => {
+  await withTempProject(async (root) => {
+    const compiled = await compileAgentContext({
+      cwd: root,
+      role: 'builder',
+      goal: 'Add the Google tag',
+      planIntent: {
+        targetFiles: ['src/app/layout.tsx'],
+        implementationSteps: ['Step 1: edit layout'],
+        changeRequired: 'required',
+        baselineFindings: ['The consent banner is not rendered on the marketing page.'],
+        requiredChanges: ['Render the banner in layout.tsx.'],
+      },
+    });
+    const text = compiled.instructions.join('\n');
+    assert.match(text, /Change requirement: required/);
+    assert.match(text, /Baseline findings \(why this change is needed\):/);
+    assert.match(text, /consent banner is not rendered/);
+    assert.match(text, /Required changes:/);
+  });
+});
+
+test('renderPriorityBudget keeps high-priority sections whole and truncates the tail visibly', async () => {
+  const { renderPriorityBudget } = await import('../packages/core/dist/context/compiler.js');
+  const sections = [
+    { name: 'guidance', priority: 20, text: 'G'.repeat(1000) },
+    { name: 'runDecisions', priority: 100, text: 'decisions: keep consent' },
+    { name: 'planIntent', priority: 100, text: 'handoff: edit layout' },
+    { name: 'roleRules', priority: 100, text: 'role rules block' },
+  ];
+  const rendered = renderPriorityBudget(sections, 200);
+  const joined = rendered.join('\n');
+  // High-priority sections are all present, low-priority guidance truncated/dropped.
+  assert.match(joined, /role rules block/);
+  assert.match(joined, /handoff: edit layout/);
+  assert.match(joined, /decisions: keep consent/);
+  // The overall size respects the budget.
+  assert.ok(joined.length <= 210, `budget exceeded: ${joined.length}`);
+  assert.ok(!joined.includes('G'.repeat(1000)), 'oversized guidance must not survive whole');
+});

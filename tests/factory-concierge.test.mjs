@@ -136,7 +136,7 @@ test("factory concierge rejects task command for dependency configuration", () =
   );
 });
 
-test("factory concierge prompt is docs-first and does not expose repo read tools", async () => {
+async function captureConciergePrompt(question) {
   let capturedInput;
   const executor = {
     async execute(input) {
@@ -145,7 +145,7 @@ test("factory concierge prompt is docs-first and does not expose repo read tools
         executionId: input.executionId,
         status: "completed",
         outputText: JSON.stringify({
-          answer: "Use the docs-first setup path.",
+          answer: "Use the skill-orchestrated setup path.",
           recommendedAction: "show-status",
           why: "Status is read-only.",
           needsApproval: false,
@@ -158,7 +158,7 @@ test("factory concierge prompt is docs-first and does not expose repo read tools
 
   await recommendViaFactoryConciergeSkill({
     cwd: process.cwd(),
-    question: "How should Factory avoid dist?",
+    question,
     executor,
     context: {
       repository: {},
@@ -169,13 +169,33 @@ test("factory concierge prompt is docs-first and does not expose repo read tools
       discoveredCommands: {},
     },
   });
+  return capturedInput;
+}
 
+test("factory concierge prompt is skill-orchestrated and does not expose repo read tools", async () => {
+  const capturedInput = await captureConciergePrompt("How should Factory avoid dist?");
   assert.ok(capturedInput);
   assert.deepEqual(capturedInput.tools, []);
-  assert.equal(capturedInput.metadata?.contextMode, "docs-first-dist-blind");
-  assert.match(capturedInput.prompt, /docs\/factory\/AGENT\.md/);
-  assert.match(capturedInput.prompt, /Factory Agent Reference Rules/);
+  assert.equal(capturedInput.metadata?.contextMode, "skill-orchestrated");
+  assert.match(capturedInput.prompt, /# Factory operational skill context/);
+  assert.match(capturedInput.prompt, /factory-troubleshooting/);
   assert.match(capturedInput.prompt, /Never use `dist\/`/);
+  assert.doesNotMatch(capturedInput.prompt, /## docs\/factory\/AGENT\.md/);
+  assert.doesNotMatch(capturedInput.prompt, /## docs\/factory\/README\.md/);
+});
+
+test("factory concierge selects domain operational skills by question", async () => {
+  const setup = await captureConciergePrompt("set everything up and make Factory ready");
+  assert.match(setup.prompt, /### factory-setup-operations/);
+
+  const workflow = await captureConciergePrompt("create a workflow with an interview stage");
+  assert.match(workflow.prompt, /### factory-workflows/);
+
+  const models = await captureConciergePrompt("why is my model routing failing?");
+  assert.match(models.prompt, /### factory-model-routing/);
+
+  const failure = await captureConciergePrompt("the latest run is blocked after a timeout");
+  assert.match(failure.prompt, /### factory-troubleshooting/);
 });
 
 test("factory concierge setup intent routes model-readiness failures to setup", async () => {
@@ -219,6 +239,15 @@ test("factory concierge setup intent routes model-readiness failures to setup", 
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test("factory concierge runs setup through the setup interview path", async () => {
+  const source = await fs.readFile(path.join(process.cwd(), "packages/adapters/pi/dist/gateway-concierge.js"), "utf8");
+  assert.match(source, /handleSetup\(\["--from-concierge"\], ctx\)/);
+
+  const docs = await fs.readFile(path.join(process.cwd(), "docs/factory/setup-operations.md"), "utf8");
+  assert.match(docs, /grilling/);
+  assert.match(docs, /workflow preset and role-model assignment preferences/);
 });
 
 test("factory resource policy blocks generated-output reads", () => {
@@ -267,7 +296,7 @@ test("factory resource policy blocks generated-output reads", () => {
   assert.equal(distDecision.rule, "path-policy");
 });
 
-test("factory docs library is complete and linked from Pi-facing concierge", async () => {
+test("factory operational skills are complete and Concierge names orchestration model", async () => {
   const root = process.cwd();
   const docsDir = path.join(root, "docs/factory");
   const readmePath = path.join(docsDir, "README.md");
@@ -277,13 +306,26 @@ test("factory docs library is complete and linked from Pi-facing concierge", asy
   const workflowAuthoring = await fs.readFile(path.join(docsDir, "workflow-authoring.md"), "utf8");
   const bundledGrilling = await fs.readFile(path.join(root, "skills/grilling/SKILL.md"), "utf8");
   const bundledGrillMe = await fs.readFile(path.join(root, "skills/grill-me/SKILL.md"), "utf8");
+  const expectedOperationalSkills = [
+    "factory-setup-operations",
+    "factory-workflows",
+    "factory-model-routing",
+    "factory-skills-library",
+    "factory-dashboard",
+    "factory-constitution",
+    "factory-permissions-safety",
+    "factory-troubleshooting",
+    "factory-worktrees-dependencies",
+    "factory-quality-testing",
+  ];
 
   assert.match(readme, /\[AGENT\.md\]\(AGENT\.md\)/);
   assert.match(readme, /\[worktrees-and-dependencies\.md\]\(worktrees-and-dependencies\.md\)/);
   assert.match(agent, /Reference Order/);
   assert.match(agent, /Never use `dist\/`/);
-  assert.match(agent, /Factory behavior, command, setup, workflow, capability, runtime, or agent UX change/);
+  assert.match(agent, /\.pi\/skills\/factory-\*/);
   assert.match(workflowAuthoring, /bundled interview skill/i);
+  assert.match(workflowAuthoring, /There is no `interviewer` role/);
   assert.match(workflowAuthoring, /skills\/grilling/);
   assert.match(workflowAuthoring, /skills\.require: \[grilling\]/);
   assert.match(workflowAuthoring, /top-level `defaultWorkflowId`/);
@@ -308,25 +350,36 @@ test("factory docs library is complete and linked from Pi-facing concierge", asy
     await fs.access(path.join(docsDir, linkedDoc));
   }
 
+  for (const skillId of expectedOperationalSkills) {
+    const skill = await fs.readFile(
+      path.join(root, ".pi/skills", skillId, "SKILL.md"),
+      "utf8",
+    );
+    assert.match(skill, /^---\nname: /);
+    assert.match(skill, /^description: /m);
+  }
+  const workflowSkill = await fs.readFile(
+    path.join(root, ".pi/skills/factory-workflows/SKILL.md"),
+    "utf8",
+  );
+  assert.match(workflowSkill, /There is no `interviewer` role/);
+  assert.match(workflowSkill, /require.*prefer.*exclude/s);
+
   const piSkill = await fs.readFile(
     path.join(root, ".pi/skills/factory-concierge/SKILL.md"),
     "utf8",
   );
-  assert.match(piSkill, /docs\/factory\/README\.md/);
-  assert.match(piSkill, /docs\/factory\/AGENT\.md/);
-  assert.match(piSkill, /Factory docs first/);
+  assert.match(piSkill, /Concierge is the orchestrator/);
+  assert.match(piSkill, /focused Factory operational skill/);
   assert.match(piSkill, /Factory Install Modes/);
   assert.match(piSkill, /Visible Transcript Discipline/);
   assert.match(piSkill, /Do not start a Factory implementation task yourself/);
-  assert.match(piSkill, /worktrees\/dependencies: `docs\/factory\/worktrees-and-dependencies\.md`/);
-  assert.match(piSkill, /Dependency hydration is part of setup/);
-  assert.match(piSkill, /language-neutral/);
+  assert.match(piSkill, /worktrees\/dependencies: `factory-worktrees-dependencies`/);
   assert.match(piSkill, /bundled `skills\/grilling` skill first/i);
   assert.match(piSkill, /bind `skills\.require: \[grilling\]` directly/i);
   assert.match(piSkill, /top-level `defaultWorkflowId` plus `workflows`/);
   assert.match(piSkill, /Do not create a top-level `stages:` list/);
   assert.match(piSkill, /`agent`, `interview`, `command`, `approval`, or `task-graph`/);
-  assert.match(piSkill, /Do not look for docs under `?\.pi\/skills\/factory-concierge\/docs\/?`?/);
   assert.match(piSkill, /Do not narrate every internal step/);
   assert.match(piSkill, /do not inspect Factory source, schemas, `dist`, binaries, or CLI bootstrap files/i);
   assert.match(piSkill, /only for legacy project-local extension installs/);
@@ -337,7 +390,7 @@ test("factory docs library is complete and linked from Pi-facing concierge", asy
     "utf8",
   );
   assert.match(internalSkill, /Return JSON only/);
-  assert.match(internalSkill, /Use Factory docs as the primary reference layer/);
+  assert.match(internalSkill, /Use focused Factory operational skills as the primary runtime reference layer/);
   assert.match(internalSkill, /Never use `dist\/`/);
   assert.match(internalSkill, /setup and operations action layer/);
   assert.match(internalSkill, /set Factory up end to end/);

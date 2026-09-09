@@ -170,8 +170,8 @@ test('factory doctor command keeps widget compact and never renders object comma
       JSON.stringify({
         project: { baseBranch: 'main' },
         commands: {
-          setup: { value: 'pnpm install', reason: 'legacy object shape' },
-          checks: { value: 'pnpm lint', reason: 'legacy object shape' },
+          setup: 'pnpm install',
+          lint: 'pnpm lint',
         },
         runtime: { maxParallelAgents: 1 },
         git: { allowWorktrees: false },
@@ -183,6 +183,7 @@ test('factory doctor command keeps widget compact and never renders object comma
           builder: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
           reviewer: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
           repair: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+          landing: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         },
       }, null, 2),
       'utf8',

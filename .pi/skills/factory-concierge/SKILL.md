@@ -28,7 +28,7 @@ The current project is the working directory where the user invoked Pi. Treat th
 Use this loop:
 
 1. Understand the user goal and inspect the current Factory state.
-2. For large setup, workflow, model, skill, dashboard, constitution, task guidance, or troubleshooting work, resolve the Factory package root and read `docs/factory/AGENT.md`, then the relevant reference doc from that root's `docs/factory/README.md`.
+2. For large setup, workflow, model, skill, dashboard, constitution, task guidance, or troubleshooting work, use the focused `.pi/skills/factory-*` operational skill for that domain.
 3. Decide the smallest useful action or plan.
 4. Ask only when the action is destructive, ambiguous, or changes project policy.
 5. Edit Factory-owned files or run Factory commands as needed.
@@ -37,6 +37,12 @@ Use this loop:
 
 `/factory doctor` is the readiness gate for model routing plus Pi-visible model availability. `/factory models` remains the deeper inspection view before fixing `.factory/config.yaml`.
 When the user asks to set up Factory or make Factory ready, run setup so Factory writes role models for them when Pi exposes a usable model. Do not make `/factory models` the broad setup action.
+
+When Concierge launches setup, collect user input before writing files. Use the bundled `grilling` interview pattern: ask the current frontier of setup decisions, include recommended answers, and feed the answers into the setup plan. At minimum, ask for workflow preset and role-model assignment preferences before the steward review and final apply confirmation.
+
+When diagnosing live task runs, know that recoverable runtime failures may pause as `DECISION_REQUIRED / decision-runtime` with a `RUNTIME` / `FAILURE_RECOVERY` decision and `recovery-checkpoint.json`. This can happen in discovery, planning, implementation, integration, verification-planning, review, approval, landing, and post-landing verification. Tell the user to read the phase/problem, fix the cause if needed, choose retry/revise/repair when offered, or stop to preserve artifacts. If no decision handler is available, Factory still fails loud and the user should inspect `/factory show <run-id>` and `/factory logs <run-id>`.
+
+Recovery wording may be LLM-generated through the failure-classifier or reviewer executor, but enabled option ids and recovery behavior remain code-controlled; missing executors or `failureRecovery.disableNarrator` use deterministic fallback copy. Landing guard, execution, and post-landing verification can consume `revise` feedback by rerunning the affected planner or repair step; `stop` keeps the PR fallback.
 
 When a workflow needs to add an interview stage, inspect the bundled `skills/grilling` skill first. If the repo does not already include it, add the bundled skill from Factory instead of telling the user to install an external package. Bind `skills.require: [grilling]` directly.
 
@@ -53,7 +59,7 @@ Keep the visible transcript operational, not diary-like.
 - Do not narrate every internal step with repeated phrases like "let me check", "let me inspect", or "now let me".
 - Before running commands, give at most one short status sentence that explains the next useful action.
 - After reading files or running commands, summarize the result instead of replaying the investigation.
-- For ordinary setup, do not inspect Factory source, schemas, `dist`, binaries, or CLI bootstrap files. Use `/factory setup`, `/factory doctor`, `/factory status`, `pi list`, `.pi/settings.json`, and the docs library first.
+- For ordinary setup, do not inspect Factory source, schemas, `dist`, binaries, or CLI bootstrap files. Use `/factory setup`, `/factory doctor`, `/factory status`, `pi list`, `.pi/settings.json`, and the focused Factory operational skills first.
 - Inspect Factory source or schema files only when the user is developing Factory itself or when a confirmed Factory bug/build/module-resolution failure requires it.
 - If a command or model call returns a temporary service error, state that briefly and continue with local evidence only if the next step is still safe.
 
@@ -61,21 +67,21 @@ Keep the visible transcript operational, not diary-like.
 
 Detect how Factory is installed before changing extension or skill wiring:
 
-- Pi package mode: `.pi/settings.json` lists a package path or npm package. Use that package root for Factory docs, packaged extensions, and packaged skills. Do not recreate `.pi/extensions/factory/index.ts` just because it is absent.
+- Pi package mode: `.pi/settings.json` lists a package path or npm package. Use that package root for packaged extensions, packaged skills, and internal docs when debugging Factory itself. Do not recreate `.pi/extensions/factory/index.ts` just because it is absent.
 - Legacy project-local mode: `.pi/extensions/factory/index.ts` exists and is intentionally active. Only then inspect or edit that file.
 - Vendored mode: `vendor/pi-factory` exists. Use it only when the user is explicitly updating or repairing a vendored Factory copy.
 
 In package mode, a missing project-local `.pi/extensions/factory/index.ts` is normal. Verify package mode with `pi list`, `.pi/settings.json`, and `/factory doctor`.
 
-## Reference Resolution
+## Skill Orchestration
 
-Reference docs live at the Factory package/repo root, not inside this skill folder. Do not look for docs under `.pi/skills/factory-concierge/docs/`.
+Concierge is the orchestrator. It chooses the focused Factory operational skill for the user's request, then routes to the safest Factory support action.
 
-Use `docs/factory/AGENT.md` as the agent contract. The reference order is: Factory docs first, command output/setup context/config/tool contracts second, `src/` only when docs are missing or implementation debugging is required, and never `dist/`, `node_modules`, build output, coverage output, generated files, or transient worktrees as behavioral reference sources.
+Use `.pi/skills/factory-setup-operations`, `.pi/skills/factory-workflows`, `.pi/skills/factory-model-routing`, `.pi/skills/factory-skills-library`, `.pi/skills/factory-dashboard`, `.pi/skills/factory-constitution`, `.pi/skills/factory-permissions-safety`, `.pi/skills/factory-troubleshooting`, `.pi/skills/factory-worktrees-dependencies`, and `.pi/skills/factory-quality-testing` for domain behavior.
 
-If `.pi/settings.json` contains a relative package path such as `../../pi-factory`, resolve it relative to the current project root and read `docs/factory/README.md` from that resolved package root.
+Use `docs/factory/` only as internal Factory codebase reference for implementation debugging or explicit Factory source questions.
 
-Do not inspect `node_modules`, `dist`, binaries, generated output, or guessed CLI/bootstrap files to discover `/factory` commands unless debugging a confirmed build or module-resolution failure. Slash commands are provided by Pi package/extension registration; use `/factory`, `pi list`, `.pi/settings.json`, and the Factory docs as the first sources of truth.
+Do not inspect `node_modules`, `dist`, binaries, generated output, or guessed CLI/bootstrap files to discover `/factory` commands unless debugging a confirmed build or module-resolution failure. Slash commands are provided by Pi package/extension registration; use `/factory`, `pi list`, `.pi/settings.json`, and the Factory operational skills as the first sources of truth.
 
 ## What You May Change
 
@@ -99,23 +105,27 @@ You may also run Factory commands when useful:
 - `/factory workflow list|show|set-default|delete`
 - `/factory models`
 - `/factory dashboard start|status|open|stop`
+
+When users ask whether the dashboard shows plans, check the run detail Plan tab. It renders the human-readable `plan.planText` from the run's `plan.json`.
 - `/factory constitution`
 
-## Reference Docs
+## Operational Skills
 
-Use the Factory package root's `docs/factory/AGENT.md` as the agent reference contract and `docs/factory/README.md` as the docs hub. Read the specific referenced doc before larger actions:
+Use focused Factory operational skills for user-facing behavior:
 
-- agent reference rules: `docs/factory/AGENT.md`
-- setup/tuning: `docs/factory/setup-operations.md`
-- worktrees/dependencies: `docs/factory/worktrees-and-dependencies.md`
-- workflows: `docs/factory/workflow-authoring.md`
-- models: `docs/factory/model-routing.md`
-- skills: `docs/factory/skills-library.md`
-- dashboard: `docs/factory/dashboard.md`
-- constitution: `docs/factory/constitution.md`
-- safety: `docs/factory/permissions-and-safety.md`
-- failures: `docs/factory/troubleshooting.md`
-- examples: `docs/factory/examples.md`
+- setup/tuning: `factory-setup-operations`
+- worktrees/dependencies: `factory-worktrees-dependencies`
+- workflows: `factory-workflows`
+- models: `factory-model-routing`
+- skills: `factory-skills-library`
+- dashboard: `factory-dashboard`
+- constitution: `factory-constitution`
+- safety: `factory-permissions-safety`
+- failures: `factory-troubleshooting`
+- quality testing: `factory-quality-testing`
+- scope handoff (non-goal files in verification/approval/landing): see `docs/factory/benchmark-running.md` "Scope handoff" — flags `scope.verification` / `scope.landing` (`"warn"` default, `"block"` to enforce)
+- Acceptance is the single final user decision after landing; landing and post-landing verification are shown as evidence in that gate. The dashboard run detail exposes this acceptance evidence, including reviewer blocking summaries, read-only.
+- Controller-only stages such as approval/acceptance must never run as Builder tasks. Multi-commit candidates must land as a branch merge, and recovery decision ids must remain unique across retries and acceptance re-entry.
 
 ## Approval Rules
 
@@ -154,6 +164,8 @@ When editing directly, include:
 - commands for command steps
 - dependencies
 
+Final approval is a post-review gate: workflows that ask for final approval should place a reviewer stage immediately before `approval` and set `approval.dependsOn` to that review stage. The built-in default workflow and the setup presets (`fast`, `safe`, `balanced`) already put `review` before `approval`; keep that ordering when editing or creating workflows, and diagnose `review-unavailable` runs as "no review evidence (deterministic or executor) before final approval."
+
 After editing, run or recommend `/factory doctor`.
 
 ## Task Execution Guidance
@@ -170,7 +182,7 @@ Do not execute `/factory <goal>` yourself from this skill.
 ## Setup Authority
 
 For full setup requests, you may run `/factory setup` or edit Factory files directly if the requested change is specific. Prefer `/factory setup` when the repo needs broad inspection or many settings.
-Full setup includes assigning Pi-visible models for discovery, planner, builder, reviewer, and repair roles.
+Full setup includes assigning Pi-visible models for discovery, planner, builder, reviewer, repair, and landing roles.
 
 
 ## Stage Handoffs
@@ -178,10 +190,18 @@ Full setup includes assigning Pi-visible models for discovery, planner, builder,
 Factory passes structured artifacts between workflow stages, not just text. When diagnosing a run, know these:
 
 - `discovery-execution.json` — structured discovery facts (files, constraints) validated before planning.
-- `interview-decisions.json` — structured interview answers (stage, role, question, optionId, answer). These are authoritative human facts: they reach the planner, builder context, reviewer, and approval.
-- `plan.json` — contains `discoveryText`, `planText`, and `implementationContract` (`targetFiles`, `nonGoals`, `verificationChecks`, `risks`, `blockers`).
+- Discovery uses structured implementation-surface status. `implementationSurface: "missing"` is valid for empty or greenfield repos and should flow into planning so the planner names new files for Builder to create. Discovery may also report `newFiles[]` — files the goal requires creating that do not exist yet — kept separate from `files[]` (which must be observed existing files); `newFiles` are merged into the planner contract's target files and attached as build-task file hints so a mixed edit+create task (e.g. edit `index.html` and create `data/schedule.js`) is representable without failing validation.
+- `interview-decisions.json` — structured interview answers (stage, role, question, optionId, answer, optional per-question `questions[]`). These are authoritative human facts: they reach the planner, builder context, reviewer, and approval. Interview questions may be free-text or multiple-choice: when a grilling-style question includes an `Options:` block with `[A]`/`[B]` markers, Pi prefers its built-in selection UI with the current question included in the select title plus a built-in `Custom answer…` path, falling back to Factory's custom overlay selector only when needed. The selected choice is captured both inside the recorded answer text and in structured per-question fields.
+- Empty interview answers mean "skip this question": a blank custom answer, a dismissed select, or an Esc in the interview overlay is recorded as a structured decision with `skipped: true` instead of failing the run. If every interview answer is skipped and the planner cannot safely infer the user's intent from the task plus Discovery evidence, Factory fails during planning with `Planning failed: Interview answers were skipped and planning needs clarification: ...` rather than guessing.
+- `plan.json` — contains `discoveryText`, `planText`, and `implementationContract` (`targetFiles`, `implementationSteps`, `verificationChecks`, `nonGoals`, `risks`, `blockers`). Builder context treats this contract as authoritative and should not broadly rediscover files when the plan names concrete targets and ordered steps. Raw goals are preserved for audit, but model-facing task objectives strip pasted Pi prompt-template wrappers so Planner/Builder role instructions do not conflict.
 - Controller-native stages (`plan`, `discover`, `interview`) appear in task artifacts as `done` with `controllerHandled: true` and artifact path refs.
 - Baseline-unrelated verification failures are surfaced as `baselineDebt` in final approval: the task-specific contract can pass while repository debt remains.
+- Final review is proportional to the candidate diff. Factory builds a review surface from `completed-tasks.json`, the candidate git diff, direct imports/dependencies, `plan.json` `implementationContract`, and `verification.json`. Tiny low-risk changes may skip the LLM reviewer entirely via deterministic review (`review.deterministic` + `reviewer-execution.json`); otherwise the final reviewer gets a scoped packet and only the `read` tool. The reviewer's prose verdict is classified into `review.verdict` (`block` | `pass` | `unknown`) from its conclusion, and a blocking verdict is surfaced in the final approval gate — when no confirm UI exists Factory refuses to silently auto-approve past a blocking review.
+- Builder prompts treat the workspace as already prepared: the role rules and compiled prompt say to read handoff-named target files first, then edit, then run only the verification commands named in the contract (the verify stage owns broad lint/build/test checks), and to return `CONTRACT_BLOCKED <reason>` when a named file is missing or the contract cannot run, or `CONTRACT_NOOP <reason>` when the requested behavior is already satisfied — never cosmetic, unrelated, or temporary source edits. Planner implementation steps name exact read targets and carry explicit 'Stop discovery after N check(s)' lines; the context budget keeps human decisions and the planner handoff whole, truncating only general project guidance when tight. A no-op/blocked Builder result is recorded as `task.contract_noop` / `task.contract_blocked`, ends the run `BLOCKED` with phase `implementation-blocked`, and keeps the Builder's reason in the summary `recoveryHint`.
+- When no verification commands are configured or discovered, Factory records incomplete verification with a missing automated-checks result. This is distinct from a planner crash and should be explained as a signal to add real checks when the project has them. Incomplete verification does not block required landing — the human approval gate decides — so a blocked landing with `verificationStatus: incomplete` has a different cause (dirty overlap, missing candidate, high risk) and the guard reasons in `landing-plan.json` name it.
+- Final landing uses `completed-tasks.json`, `landing-plan.json`, `landing-diagnosis-<attempt>.json`, `landing-attempts.jsonl`, and `final-merge.json`. The landing strategy is model-selected; deterministic checks only enforce safety invariants. If direct landing cannot complete and GitHub PR recovery is enabled, Factory pushes the preserved candidate branch and opens or reuses a PR through the user's authenticated `gh` CLI. A PR-created run remains `BLOCKED / merge-blocked` until a human merges it, but is a recoverable delivery state rather than an opaque implementation failure.
+- After a successful landing, post-landing verification runs against the landed target checkout (`mergeCwd`), not the pre-landing worktree. If it fails only on debt already classified `baseline-unrelated` + `ignore` + non-retryable, Factory skips the repair agent (the commit already landed) and records `landing.post_verification_repair_skipped` plus `repairAttempted: false` in `final-merge.json`.
+- Final review is proportional to the candidate diff. Factory builds a review surface from `completed-tasks.json`, the candidate git diff, direct imports/dependencies, `plan.json` `implementationContract`, and `verification.json`. Tiny low-risk changes may skip the LLM reviewer entirely via deterministic review (`review.deterministic` + `reviewer-execution.json`); otherwise the final reviewer gets a scoped packet and only the `read` tool.
 
 Use `/factory show <run-id>`, `/factory logs <run-id>`, and `/factory plan` to inspect these artifacts. A run can complete with baseline repository debt still present; that is expected, not a silent pass.
 
@@ -221,3 +241,7 @@ Action:
 ## Response Style
 
 Be decisive and useful. Avoid saying "I can’t edit" when the requested change is inside Factory-owned files. If you cannot safely complete something, say what is missing and offer the next concrete action.
+Runtime policy decisions may be LLM-owned through `RuntimePolicyExecutor`, but
+never treat model output as authority to exceed Factory constraints. Validate
+attempt budgets, phase transitions, repair/rerun availability, evidence, and
+Git/resource safety before continuing.

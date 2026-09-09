@@ -3,9 +3,20 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readLatestFactoryRunStatus } from "./status.js";
+import { findPendingDecision } from "../decisions/index.js";
+import { readRecoveryCheckpoint, recoveryCheckpointPath } from "../runtime/recovery-checkpoint.js";
 import { appendFactoryRunEvent, updateFactoryRunState } from "./store.js";
 
 const execFileAsync = promisify(execFile);
+
+export interface PendingRecoveryDecisionSummary {
+  requestId: string;
+  title: string;
+  phase: string;
+  question: string;
+  options: string[];
+  checkpointPath?: string;
+}
 
 export interface ResumeFactoryRunResult {
   resumed: boolean;
@@ -26,6 +37,7 @@ export interface ResumeFactoryRunResult {
       ok: boolean;
       detail: string;
     }>;
+    pendingDecision?: PendingRecoveryDecisionSummary;
   };
   state?: {
     runId?: string;
@@ -49,6 +61,20 @@ export async function resumeLatestFactoryRun(runsDir: string): Promise<ResumeFac
   const currentStatus = latest.state.status ?? "UNKNOWN";
   const currentPhase = latest.state.phase ?? "unknown";
   const recovery = await inspectRecoveryState(latest.runDir, runsDir, currentPhase);
+
+  if (currentPhase === "decision-runtime" && recovery.pendingDecision) {
+    return {
+      resumed: false,
+      reason: recovery.resumable
+        ? "Latest run is awaiting a runtime recovery decision"
+        : "Pending runtime recovery is missing its checkpoint artifact",
+      runDir: latest.runDir,
+      statePath: latest.statePath,
+      eventsPath,
+      state: latest.state,
+      recovery,
+    };
+  }
 
   if (currentStatus === "COMPLETED") {
     return {
@@ -247,7 +273,11 @@ async function inspectRecoveryState(
     }
   }
 
-  const resumePolicy = suggestResumePolicy(currentPhase, finalMerge, verification);
+  const pendingDecision = await readPendingRecoveryDecision(runDir, currentPhase);
+  const checkpoint = pendingDecision ? await readRecoveryCheckpoint(runDir) : undefined;
+  const resumePolicy = pendingDecision && !checkpoint
+    ? { resumable: false, suggestedPhase: currentPhase, nextStatus: "PENDING" as const, reason: "Pending runtime recovery is missing its checkpoint artifact." }
+    : suggestResumePolicy(currentPhase, finalMerge, verification);
 
   return {
     resumable: resumePolicy.resumable,
@@ -258,6 +288,21 @@ async function inspectRecoveryState(
     finalMergePath: await exists(finalMergePath) ? finalMergePath : undefined,
     policyReason: resumePolicy.reason,
     checks,
+    pendingDecision,
+  };
+}
+
+async function readPendingRecoveryDecision(runDir: string, currentPhase: string): Promise<PendingRecoveryDecisionSummary | undefined> {
+  if (currentPhase !== "decision-runtime") return undefined;
+  const pending = await findPendingDecision(runDir);
+  if (!pending || pending.source !== "RUNTIME" || pending.reason !== "FAILURE_RECOVERY") return undefined;
+  return {
+    requestId: pending.id,
+    title: pending.title,
+    phase: currentPhase,
+    question: pending.question,
+    options: pending.options.map((option) => option.id),
+    checkpointPath: recoveryCheckpointPath(runDir),
   };
 }
 
@@ -266,6 +311,9 @@ function suggestResumePolicy(
   finalMerge: Record<string, unknown> | undefined,
   verification: Record<string, unknown> | undefined,
 ): { resumable: boolean; suggestedPhase: string; nextStatus: "PENDING" | "RUNNING"; reason: string } {
+  if (currentPhase === "implementation-blocked") {
+    return { resumable: false, suggestedPhase: "implementation-blocked", nextStatus: "PENDING", reason: "The implementation contract produced no candidate. Revise the goal or plan and start a new run." };
+  }
   if (currentPhase === "plan-approval") {
     return { resumable: true, suggestedPhase: "plan-approval", nextStatus: "PENDING", reason: "Plan approval was interrupted." };
   }
@@ -278,11 +326,11 @@ function suggestResumePolicy(
   if (currentPhase === "plan-approval-rejected") {
     return { resumable: false, suggestedPhase: "plan-approval-rejected", nextStatus: "PENDING", reason: "Rejected plans are not resumable." };
   }
-  if (currentPhase.includes("approval")) {
-    return { resumable: true, suggestedPhase: "approval-ready", nextStatus: "RUNNING", reason: "Resume near final approval." };
+  if (currentPhase === "acceptance") {
+    return { resumable: true, suggestedPhase: "acceptance", nextStatus: "RUNNING", reason: "Resume from acceptance gate." };
   }
-  if (currentPhase.includes("merge")) {
-    return { resumable: true, suggestedPhase: finalMerge ? "merge" : "approval-ready", nextStatus: "RUNNING", reason: finalMerge ? "Resume merge from saved merge artifact." : "Merge artifact missing; resume from approval-ready." };
+  if (currentPhase === "landing") {
+    return { resumable: true, suggestedPhase: "landing", nextStatus: "RUNNING", reason: "Resume landing stage." };
   }
   if (currentPhase.includes("review")) {
     return { resumable: true, suggestedPhase: "review", nextStatus: "RUNNING", reason: "Resume review stage." };

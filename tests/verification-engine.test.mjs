@@ -10,6 +10,7 @@ import {
   computeOverallStatus,
   initializeVerificationProviders,
   registerVerificationProvider,
+  planVerificationExecution,
 } from '../packages/core/dist/index.js';
 
 async function withTempDir(fn) {
@@ -245,4 +246,81 @@ test('custom provider can be registered', async () => {
     assert.equal(result.overallStatus, 'PASS');
     assert.equal(result.canComplete, true);
   });
+});
+
+test('deterministic allowedCommands include pytest for python markers', async () => {
+  await withTempDir(async (root) => {
+    await fs.writeFile(path.join(root, 'requirements.txt'), 'pytest\n', 'utf8');
+    const plan = await planVerificationExecution({
+      cwd: root,
+      goal: 'Verify a Python feature',
+      commands: {},
+      allowDeterministicFallback: true,
+    });
+    const allowed = plan.evidence.allowedCommands;
+    assert.ok(allowed.includes('python -m pytest'), 'expected pytest in allowed commands, got: ' + allowed.join(', '));
+    assert.ok(allowed.includes('pip install -r requirements.txt'));
+  });
+});
+
+test('SCOPE requirement: non-blocking by default, PASS when no violation', async () => {
+  initializeVerificationProviders();
+  await withTempDir(async (root) => {
+    const plan = gatherVerificationRequirements({
+      goal: 'Add a feature',
+      config: {},
+      nonGoals: ['contact-form.html'],
+      changedFiles: ['index.html', 'script.js'],
+    });
+    const scope = plan.requirements.find((r) => r.type === 'SCOPE');
+    assert.ok(scope, 'SCOPE requirement should exist when nonGoals present');
+    assert.equal(scope.blocking, false, 'SCOPE is non-blocking by default');
+    const result = await runVerificationEngine({ cwd: root, plan });
+    const scopeResult = result.results.find((r) => r.requirementId === scope.id);
+    assert.equal(scopeResult.status, 'PASS');
+    assert.equal(result.canComplete, true);
+  });
+});
+
+test('SCOPE requirement: FAIL (non-blocking) on violation, canComplete stays true', async () => {
+  initializeVerificationProviders();
+  await withTempDir(async (root) => {
+    const plan = gatherVerificationRequirements({
+      goal: 'Add a feature',
+      config: {},
+      nonGoals: ['contact-form.html'],
+      changedFiles: ['contact-form.html', 'script.js'],
+    });
+    const scope = plan.requirements.find((r) => r.type === 'SCOPE');
+    const result = await runVerificationEngine({ cwd: root, plan });
+    const scopeResult = result.results.find((r) => r.requirementId === scope.id);
+    assert.equal(scopeResult.status, 'FAIL');
+    assert.match(scopeResult.reason, /contact-form\.html/);
+    // non-blocking: canComplete unaffected
+    assert.equal(result.canComplete, true);
+    assert.equal(result.overallStatus, 'PASS');
+  });
+});
+
+test('SCOPE requirement: blocking when scopeCheckBlocking is true', async () => {
+  initializeVerificationProviders();
+  await withTempDir(async (root) => {
+    const plan = gatherVerificationRequirements({
+      goal: 'Add a feature',
+      config: {},
+      nonGoals: ['contact-form.html'],
+      changedFiles: ['contact-form.html'],
+      scopeCheckBlocking: true,
+    });
+    const scope = plan.requirements.find((r) => r.type === 'SCOPE');
+    assert.equal(scope.blocking, true);
+    const result = await runVerificationEngine({ cwd: root, plan });
+    assert.equal(result.canComplete, false);
+    assert.equal(result.overallStatus, 'FAIL');
+  });
+});
+
+test('SCOPE requirement: no requirement when nonGoals absent', () => {
+  const plan = gatherVerificationRequirements({ goal: 'Add a feature', config: {} });
+  assert.ok(!plan.requirements.some((r) => r.type === 'SCOPE'));
 });

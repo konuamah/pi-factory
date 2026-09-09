@@ -13,17 +13,17 @@ You are not the task runner. You may guide task execution, prepare the right wor
 
 Architectural rule: AI decides which Factory support action should happen; Factory commands, validation, permissions, approvals, and backend logic decide what is allowed to happen.
 
-## Reference Order
+## Orchestration Order
 
-Use Factory docs as the primary reference layer:
+Use focused Factory operational skills as the primary runtime reference layer:
 
-1. Start with `docs/factory/AGENT.md` and `docs/factory/README.md`.
-2. Read only the relevant `docs/factory/*.md` reference for the user's request.
-3. Use Factory setup context, command output, config, and tool/API contracts next.
-4. Inspect `src/` only when docs are missing, implementation debugging is required, or the user explicitly asks about code.
+1. Select the relevant `.pi/skills/factory-*` operational skill for the user's request.
+2. Use Factory setup context, command output, config, and tool/API contracts next.
+3. Use `docs/factory/` only as internal Factory codebase reference when implementation debugging is required or the user explicitly asks about Factory source behavior.
+4. Inspect `src/` only when skill guidance is missing, implementation debugging is required, or the user explicitly asks about code.
 5. Never use `dist/`, `node_modules/`, build output, coverage output, generated files, or transient worktrees as behavioral reference sources.
 
-If source inspection reveals reusable Factory behavior, the right long-term fix is to update `docs/factory/` so future Concierge runs can use docs instead of rediscovering source.
+If source inspection reveals reusable Factory operations behavior, update the matching `.pi/skills/factory-*` skill so future Concierge runs can orchestrate from skills instead of rediscovering source.
 
 ## Input
 
@@ -111,7 +111,7 @@ End-to-end Factory setup includes:
 - `factory.yaml` workflow setup.
 - `.factory/config.yaml` project config.
 - setup, lint, typecheck, test, and build command selection.
-- Pi-visible model routing for discovery, planner, builder, reviewer, and repair roles.
+- Pi-visible model routing for discovery, planner, builder, reviewer, repair, and landing roles.
 - skill discovery and skill import guidance.
 - capability discovery and validation.
 - worktree isolation plus language-neutral dependency hydration and shared cache guidance.
@@ -119,10 +119,21 @@ End-to-end Factory setup includes:
 - constitution stub/generation/refresh guidance.
 - `/factory doctor` or `/factory status` verification after changes.
 - Harbor-based quality testing for repeated task evaluation and benchmark-style validation.
+- Scope handoff (non-goal files in verification/approval/landing): `scope.verification` / `scope.landing` config flags (`"warn"` default, `"block"` to enforce) — see `docs/factory/benchmark-running.md` "Scope handoff".
+- Acceptance is the single final user decision after landing; landing and post-landing verification are shown as evidence in that gate. The dashboard run detail exposes this acceptance evidence, including reviewer blocking summaries, read-only.
+- Controller-only stages such as approval/acceptance must never run as Builder tasks. Multi-commit candidates must land as a branch merge, and recovery decision ids must remain unique across retries and acceptance re-entry.
+
+Operational domains are split across focused Factory skills: setup operations, workflows, model routing, skills library, dashboard, constitution, permissions/safety, troubleshooting, worktrees/dependencies, and quality testing. Use the selected operational skill as authority for domain details and keep this Concierge skill focused on routing, approval, and command allowlists.
 
 `/factory doctor` is the readiness gate for model routing plus Pi-visible model availability. `/factory models` remains the deeper inspection view before fixing `.factory/config.yaml`.
 When the user asks to set up Factory or make Factory ready, prefer `run-setup` so setup writes role models for them when Pi exposes a usable model. Do not make `/factory models` the broad setup action.
 When troubleshooting Discovery failures, remember that Factory now keeps `files[]` validation strict but sanitizes invalid `evidence[]` file paths by correcting a unique basename match from validated discovered files or dropping the bad evidence item with a warning event.
+
+When Concierge launches setup, the setup flow must ask user-input questions before writing files. Treat this as a grilling-style setup interview: ask the current frontier of setup decisions, include recommended answers, and let those answers drive the setup plan. At minimum, collect workflow preset and role-model assignment preferences before the steward review and final apply confirmation.
+
+When diagnosing live task runs, know that recoverable runtime failures may pause as `DECISION_REQUIRED / decision-runtime` with a `RUNTIME` / `FAILURE_RECOVERY` decision and `recovery-checkpoint.json`. This can happen in discovery, planning, implementation, integration, verification-planning, review, approval, landing, and post-landing verification. Tell the user to read the phase/problem, fix the cause if needed, choose retry/revise/repair when offered, or stop to preserve artifacts. If no decision handler is available, Factory still fails loud and the user should inspect `/factory show <run-id>` and `/factory logs <run-id>`.
+
+Recovery wording may be LLM-generated through the failure-classifier or reviewer executor, but enabled option ids and recovery behavior remain code-controlled; missing executors or `failureRecovery.disableNarrator` use deterministic fallback copy. Landing guard, execution, and post-landing verification can consume `revise` feedback by rerunning the affected planner or repair step; `stop` keeps the PR fallback.
 
 Workflows are a first-class responsibility. Help the user design, list, inspect, create, and set workflows. For broad workflow creation, use `create-workflow`. For a specific existing workflow, use `show-workflow` or `set-default-workflow` with the workflow id. Ask for approval before changing the default workflow.
 When advising on stuck builders or test blockers, keep phase responsibility strict: Builder implements only; `verify`/`verification` command stages own lint, build, tests, smoke/e2e, and other run-blocking checks; Repair reacts only after verification failures. Named verify commands must match configured standard commands or `commands.checks` entries, and long-running checks should have `timeout` in seconds. Treat the workflow command list as an allowlist: with an LLM verification planner, Factory supplies changed files and lets the planner choose the smallest useful subset; without one, Factory uses deterministic changed-path filtering.
@@ -139,10 +150,14 @@ Dependency hydration is a first-class setup responsibility. Explain that Factory
 Factory passes structured artifacts between workflow stages, not just text. When diagnosing a run, know these:
 
 - `discovery-execution.json` — structured discovery facts (files, constraints) validated before planning.
+- Discovery uses structured implementation-surface status. `implementationSurface: "missing"` is valid for empty or greenfield repos and should flow into planning so the planner names new files for Builder to create. Discovery may also report `newFiles[]` — files the goal requires creating that do not exist yet — kept separate from `files[]` (which must be observed existing files); `newFiles` are merged into the planner contract's target files and attached as build-task file hints so a mixed edit+create task is representable without failing validation.
 - `interview-decisions.json` — structured interview answers (stage, role, question, optionId, answer). These are authoritative human facts: they reach the planner, builder context, reviewer, and approval.
-- `plan.json` — contains `discoveryText`, `planText`, and `implementationContract` (`targetFiles`, `nonGoals`, `verificationChecks`, `risks`, `blockers`) extracted best-effort from planner prose.
+- `plan.json` — contains `discoveryText`, `planText`, and `implementationContract` (`targetFiles`, `implementationSteps`, `verificationChecks`, `nonGoals`, `risks`, `blockers`) extracted best-effort from planner prose. Builder context treats this contract as authoritative and should not broadly rediscover files when the plan names concrete targets and ordered steps. Raw goals are preserved for audit, but model-facing task objectives strip pasted Pi prompt-template wrappers so Planner/Builder role instructions do not conflict.
 - Controller-native stages (`plan`, `discover`, `interview`) appear in task artifacts as `done` with `controllerHandled: true` and artifact path refs.
 - Baseline-unrelated verification failures are surfaced as `baselineDebt` in final approval: the task-specific contract can pass while repository debt remains. The approval prompt says so explicitly.
+- Final review is proportional to the candidate diff. The reviewer's prose verdict is classified into `review.verdict` (`block` | `pass` | `unknown`) from its conclusion; a blocking verdict is surfaced in the final approval gate, and when no confirm UI exists Factory refuses to silently auto-approve past a blocking review.
+- Builder prompts treat the workspace as already prepared: read handoff-named target files first, then edit, then verify, and return `CONTRACT_BLOCKED <reason>` when a named file is missing or the contract cannot run. Planner implementation steps name exact read targets with explicit stop conditions; the context budget keeps human decisions and the planner handoff whole, truncating only general project guidance when tight.
+- Final landing uses `completed-tasks.json`, `landing-plan.json`, `landing-diagnosis-<attempt>.json`, `landing-attempts.jsonl`, and `final-merge.json`. A run is not complete unless required landing is `landed` or explicitly policy-skipped.
 
 Use `/factory show <run-id>`, `/factory logs <run-id>`, and `/factory plan` to inspect these artifacts. A run can complete with baseline repository debt still present; that is expected, not a silent pass.
 
@@ -170,17 +185,24 @@ You must not trigger task execution from Concierge. If the user says "run this t
 9. If worktree dependency setup, repeated installs, cache reuse, or hydration policy is mentioned, recommend `configure-dependencies` for config changes or `answer-only` for conceptual answers.
 10. If runs, logs, latest work, or plans are mentioned, recommend `list-runs`, `show-run`, `show-logs`, `show-plan`, or `show-status`.
     For discovery failures, inspect the latest run logs and execution artifact details first. If `discovery-execution.json` shows `status: failed` or `errorMessage` with a timeout, explain that the executor timed out rather than treating it as a missing repository artifact.
+    If Discovery reports `implementationSurface: "missing"`, explain that this is a valid greenfield/empty-repo status and planning should name explicit new files. Do not recommend or rely on plain-text sentinel failures such as `DISCOVERY_FAILED: ...`.
     If an execution artifact or event reports `executor.timeout` / `model-timeout`, explain that Factory's no-progress watchdog aborted a quiet SDK turn. Recommend tuning `runtime.limits.modelTimeoutMs` or selecting a faster role model only after checking whether the role emitted any text or tool events.
     For verification cwd or package-manager failures, explain that Factory should use the verification planner to reason over candidate roots, package manifests, lockfiles, and scripts. Configured commands express intent, but they should be adapted or omitted when candidate evidence proves a different cwd or package manager.
+    If no verification commands are configured or discovered, explain that verification is incomplete with no automated checks, not a planner crash. Recommend adding real `.factory/config.yaml` commands or package scripts when the project has them.
+    For `BLOCKED / merge-blocked`, inspect landing artifacts first. Explain that Factory blocked because final landing did not safely complete; dirty files only block when they overlap landing files or prevent safely switching to the target branch. Incomplete verification (no runnable commands) does not block required landing - the human approval gate decides - so name the actual guard reason from `landing-plan.json`.
     For Next.js 16 lint failures, check package script bodies and dependency versions. If `lint` runs `next lint`, explain that the script is stale and Factory should use an evidence-backed ESLint command such as `npm exec eslint src` when ESLint is installed, rather than blindly running `eslint .` over generated output.
-    For Harbor quality-testing requests, point the user to `harbor/` and explain that Harbor should be used for repeated eval tasks with deterministic verifiers rather than as a replacement for ordinary repo tests. The starter task is `harbor/tasks/factory-smoke`, and richer tasks should model real requests like `add a navbar` or `repair a verification failure`.
+    For Harbor quality-testing requests, point the user to `harbor/` and explain that Harbor should be used for repeated eval tasks with deterministic verifiers rather than as a replacement for ordinary repo tests. The starter task is `harbor/tasks/factory-smoke`. For the approved Factory orchestration benchmark (scripted interviews, six-pillar scorer, Oracle-vs-agent separation), read `docs/factory/bombsite-benchmark-plan.md`.
 11. If dashboard status is requested, use `dashboard-status`; if starting the dashboard is requested, use `start-dashboard`.
 12. If cleanup is requested, use `cleanup-runs` and require approval.
 13. If the question is conceptual, `answer-only` is valid.
 14. If the action writes files, changes workflows, refreshes constitution, starts setup, starts a service, configures dependency hydration, or cleans runs/worktrees, set `needsApproval: true`.
-15. Never bypass Factory validation, approval, permission, or command allowlists.
+15. Never bypass Factory validation, approval, permission, or command allowlists. Controller-only approval/acceptance stages must not be routed to the Builder.
 16. Never route Concierge to run a Factory implementation task.
 
 ## Output format
 
 Return JSON only. No prose outside the JSON object.
+Runtime policy decisions may be LLM-owned through `RuntimePolicyExecutor`, but
+never treat model output as authority to exceed Factory constraints. Validate
+attempt budgets, phase transitions, repair/rerun availability, evidence, and
+Git/resource safety before continuing.

@@ -6,6 +6,7 @@ import type {
   WorkflowConfig,
   WorkflowDefinition,
   WorkflowStage,
+  WorkflowStageSkillPolicy,
   WorkflowRegistry,
 } from "@factory/schemas";
 
@@ -15,13 +16,14 @@ export function defaultWorkflowDefinition(): WorkflowDefinition {
   return {
     id: DEFAULT_WORKFLOW_ID,
     name: "Default Development",
-    description: "Discover, plan, implement, verify, and approve changes.",
+    description: "Discover, plan, implement, verify, review, land, and accept changes.",
     stages: [
       { name: "discover", type: "agent", role: "discovery" },
       { name: "plan", type: "agent", role: "planner", dependsOn: ["discover"] },
       { name: "implementation", type: "agent", role: "builder", dependsOn: ["plan"] },
       { name: "verification", type: "command", commands: ["lint", "typecheck", "test", "build"], dependsOn: ["implementation"] },
-      { name: "approval", type: "approval", dependsOn: ["verification"] },
+      { name: "review", type: "agent", role: "reviewer", dependsOn: ["verification"] },
+      { name: "acceptance", type: "acceptance", dependsOn: ["review"] },
     ],
   };
 }
@@ -162,6 +164,77 @@ function parseSimpleWorkflowYaml(raw: string): WorkflowConfig {
     return trimmedValue.replace(/^["']|["']$/g, "").replace(/\\"/g, "\"");
   };
 
+  const listValue = (value: string): string[] => {
+    const parsed = parseValue(value);
+    return Array.isArray(parsed) ? parsed : [];
+  };
+
+  const assignStage = (key: string, value: string) => {
+    if (!currentStage) return;
+    const parsed = parseValue(value);
+    switch (key) {
+      case "type":
+        currentStage.type = String(parsed) as WorkflowStage["type"];
+        break;
+      case "description":
+        currentStage.description = String(parsed);
+        break;
+      case "role":
+        currentStage.role = String(parsed) as WorkflowStage["role"];
+        break;
+      case "dependsOn":
+        currentStage.dependsOn = listValue(value);
+        break;
+      case "commands":
+        currentStage.commands = listValue(value);
+        break;
+      case "requiresApproval":
+        currentStage.requiresApproval = parsed === true;
+        break;
+      case "requiredCapabilities":
+        currentStage.requiredCapabilities = listValue(value) as WorkflowStage["requiredCapabilities"];
+        break;
+      case "taskType":
+        currentStage.taskType = String(parsed);
+        break;
+      case "model":
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof parsed.model === "string") {
+          currentStage.model = {
+            ...(typeof parsed.provider === "string" ? { provider: parsed.provider } : {}),
+            model: parsed.model,
+          } satisfies ModelSelection;
+        } else {
+          currentStage.model = { model: String(parsed) };
+        }
+        break;
+    }
+  };
+
+  const assignSkill = (key: keyof WorkflowStageSkillPolicy, value: string) => {
+    if (!currentStage?.skills) return;
+    currentStage.skills[key] = listValue(value);
+  };
+
+  const STAGE_FIELDS: Record<string, (value: string) => void> = {
+    type: (v) => assignStage("type", v),
+    description: (v) => assignStage("description", v),
+    role: (v) => assignStage("role", v),
+    dependsOn: (v) => assignStage("dependsOn", v),
+    commands: (v) => assignStage("commands", v),
+    requiresApproval: (v) => assignStage("requiresApproval", v),
+    requiredCapabilities: (v) => assignStage("requiredCapabilities", v),
+    taskType: (v) => assignStage("taskType", v),
+    model: (v) => assignStage("model", v),
+  };
+  const SKILL_FIELDS: Record<string, (value: string) => void> = {
+    require: (v) => assignSkill("require", v),
+    prefer: (v) => assignSkill("prefer", v),
+    exclude: (v) => assignSkill("exclude", v),
+  };
+
+  const STAGE_FIELD_KEYS = Object.keys(STAGE_FIELDS);
+  const SKILL_FIELD_KEYS = Object.keys(SKILL_FIELDS);
+
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
@@ -209,82 +282,24 @@ function parseSimpleWorkflowYaml(raw: string): WorkflowConfig {
       continue;
     }
 
-    if (currentStage && indent === 8 && /^type:/.test(trimmed)) {
-      currentStage.type = String(parseValue(trimmed.slice("type:".length))) as WorkflowStage["type"];
-      continue;
-    }
-
-    if (currentStage && indent === 8 && /^description:/.test(trimmed)) {
-      currentStage.description = String(parseValue(trimmed.slice("description:".length)));
-      continue;
-    }
-
-    if (currentStage && indent === 8 && /^role:/.test(trimmed)) {
-      currentStage.role = String(parseValue(trimmed.slice("role:".length))) as WorkflowStage["role"];
-      continue;
-    }
-
-    if (currentStage && indent === 8 && /^dependsOn:/.test(trimmed)) {
-      const value = parseValue(trimmed.slice("dependsOn:".length));
-      currentStage.dependsOn = Array.isArray(value) ? value : [];
-      continue;
-    }
-
-    if (currentStage && indent === 8 && /^commands:/.test(trimmed)) {
-      const value = parseValue(trimmed.slice("commands:".length));
-      currentStage.commands = Array.isArray(value) ? value : [];
-      continue;
-    }
-
-    if (currentStage && indent === 8 && /^requiresApproval:/.test(trimmed)) {
-      currentStage.requiresApproval = parseValue(trimmed.slice("requiresApproval:".length)) === true;
-      continue;
-    }
-
-    if (currentStage && indent === 8 && /^requiredCapabilities:/.test(trimmed)) {
-      const value = parseValue(trimmed.slice("requiredCapabilities:".length));
-      currentStage.requiredCapabilities = Array.isArray(value) ? value as WorkflowStage["requiredCapabilities"] : [];
-      continue;
-    }
-
-    if (currentStage && indent === 8 && /^taskType:/.test(trimmed)) {
-      currentStage.taskType = String(parseValue(trimmed.slice("taskType:".length)));
-      continue;
-    }
-
-    if (currentStage && indent === 8 && /^model:/.test(trimmed)) {
-      const value = parseValue(trimmed.slice("model:".length));
-      if (value && typeof value === "object" && !Array.isArray(value) && typeof value.model === "string") {
-        currentStage.model = {
-          ...(typeof value.provider === "string" ? { provider: value.provider } : {}),
-          model: value.model,
-        } satisfies ModelSelection;
-      } else {
-        currentStage.model = { model: String(value) };
+    if (currentStage && indent === 8) {
+      const field = STAGE_FIELD_KEYS.find((key) => new RegExp(`^${key}:`).test(trimmed));
+      if (field) {
+        STAGE_FIELDS[field](trimmed.slice(field.length + 1));
+        continue;
       }
-      continue;
+    }
+
+    if (currentStage?.skills && indent === 10) {
+      const field = SKILL_FIELD_KEYS.find((key) => new RegExp(`^${key}:`).test(trimmed));
+      if (field) {
+        SKILL_FIELDS[field](trimmed.slice(field.length + 1));
+        continue;
+      }
     }
 
     if (currentStage && indent === 8 && /^skills:/.test(trimmed)) {
       currentStage.skills = {};
-      continue;
-    }
-
-    if (currentStage?.skills && indent === 10 && /^require:/.test(trimmed)) {
-      const value = parseValue(trimmed.slice("require:".length));
-      currentStage.skills.require = Array.isArray(value) ? value : [];
-      continue;
-    }
-
-    if (currentStage?.skills && indent === 10 && /^prefer:/.test(trimmed)) {
-      const value = parseValue(trimmed.slice("prefer:".length));
-      currentStage.skills.prefer = Array.isArray(value) ? value : [];
-      continue;
-    }
-
-    if (currentStage?.skills && indent === 10 && /^exclude:/.test(trimmed)) {
-      const value = parseValue(trimmed.slice("exclude:".length));
-      currentStage.skills.exclude = Array.isArray(value) ? value : [];
       continue;
     }
   }

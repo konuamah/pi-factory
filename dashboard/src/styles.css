@@ -141,6 +141,20 @@ button.link {
   overflow: auto;
 }
 
+.plan-text {
+  font-family: var(--pico-font-family-monospace, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--pico-card-background-color, #fff);
+  border: 1px solid var(--pico-muted-border-color, #ddd);
+  border-radius: 8px;
+  padding: 1rem;
+  max-height: 55vh;
+  overflow: auto;
+}
+
 .log-line {
   display: flex;
   gap: 0.75rem;

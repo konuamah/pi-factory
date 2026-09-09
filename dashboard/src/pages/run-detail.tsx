@@ -1,9 +1,9 @@
 import { useState } from 'preact/hooks';
-import { api, type RunDetail as RunDetailType, type LogEntry } from '../api/client';
+import { api, type RunDetail as RunDetailType, type LogEntry, type AcceptanceEvidenceView } from '../api/client';
 import { useRevalidate, runEvent } from '../api/use-revalidate';
 import { StatusBadge } from './overview';
 
-const TABS = ['Overview', 'Logs', 'Verification'] as const;
+const TABS = ['Overview', 'Plan', 'Logs', 'Verification', 'Acceptance'] as const;
 
 export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>('Overview');
@@ -23,11 +23,15 @@ export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void
 
   const planTasks = run.plan?.tasks as Array<{ id?: string; stage?: string; status?: string }> | undefined;
   const models = (run.models ?? []).slice(0, 8);
+  const planText = getPlanText(run.plan);
+  const planSummary = getPlanSummary(run.plan);
+  const evidence = run.acceptanceEvidence;
 
   return (
     <>
       <button className="link" onClick={goBack}>← back to runs</button>
-      <h1>{run.goal ?? run.runId}</h1>
+      <h1>{run.title ?? run.goal ?? run.runId}</h1>
+      {run.title && run.goal ? <p className="muted">{run.goal}</p> : null}
       <p>
         <StatusBadge status={run.status} /> <span className="muted">{run.runId}</span>
       </p>
@@ -42,6 +46,11 @@ export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void
 
       {tab === 'Overview' && (
         <>
+          {evidence && <section>
+            <h5>Acceptance</h5>
+            <p>Decision: <strong>{evidence.decision ?? 'pending'}</strong>{' · '}Landing: <StatusBadge status={evidence.landingStatus ?? evidence.landingPhase ?? 'unknown'} />{evidence.reviewVerdict?.verdict === 'block' && <> · <span className="badge badge-blocked">reviewer block</span></>}</p>
+          </section>}
+
           <section className="grid">
             <article>
               <h5>Execution</h5>
@@ -83,6 +92,24 @@ export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void
         </>
       )}
 
+      {tab === 'Plan' && (
+        <article>
+          <h5>Human-readable plan</h5>
+          {planText ? (
+            <pre className="plan-text" aria-label="Human-readable Factory plan">{planText}</pre>
+          ) : (
+            <p className="muted">No human-readable plan text is available for this run yet.</p>
+          )}
+
+          {planSummary ? (
+            <section>
+              <h6>Runtime summary</h6>
+              <p>{planSummary}</p>
+            </section>
+          ) : null}
+        </article>
+      )}
+
       {tab === 'Logs' && (
         <>
           <div className="filters">
@@ -105,6 +132,8 @@ export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void
         </>
       )}
 
+      {tab === 'Acceptance' && <AcceptancePanel evidence={evidence} />}
+
       {tab === 'Verification' && (
         <article>
           <h5>Verification</h5>
@@ -124,4 +153,37 @@ export function RunDetail({ runId, goBack }: { runId: string; goBack: () => void
       )}
     </>
   );
+}
+
+function AcceptancePanel({ evidence }: { evidence?: AcceptanceEvidenceView }) {
+  if (!evidence) return <article><p className="muted">No acceptance evidence recorded for this run (legacy or pre-acceptance run).</p></article>;
+  const verdictSummary = evidence.reviewVerdict?.summary.trim();
+  return <article>
+    <h5>Acceptance evidence</h5>
+    {evidence.reviewVerdict?.verdict === 'block' && <section className="attention">
+      <h6>Reviewer blocking verdict: accepting overrides this finding.</h6>
+      {verdictSummary && <><p className="muted">Summary:</p><pre className="plan-text">{verdictSummary}</pre></>}
+    </section>}
+    {evidence.reviewVerdict && evidence.reviewVerdict.verdict !== 'block' && <section><h6>Reviewer verdict: {evidence.reviewVerdict.verdict}</h6>{verdictSummary && <pre className="plan-text">{verdictSummary}</pre>}</section>}
+    <section className="grid"><article><h6>Decision</h6><p><strong>{evidence.decision ?? 'pending'}</strong></p>{evidence.feedback && <p className="muted">{evidence.feedback}</p>}</article><article><h6>Landing</h6><p>Status: {evidence.landingStatus ?? 'unknown'}</p><p>Phase: {evidence.landingPhase ?? 'unknown'}</p>{evidence.landingReason && <p className="muted">{evidence.landingReason}</p>}{evidence.targetHeadBefore && evidence.targetHeadAfter && <p className="muted">Head {evidence.targetHeadBefore.slice(0, 7)} → {evidence.targetHeadAfter.slice(0, 7)}</p>}</article></section>
+    {evidence.pullRequest && <section><h6>Pull request</h6><p>Status: {evidence.pullRequest.status ?? 'unknown'}</p>{(evidence.pullRequest.sourceBranch || evidence.pullRequest.targetBranch) && <p>{evidence.pullRequest.sourceBranch ?? '?'} → {evidence.pullRequest.targetBranch ?? '?'}</p>}{evidence.pullRequest.url && <p><a href={evidence.pullRequest.url} target="_blank" rel="noreferrer">{evidence.pullRequest.url}</a></p>}{evidence.pullRequest.reason && <p className="muted">{evidence.pullRequest.reason}</p>}</section>}
+    <section className="grid"><article><h6>Verification</h6><p>{evidence.verificationStatus ?? 'unknown'}</p><p>Contract complete: {evidence.contractComplete === true ? 'yes' : evidence.contractComplete === false ? 'no' : 'unknown'}</p></article><article><h6>Post-landing verification</h6>{evidence.postLandingVerification ? <><StatusBadge status={evidence.postLandingVerification.overallStatus ?? 'unknown'} /><p>Commands: {evidence.postLandingVerification.commands?.join(', ') || 'none'}</p>{evidence.postLandingVerification.reason && <p className="muted">{evidence.postLandingVerification.reason}</p>}{evidence.postLandingVerification.repairAttempted && <p className="muted">Repair attempted.</p>}</> : <p className="muted">No post-landing verification recorded.</p>}</article></section>
+    <EvidenceList title="Baseline debt" items={evidence.baselineDebt?.map((item) => `${item.commandName} — ${item.category}: ${item.reason}${item.suggestedAction ? ` (${item.suggestedAction})` : ''}`)} />
+    <EvidenceList title="Scope warnings" items={evidence.scopeWarnings?.map((item) => `${item.file} — ${item.nonGoal}`)} />
+  </article>;
+}
+
+function EvidenceList({ title, items }: { title: string; items?: string[] }) {
+  if (!items?.length) return null;
+  return <section><h6>{title}</h6>{items.map((item, index) => <div className="kv" key={index}><span>{item}</span></div>)}</section>;
+}
+
+function getPlanText(plan: RunDetailType['plan']): string | undefined {
+  const value = plan?.planText;
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function getPlanSummary(plan: RunDetailType['plan']): string | undefined {
+  const value = plan?.summary;
+  return typeof value === 'string' && value.trim() ? value : undefined;
 }

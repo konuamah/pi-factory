@@ -7,6 +7,7 @@ export interface FactoryRunListItem {
   status?: string;
   phase?: string;
   goal?: string;
+  title?: string;
   updatedAt?: string;
 }
 
@@ -31,6 +32,7 @@ export async function listFactoryRuns(runsDir: string): Promise<FactoryRunListIt
           status: asString(state?.status) ?? asString(summary?.status),
           phase: asString(state?.phase) ?? asString(summary?.phase),
           goal: asString(summary?.goal),
+          title: asString(summary?.title),
           updatedAt: asString(state?.updatedAt),
         } satisfies FactoryRunListItem;
       }),

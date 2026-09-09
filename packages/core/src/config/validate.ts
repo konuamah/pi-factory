@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { EffectiveFactoryConfig } from "@factory/schemas";
+import { CURRENT_BRANCH_SENTINEL } from "@factory/schemas";
 
 export function validateEffectiveConfig(
   config: EffectiveFactoryConfig,
@@ -19,6 +20,18 @@ export function validateEffectiveConfig(
 
   if (!config.project.baseBranch.trim()) {
     throw new Error("project.baseBranch is required");
+  }
+
+  if (config.git.baseBranch === CURRENT_BRANCH_SENTINEL || config.project.baseBranch === CURRENT_BRANCH_SENTINEL) {
+    throw new Error(
+      `baseBranch ${CURRENT_BRANCH_SENTINEL} must be resolved by the config loader before validation; ` +
+        `call loadEffectiveConfig instead of merging/validating manually.`,
+    );
+  }
+  if (config.git.pullRequest.baseBranch === CURRENT_BRANCH_SENTINEL) {
+    throw new Error(
+      `git.pullRequest.baseBranch ${CURRENT_BRANCH_SENTINEL} must be resolved by the config loader before validation.`,
+    );
   }
 
   if (config.git.cleanup.retainRuns < 0) {

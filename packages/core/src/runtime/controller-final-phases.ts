@@ -659,7 +659,7 @@ const acceptanceResult = await runAcceptancePhase({
   baselineDebt,
   scopeWarnings,
 });
-return "decision" in acceptanceResult ? runFinalPhases(state) : acceptanceResult;
+return acceptanceResult;
 
 await wait(delayMs);
 

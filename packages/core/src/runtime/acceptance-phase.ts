@@ -15,7 +15,7 @@ export async function runAcceptancePhase(
     baselineDebt?: AcceptanceEvidence["baselineDebt"];
     scopeWarnings?: AcceptanceEvidence["scopeWarnings"];
   },
-): Promise<RunFactoryControllerResult | { decision: "revise"; feedback?: string }> {
+): Promise<RunFactoryControllerResult> {
   const { run, input, landingResult, candidateSha } = state;
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "acceptance", "Landing evidence collected; awaiting acceptance");
 
@@ -56,14 +56,24 @@ export async function runAcceptancePhase(
     return finalizeAcceptance(state, "FAILED", "acceptance-blocked", false, "Invalid acceptance decision; refusing to guess.");
   }
   await appendFactoryRunEvent(run.eventsPath, { timestamp: new Date().toISOString(), type: decision.decision === "accept" ? "acceptance.accepted" : decision.decision === "revise" ? "acceptance.revise_requested" : "acceptance.rejected", data: { candidateSha, feedback: decision.feedback, landingStatus: landingResult.landingStatus, evidence } });
-  if (decision.decision === "revise") return { decision: "revise", feedback: decision.feedback };
+  if (decision.decision === "revise") {
+    return finalizeAcceptance(
+      state,
+      "BLOCKED",
+      "acceptance-revise-requested",
+      false,
+      decision.feedback
+        ? `Revision requested: ${decision.feedback}`
+        : "Revision requested. Apply the requested changes and start a new run.",
+    );
+  }
   if (decision.decision === "reject") return finalizeAcceptance(state, "CANCELLED", "rejected", false, decision.feedback ?? "Run rejected at acceptance.");
   return finalizeAcceptance(state, "COMPLETED", landingResult.landingStatus === "pull-request" ? "accepted-with-pr" : "accepted", true);
 }
 
 async function finalizeAcceptance(
   state: Parameters<typeof runAcceptancePhase>[0],
-  status: "COMPLETED" | "FAILED" | "CANCELLED",
+  status: "COMPLETED" | "FAILED" | "CANCELLED" | "BLOCKED",
   phase: string,
   approved: boolean,
   recoveryHint?: string,

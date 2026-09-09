@@ -392,7 +392,7 @@ test('landing finalizes when post-landing verification command times out', async
   assert.equal(finalMerge.status, "landed");
   assert.equal(finalMerge.postLandingVerification.status, "failed");
   const state = JSON.parse(await fs.readFile(statePath, "utf8"));
-  assert.equal(state.phase, "post-landing-verification");
+  assert.equal(state.phase, "landing");
   const events = await fs.readFile(eventsPath, "utf8");
   assert.match(events, /landing\.post_verification_started/);
   assert.match(events, /landing\.post_verification_completed/);

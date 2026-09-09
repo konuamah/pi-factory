@@ -39,18 +39,20 @@ export async function buildLandingPlan(input: {
   verification: VerificationRunResult;
   verificationFailureClassification?: unknown;
   limits?: AgentExecutionInput["limits"];
+  recoveryFeedback?: string;
+  recoveryAttempt?: number;
 }): Promise<LandingPlan> {
   if (!input.executor) {
     throw new Error("Landing planning requires a landing or reviewer executor.");
   }
   const result = await input.executor.execute({
-    executionId: `landing-plan-${Date.now()}`,
+    executionId: `landing-plan-${input.recoveryAttempt && input.recoveryAttempt > 1 ? `retry-${input.recoveryAttempt}` : Date.now()}`,
     cwd: input.mergeCwd,
     prompt: buildLandingPlannerPrompt(input),
     model: input.model,
     tools: ["read", "grep", "find", "ls"],
     limits: input.limits,
-    metadata: { role: "landing", stage: "landing" },
+    metadata: { role: "landing", stage: "landing", attempt: input.recoveryAttempt },
   });
   const parsed = parseJsonObject(result.outputText);
   if (!parsed) {
@@ -91,7 +93,7 @@ export async function diagnoseLandingFailure(input: {
   }
 }
 
-function buildLandingPlannerPrompt(input: {
+export function buildLandingPlannerPrompt(input: {
   goal: string;
   baseBranch: string;
   finalMergePolicy: string;
@@ -103,6 +105,8 @@ function buildLandingPlannerPrompt(input: {
   candidateBranch?: string;
   verification: VerificationRunResult;
   verificationFailureClassification?: unknown;
+  recoveryFeedback?: string;
+  recoveryAttempt?: number;
 }): string {
   return [
     "You are the Factory landing planner.",
@@ -140,7 +144,17 @@ function buildLandingPlannerPrompt(input: {
         status: command.status,
       })),
     }, null, 2),
-  ].join("\n");
+    input.recoveryAttempt && input.recoveryAttempt > 1
+      ? `Recovery attempt ${input.recoveryAttempt}: a previous landing plan was rejected or failed. Address the recovery guidance below.`
+      : undefined,
+    input.recoveryFeedback
+      ? `Runtime recovery guidance from the user (revise):\n${truncateRecoveryFeedback(input.recoveryFeedback)}`
+      : undefined,
+  ].filter(Boolean).join("\n");
+}
+
+function truncateRecoveryFeedback(value: string): string {
+  return value.length <= 8000 ? value : `${value.slice(0, 8000)}…`;
 }
 
 function buildLandingDiagnosisPrompt(input: {

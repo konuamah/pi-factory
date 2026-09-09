@@ -141,6 +141,14 @@ export async function runLandingFlow(input: {
     await appendFactoryRunEvent(input.eventsPath, { timestamp: new Date().toISOString(), type: "landing.plan_selected", data: landingPlanArtifact as unknown as Record<string, unknown> });
   }
 
+  // A branch with multiple task commits must be landed as a branch merge;
+  // cherry-picking only candidateSha would silently omit earlier task commits.
+  if (plan.strategy === "cherry-pick" && input.completedTasks.length > 1 && plan.sourceBranch) {
+    plan = { ...plan, strategy: "merge", reasoning: [...plan.reasoning, "Converted cherry-pick to branch merge so all completed task commits are landed."] };
+    landingPlanArtifact = { ...plan, guardVerdict };
+    await writePrototypeLandingPlanArtifact(input.runDir, landingPlanArtifact);
+  }
+
   const targetHeadBefore = await readGitHeadSha(input.mergeCwd);
   await appendPrototypeLandingAttemptArtifact(input.runDir, {
     attempt: 1,

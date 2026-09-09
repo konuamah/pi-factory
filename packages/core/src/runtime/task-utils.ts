@@ -53,6 +53,7 @@ const RESERVED_PHASE_STAGES = new Set([
   "verify",
   "verification",
   "review",
+  "approval",
   "acceptance",
   "landing",
 ]);

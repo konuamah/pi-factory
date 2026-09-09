@@ -121,6 +121,7 @@ End-to-end Factory setup includes:
 - Harbor-based quality testing for repeated task evaluation and benchmark-style validation.
 - Scope handoff (non-goal files in verification/approval/landing): `scope.verification` / `scope.landing` config flags (`"warn"` default, `"block"` to enforce) — see `docs/factory/benchmark-running.md` "Scope handoff".
 - Acceptance is the single final user decision after landing; landing and post-landing verification are shown as evidence in that gate.
+- Controller-only stages such as approval/acceptance must never run as Builder tasks. Multi-commit candidates must land as a branch merge, and recovery decision ids must remain unique across retries and acceptance re-entry.
 
 Operational domains are split across focused Factory skills: setup operations, workflows, model routing, skills library, dashboard, constitution, permissions/safety, troubleshooting, worktrees/dependencies, and quality testing. Use the selected operational skill as authority for domain details and keep this Concierge skill focused on routing, approval, and command allowlists.
 
@@ -193,7 +194,7 @@ You must not trigger task execution from Concierge. If the user says "run this t
 12. If cleanup is requested, use `cleanup-runs` and require approval.
 13. If the question is conceptual, `answer-only` is valid.
 14. If the action writes files, changes workflows, refreshes constitution, starts setup, starts a service, configures dependency hydration, or cleans runs/worktrees, set `needsApproval: true`.
-15. Never bypass Factory validation, approval, permission, or command allowlists.
+15. Never bypass Factory validation, approval, permission, or command allowlists. Controller-only approval/acceptance stages must not be routed to the Builder.
 16. Never route Concierge to run a Factory implementation task.
 
 ## Output format

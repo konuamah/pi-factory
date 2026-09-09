@@ -360,3 +360,11 @@ commit). Look for the `landing.post_verification_repair_skipped` event and
 `postLandingVerification.reason` / `repairAttempted: false` in
 `final-merge.json`. Real post-landing failures (not pre-classified as ignorable
 baseline debt) still trigger the repair path.
+
+If a run reports a dirty landing after implementation, inspect the candidate
+branch and completed-task commits before retrying. Controller-only workflow
+stages such as approval are not Builder tasks, and a candidate with multiple
+task commits is landed as a branch merge so an approval or cleanup commit cannot
+hide the actual source changes. Recovery request ids are unique across retries
+and acceptance re-entry, so a resolved decision cannot be reopened as if it
+were pending.

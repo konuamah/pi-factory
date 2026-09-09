@@ -1,5 +1,5 @@
 import { appendFactoryRunEvent } from "../runs/store.js";
-import type { DecisionOption, DecisionRequest } from "../decisions/index.js";
+import { readDecisionLedger, type DecisionOption, type DecisionRequest } from "../decisions/index.js";
 import { requestHumanDecision } from "./phase-plumbing.js";
 import { writeRecoveryCheckpoint, type RecoveryCheckpointInput } from "./recovery-checkpoint.js";
 import type { RunFactoryControllerInput } from "./controller.js";
@@ -83,6 +83,10 @@ export async function requestFailureRecovery(input: {
     model: input.controllerInput.failureRecovery?.narratorModel,
     disableNarrator: input.controllerInput.failureRecovery?.disableNarrator,
   });
+  const priorEntries = await readDecisionLedger(input.runDir).catch(() => []);
+  if (priorEntries.some((entry) => entry.type === "request" && entry.request.id === request.id)) {
+    request.id = `${request.id}-retry-${Date.now()}`;
+  }
   if (input.checkpoint) {
     await writeRecoveryCheckpoint(input.runDir, {
       ...input.checkpoint,

@@ -426,7 +426,9 @@ function isControllerHandledStage(stageName: string, type?: WorkflowNodeType): b
     || name === "plan"
     || name === "planning"
     || name === "discover"
-    || name === "discovery";
+    || name === "discovery"
+    || name === "approval"
+    || name === "acceptance";
 }
 
 function buildTaskTitle(stageName: string, goal: string): string {

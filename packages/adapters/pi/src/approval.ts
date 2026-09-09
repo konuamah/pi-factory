@@ -1,4 +1,4 @@
-import type { PlanApprovalDecision, PlanApprovalResult } from "@factory/core";
+import type { AcceptanceDecision, AcceptanceEvidence, PlanApprovalDecision, PlanApprovalResult } from "@factory/core";
 import { charWidth } from "./types.js";
 import type { FactoryPiUi } from "./types.js";
 
@@ -296,68 +296,30 @@ function normalizeFeedback(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-export interface FinalApprovalReviewerVerdict {
-  verdict: "block" | "pass" | "unknown";
-  summary: string;
-}
-
-/**
- * Lines rendered at the final approval gate when a reviewer verdict exists.
- * A blocking verdict is called out explicitly so approving is an override.
- */
-export function buildReviewerFindingLines(reviewerVerdict?: FinalApprovalReviewerVerdict): string[] {
-  if (!reviewerVerdict) return [];
-  const summaryLines = (reviewerVerdict.summary ?? "")
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .slice(0, 14);
-  return [
-    "Factory approval — reviewer finding",
-    "review status: completed before final approval",
-    `reviewer verdict: ${reviewerVerdict.verdict}`,
-    "",
-    ...summaryLines,
-    "",
-    reviewerVerdict.verdict === "block"
-      ? "The reviewer is NOT ready for approval. Approving overrides that finding."
-      : "The reviewer text above is provided for your decision.",
-  ];
-}
-
-/**
- * Confirm prompt/body for the final approval gate. A blocking reviewer verdict
- * takes precedence over baseline-debt and scope warnings so the human is asked
- * to explicitly override it.
- */
-export function resolveFinalApprovalConfirm(
-  input: { runId: string; goal: string; hasBaselineDebt: boolean; hasScopeWarnings: boolean },
-  reviewerVerdict?: FinalApprovalReviewerVerdict,
-): { prompt: string; body: string } {
-  const block = reviewerVerdict?.verdict === "block";
-  const prompt = block
-    ? "Approve candidate despite the reviewer blocking verdict?"
-    : input.hasBaselineDebt
-      ? "Approve candidate despite baseline debt?"
-      : input.hasScopeWarnings
-        ? "Approve candidate despite scope warnings?"
-        : "Approve Factory candidate?";
-  const body = [
-    `Approve prototype run ${input.runId} for goal: ${input.goal}`,
-    reviewerVerdict ? "\n\nReview completed before this approval prompt." : "",
-    block ? "\n\nThe reviewer is NOT ready for approval. Only approve with explicit override intent." : "",
-    input.hasBaselineDebt ? "\n\nBaseline debt shown above is NOT resolved by this run." : "",
-    input.hasScopeWarnings ? "\n\nScope warnings shown above are NOT resolved by approving." : "",
-  ].join("");
-  return { prompt, body };
-}
-
-/**
- * Default when no confirm UI exists: never silently auto-approve past a
- * blocking reviewer verdict. "pass", "unknown", and absent verdicts keep the
- * historical auto-approve default for headless/benchmark flows.
- */
-export function defaultFinalApproval(reviewerVerdict?: FinalApprovalReviewerVerdict): boolean {
-  return reviewerVerdict?.verdict !== "block";
+export async function requestAcceptanceDecision(
+  ui: FactoryPiUi,
+  input: { runId: string; goal: string; candidateSha?: string; evidence: AcceptanceEvidence },
+): Promise<AcceptanceDecision> {
+  const evidence = input.evidence;
+  const landing = evidence.landingOutcome;
+  const lines = [
+    `Factory acceptance — ${input.runId}`,
+    `Goal: ${input.goal}`,
+    `Verification: ${evidence.verificationStatus}`,
+    `Landing: ${landing.status}${landing.reason ? ` (${landing.reason})` : ""}`,
+    `Post-landing verification: ${evidence.postLandingVerification?.overallStatus ?? "not run"}`,
+    evidence.reviewVerdict?.verdict === "block" ? "Reviewer blocking verdict: accepting overrides this finding." : "",
+  ].filter(Boolean).join("\n");
+  if (ui.select) {
+    const choice = await ui.select(lines, ["Accept — finalize the run", "Revise — return to planning", "Reject — cancel the run"]);
+    if (choice?.startsWith("Revise")) {
+      const feedback = ui.input ? await ui.input("Acceptance feedback", "What should change?") : undefined;
+      return { decision: "revise", feedback: feedback?.trim() ?? "" };
+    }
+    return choice?.startsWith("Accept") ? { decision: "accept" } : { decision: "reject", feedback: "Acceptance dismissed." };
+  }
+  if (ui.confirm) return (await ui.confirm("Accept Factory candidate?", lines)) ? { decision: "accept" } : { decision: "reject" };
+  throw new Error("Acceptance decision requires Pi select or confirm UI.");
 }
 
 export function isPlanApprovalDecision(value: string | undefined): value is PlanApprovalDecision {
@@ -443,4 +405,3 @@ function ansiAwareParts(value: string): Array<{ text: string; ansi: boolean }> {
 function resetAnsi(value: string): string {
   return /\u001b\[[0-?]*[ -/]*m/.test(value) ? "\u001b[0m" : "";
 }
-

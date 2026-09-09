@@ -53,6 +53,6 @@ export interface AgentExecutor {
 
 export interface FactoryHarnessAdapter {
   showProgress(event: unknown): Promise<void>;
-  requestApproval(gate: unknown): Promise<unknown>;
+  requestAcceptance(gate: unknown): Promise<unknown>;
   notify(message: unknown): Promise<void>;
 }

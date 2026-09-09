@@ -295,11 +295,11 @@ function suggestResumePolicy(
   if (currentPhase === "plan-approval-rejected") {
     return { resumable: false, suggestedPhase: "plan-approval-rejected", nextStatus: "PENDING", reason: "Rejected plans are not resumable." };
   }
-  if (currentPhase.includes("approval")) {
-    return { resumable: true, suggestedPhase: "approval-ready", nextStatus: "RUNNING", reason: "Resume near final approval." };
+  if (currentPhase === "acceptance") {
+    return { resumable: true, suggestedPhase: "acceptance", nextStatus: "RUNNING", reason: "Resume from acceptance gate." };
   }
-  if (currentPhase.includes("merge")) {
-    return { resumable: true, suggestedPhase: finalMerge ? "merge" : "approval-ready", nextStatus: "RUNNING", reason: finalMerge ? "Resume merge from saved merge artifact." : "Merge artifact missing; resume from approval-ready." };
+  if (currentPhase === "landing") {
+    return { resumable: true, suggestedPhase: "landing", nextStatus: "RUNNING", reason: "Resume landing stage." };
   }
   if (currentPhase.includes("review")) {
     return { resumable: true, suggestedPhase: "review", nextStatus: "RUNNING", reason: "Resume review stage." };

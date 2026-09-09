@@ -13,7 +13,7 @@ import { createPiSdkSessionFactory, PiAgentExecutor } from "@factory/executor-pi
 import { renderLines, renderIntro } from "./gateway-render.js";
 import { mountFactoryStreamingWidget } from "./streaming-panel.js";
 import { FACTORY_WIDGET_ID } from "./gateway-render.js";
-import { requestPlanApprovalDecision, buildPlanApprovalPreviewLines, buildReviewerFindingLines, resolveFinalApprovalConfirm, defaultFinalApproval } from "./approval.js";
+import { requestPlanApprovalDecision, requestAcceptanceDecision, buildPlanApprovalPreviewLines } from "./approval.js";
 import { requestDecisionInput } from "./decision-dialog.js";
 import type { FactoryPiCommandContext } from "./types.js";
 import type { AgentExecutor } from "@factory/core";
@@ -207,55 +207,7 @@ export async function handlePrototypeGoal(rawGoal: string, ctx: FactoryPiCommand
       );
       return decision;
     },
-    requestApproval: async ({ runId, goal, baselineDebt, contractComplete, verificationStatus, scopeWarnings, reviewerVerdict }) => {
-      // Surface the reviewer's verdict (including a blocking "not ready"
-      // finding) so the human decides with the same evidence the reviewer saw.
-      const reviewerLines = buildReviewerFindingLines(reviewerVerdict);
-      if (reviewerLines.length > 0) {
-        renderLines(ctx, reviewerLines);
-      }
-      // Surface plan-declared non-goal violations so the human decides.
-      const scopeLines = (scopeWarnings ?? []).map((warning) => `  ${warning.file} (declared non-goal: ${warning.nonGoal})`);
-      if (scopeLines.length > 0) {
-        renderLines(ctx, [
-          "Factory approval — scope warning",
-          "The candidate changes files the plan declared as non-goals:",
-          "",
-          ...scopeLines,
-          "",
-          "Approving proceeds with these changes despite the non-goal declaration.",
-        ]);
-      }
-      // Surface baseline repository debt before asking for final approval.
-      const debtLines = (baselineDebt ?? []).map((debt) => [
-        `  failed command: ${debt.commandName}`,
-        `  classification: ${debt.category}`,
-        `  reason: ${debt.reason}`,
-        `  action: ${debt.suggestedAction}`,
-        ...(debt.implicatedFiles?.length ? [`  implicated files: ${debt.implicatedFiles.join(", ")}`] : []),
-      ].join("\n"));
-      if (debtLines.length > 0) {
-        renderLines(ctx, [
-          "Factory approval — baseline repository debt",
-          "Task-specific contract passed, but the following pre-existing failures remain:",
-          "",
-          ...debtLines,
-          "",
-          `verification: ${verificationStatus ?? "unknown"} | contract complete: ${contractComplete ? "yes" : "no"}`,
-          "Approving proceeds with these baseline issues still present.",
-        ]);
-      }
-      if (!ctx.ui.confirm) {
-        // No confirm UI: fail loud on a blocking review instead of silently
-        // auto-approving past a reviewer that is not ready.
-        return defaultFinalApproval(reviewerVerdict);
-      }
-      const { prompt: confirmPrompt, body: confirmBody } = resolveFinalApprovalConfirm(
-        { runId, goal, hasBaselineDebt: debtLines.length > 0, hasScopeWarnings: scopeLines.length > 0 },
-        reviewerVerdict,
-      );
-      return ctx.ui.confirm(confirmPrompt, confirmBody);
-    },
+    requestAcceptance: async (acceptance) => requestAcceptanceDecision(ctx.ui, acceptance),
     requestDependencyRemediation: async (candidate) => {
       if (!ctx.ui.confirm) return false;
       return ctx.ui.confirm(

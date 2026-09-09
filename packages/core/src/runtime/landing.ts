@@ -32,7 +32,6 @@ import type { TaskWorkspaceSelection, RunFactoryControllerInput } from "./contro
 import type { PlanContract } from "./scope-check.js";
 import type { LandingPlan, LandingResult } from "./landing-types.js";
 import { readGitHeadSha } from "./git-ops.js";
-import { requestFailureRecovery, shouldUseInteractiveRecovery } from "./failure-recovery.js";
 
 export function buildCompletedTasks(
   workspaces: TaskWorkspaceSelection[],
@@ -122,28 +121,7 @@ export async function runLandingFlow(input: {
 
   if (!guardVerdict.ok) {
     const recoveryReason = guardVerdict.reasons.join("; ");
-    const recovery = await requestFailureRecovery({
-      controllerInput: input.controllerInput,
-      runDir: input.runDir,
-      statePath: input.statePath ?? path.join(input.runDir, "state.json"),
-      eventsPath: input.eventsPath,
-      runId: input.runId,
-      checkpoint: buildLandingCheckpoint(input, "landing-planning", input.candidateSha),
-      context: {
-        phase: "landing-planning",
-        title: "landing guard blocked the candidate",
-        reason: recoveryReason,
-        category: "landing-guard",
-        retryable: true,
-        canRepair: false,
-        canRevise: false,
-        evidenceRefs: [path.join(input.runDir, "landing-plan.json")],
-        attempt: nextLandingRecoveryAttempt(input, "landing-guard"),
-      },
-    });
-    if (recovery.action === "retry") {
-      return runLandingFlow(input);
-    }
+    await appendFactoryRunEvent(input.eventsPath, { timestamp: new Date().toISOString(), type: "landing.guard_blocked_recorded", data: { reason: recoveryReason, dirtyFiles: dirtyContext.relevant, unrelatedFiles: dirtyContext.unrelated } });
     const diagnosis = await diagnoseOrFallback({
       executor,
       model: modelSelection?.model,
@@ -275,52 +253,13 @@ export async function runLandingFlow(input: {
             },
           });
         } else {
-          const recovery = shouldUseInteractiveRecovery(input.controllerInput)
-            ? await requestFailureRecovery({
-                controllerInput: input.controllerInput,
-                runDir: input.runDir,
-                statePath: input.statePath ?? path.join(input.runDir, "state.json"),
-                eventsPath: input.eventsPath,
-                runId: input.runId,
-                checkpoint: buildLandingCheckpoint(input, "post-landing-verification", targetHeadAfter ?? input.candidateSha),
-                context: {
-                  phase: "post-landing-verification",
-                  title: "post-landing verification failed",
-                  reason: verificationResult.commands.filter((command) => command.status === "failed").map((command) => `${command.name}: ${command.exitCode ?? "failed"}`).join("; ") || "Post-landing verification failed.",
-                  category: "post-landing-verification",
-                  retryable: true,
-                  canRepair: Boolean(input.controllerInput.repairExecutor),
-                  canRevise: false,
-                  evidenceRefs: [path.join(input.runDir, "final-merge.json")],
-                  attempt: nextLandingRecoveryAttempt(input, "post-landing-verification"),
-                },
-              })
-            : { action: "repair" as const, requestId: "" };
-          if (recovery.action === "retry") {
-            verificationResult = await rerunLandingVerification(input.mergeCwd, input.verificationPlan, verificationCommands, input.config.runtime.limits?.toolTimeoutMs);
-            postLandingVerification = { overallStatus: verificationResult.overallStatus, commands: verificationCommands, repairAttempted };
-          } else if (recovery.action === "repair") {
-            repairAttempted = await attemptLandingRepair(input.controllerInput, input.goal, input.mergeCwd, verificationResult, input.repairGuidanceText, input.config.models.repair, input.config.runtime.limits);
-          } else {
-            repairAttempted = false;
-            postLandingVerification = {
-              overallStatus: verificationResult.overallStatus,
-              commands: verificationCommands,
-              reason: recovery.feedback ?? "Post-landing verification failed; user stopped recovery.",
-              repairAttempted: false,
-            };
-          }
-          if (repairAttempted) {
-            verificationResult = await rerunLandingVerification(input.mergeCwd, input.verificationPlan, verificationCommands, input.config.runtime.limits?.toolTimeoutMs);
-            postLandingVerification = { overallStatus: verificationResult.overallStatus, commands: verificationCommands, repairAttempted };
-          } else if (recovery.action === "repair") {
-            postLandingVerification = {
-              overallStatus: verificationResult.overallStatus,
-              commands: verificationCommands,
-              reason: "Post-landing verification failed and no repair executor was configured.",
-              repairAttempted: false,
-            };
-          }
+          postLandingVerification = {
+            overallStatus: verificationResult.overallStatus,
+            commands: verificationCommands,
+            reason: "Post-landing verification failed; recorded as evidence for acceptance.",
+            repairAttempted: false,
+          };
+          await appendFactoryRunEvent(input.eventsPath, { timestamp: new Date().toISOString(), type: "landing.post_verification_failed_recorded", data: { reason: postLandingVerification.reason, commands: verificationCommands, targetBranch: plan.targetBranch, targetHeadAfter } });
         }
       }
       await appendFactoryRunEvent(input.eventsPath, {
@@ -367,28 +306,7 @@ export async function runLandingFlow(input: {
   }
 
   if (landingStatus === "blocked") {
-    const recovery = await requestFailureRecovery({
-      controllerInput: input.controllerInput,
-      runDir: input.runDir,
-      statePath: input.statePath ?? path.join(input.runDir, "state.json"),
-      eventsPath: input.eventsPath,
-      runId: input.runId,
-      checkpoint: buildLandingCheckpoint(input, "landing-planning", input.candidateSha),
-      context: {
-        phase: "landing-planning",
-        title: "landing failed",
-        reason: recoveryHint ?? execution.reason ?? execution.outcome,
-        category: "landing-execution",
-        retryable: true,
-        canRepair: false,
-        canRevise: false,
-        evidenceRefs: [path.join(input.runDir, "landing-plan.json")],
-        attempt: nextLandingRecoveryAttempt(input, "landing-execution"),
-      },
-    });
-    if (recovery.action === "retry") {
-      return runLandingFlow(input);
-    }
+    await appendFactoryRunEvent(input.eventsPath, { timestamp: new Date().toISOString(), type: "landing.blocked_recorded", data: { reason: recoveryHint ?? execution.reason ?? execution.outcome } });
   }
 
   const pullRequest = landingStatus === "blocked"
@@ -445,7 +363,7 @@ async function markPostLandingVerificationStarted(
   if (input.statePath) {
     await updateFactoryRunState({
       statePath: input.statePath,
-      patch: { status: "RUNNING", phase: "post-landing-verification" },
+      patch: { status: "RUNNING", phase: "landing" },
     });
   }
   await appendFactoryRunEvent(input.eventsPath, {
@@ -459,7 +377,7 @@ async function markPostLandingVerificationStarted(
   });
   await input.controllerInput.onProgress?.({
     runId: input.runId,
-    phase: "post-landing-verification",
+    phase: "landing",
     status: "RUNNING",
     message: "Candidate landed; running post-landing verification",
   });
@@ -638,6 +556,9 @@ async function finishLanding(
     landingAttempts: 1,
     recoveryHint,
     pullRequest,
+    targetHeadBefore: landingEvidence?.targetHeadBefore,
+    targetHeadAfter: landingEvidence?.targetHeadAfter,
+    postLandingVerification: landingEvidence?.postLandingVerification,
   };
 }
 
@@ -732,28 +653,4 @@ function resolveVerificationCommands(requested: string[], verificationPlan: Veri
   const available = new Set(Object.keys(verificationPlan.commands));
   const selected = requested.filter((name) => available.has(name));
   return selected.length > 0 ? selected : Object.keys(verificationPlan.commands);
-}
-
-function nextLandingRecoveryAttempt(input: Parameters<typeof runLandingFlow>[0], key: string): number {
-  const holder = input as Parameters<typeof runLandingFlow>[0] & { recoveryAttempts?: Record<string, number> };
-  holder.recoveryAttempts ??= {};
-  holder.recoveryAttempts[key] = (holder.recoveryAttempts[key] ?? 0) + 1;
-  return holder.recoveryAttempts[key];
-}
-
-function buildLandingCheckpoint(
-  input: Parameters<typeof runLandingFlow>[0],
-  phase: "landing-planning" | "post-landing-verification",
-  candidateSha?: string,
-) {
-  return {
-    runId: input.runId,
-    goal: input.goal,
-    phase,
-    executionCwd: input.mergeCwd,
-    projectRoot: input.mergeCwd,
-    verificationPath: path.join(input.runDir, "verification.json"),
-    finalMergePath: path.join(input.runDir, "final-merge.json"),
-    candidateSha,
-  };
 }

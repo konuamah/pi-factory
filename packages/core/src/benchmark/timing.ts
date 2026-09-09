@@ -12,9 +12,9 @@ const HANDOFF_ORDER = [
   ["phase.plan-approval", "phase.implementation"],
   ["phase.implementation", "phase.verification"],
   ["phase.verification", "phase.review"],
-  ["phase.review", "phase.approval-ready"],
-  ["phase.approval-ready", "phase.landing-planning"],
-  ["phase.landing-planning", "run.completed"],
+  ["phase.review", "phase.landing"],
+  ["phase.landing", "phase.acceptance"],
+  ["phase.acceptance", "run.completed"],
 ] as const;
 
 export function computeRunTiming(events: RunEvent[]): RunTiming {

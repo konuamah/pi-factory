@@ -1,6 +1,7 @@
 export * from "./interfaces.js";
 export * from "./artifacts.js";
 export * from "./controller.js";
+export * from "./acceptance-phase.js";
 export * from "./implementation.js";
 export * from "./integration-phase.js";
 export * from "./final-merge.js";

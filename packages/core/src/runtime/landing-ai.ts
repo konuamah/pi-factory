@@ -50,7 +50,7 @@ export async function buildLandingPlan(input: {
     model: input.model,
     tools: ["read", "grep", "find", "ls"],
     limits: input.limits,
-    metadata: { role: "landing", stage: "landing-planning" },
+    metadata: { role: "landing", stage: "landing" },
   });
   const parsed = parseJsonObject(result.outputText);
   if (!parsed) {

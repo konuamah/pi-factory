@@ -64,6 +64,7 @@ import { runImplementationTasks } from "./implementation.js";
 import { runIntegrationPhase, classifyIntegrationFailure } from "./integration-phase.js";
 import { runFinalMergePhase } from "./final-merge.js";
 import { buildContractArtifact, failureSignature, resolveRunTaskTypeWithPaths, gitChangedFiles, filterVerificationByImpact, getChangedFilesFromBase } from "./verification-planning.js";
+import type { LandingTerminalPhase } from "./landing-types.js";
 
 export interface InterviewDecisionRecord {
   stage: string;
@@ -97,11 +98,39 @@ export interface FailureRecoveryConfig {
   narratorModel?: { provider?: string; model: string };
 }
 
-export interface FinalApprovalDecision {
-  approved: boolean;
-  feedback?: string;
-  decision?: "approve" | "reject" | "revise";
+export interface AcceptanceEvidence {
+  reviewVerdict?: { verdict: "block" | "pass" | "unknown"; summary: string };
+  baselineDebt?: Array<{ commandName: string; category: string; reason: string; suggestedAction: string; implicatedFiles?: string[] }>;
+  scopeWarnings?: Array<{ file: string; nonGoal: string }>;
+  verificationStatus: "passed" | "failed" | "incomplete";
+  contractComplete: boolean;
+  landingOutcome: {
+    status: "landed" | "pull-request" | "skipped" | "blocked";
+    phase: LandingTerminalPhase;
+    reason?: string;
+    targetHeadBefore?: string;
+    targetHeadAfter?: string;
+    pullRequest?: { status: "created" | "existing" | "failed"; url?: string; sourceBranch: string; targetBranch: string; reason?: string };
+  };
+  postLandingVerification?: {
+    overallStatus: "passed" | "failed" | "incomplete" | "error" | "pending";
+    commands: string[];
+    reason?: string;
+    repairAttempted?: boolean;
+  };
 }
+
+export type AcceptanceDecision =
+  | { decision: "accept"; feedback?: string }
+  | { decision: "revise"; feedback: string }
+  | { decision: "reject"; feedback?: string };
+
+export type AcceptanceFn = (input: {
+  runId: string;
+  goal: string;
+  candidateSha?: string;
+  evidence: AcceptanceEvidence;
+}) => Promise<AcceptanceDecision>;
 
 export interface RunFactoryControllerInput {
   cwd: string;
@@ -120,12 +149,13 @@ export interface RunFactoryControllerInput {
   failureClassifierExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
-  requestApproval?: (input: { runId: string; goal: string; candidateSha?: string; baselineDebt?: Array<{ commandName: string; category: string; reason: string; suggestedAction: string; implicatedFiles?: string[] }>; contractComplete: boolean; verificationStatus?: string; scopeWarnings?: Array<{ file: string; nonGoal: string }>; reviewerVerdict?: { verdict: "block" | "pass" | "unknown"; summary: string } }) => Promise<boolean | FinalApprovalDecision>;
+  requestAcceptance?: AcceptanceFn;
   requestDependencyRemediation?: (candidate: import("./dependencies.js").DependencyHydrationRemediationCandidate) => Promise<boolean | import("./dependencies.js").RemediationDecision>;
   requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
   failureRecovery?: FailureRecoveryConfig;
   delayMs?: number;
 }
+
 
 const execFileAsync = promisify(execFile);
 

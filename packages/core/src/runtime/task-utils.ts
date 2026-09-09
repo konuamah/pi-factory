@@ -38,7 +38,7 @@ export function isExecutableWorkflowNode(task: PlannerTask): boolean {
   if (type === "command" || type === "task-graph") {
     return true;
   }
-  if (type === "approval") {
+  if (type === "acceptance") {
     return false;
   }
   return true;
@@ -53,10 +53,8 @@ const RESERVED_PHASE_STAGES = new Set([
   "verify",
   "verification",
   "review",
-  "approval",
-  "approval-ready",
-  "merge",
-  "complete",
+  "acceptance",
+  "landing",
 ]);
 
 
@@ -64,4 +62,3 @@ export function findBuiltInWorkflowStage(stages: WorkflowStage[], names: string[
   const normalized = new Set(names.map((name) => name.toLowerCase()));
   return stages.find((stage) => normalized.has(stage.name.toLowerCase()));
 }
-

@@ -182,7 +182,7 @@ export async function handleWorkflowCreate(ctx: FactoryPiCommandContext, registr
     stages = stageNames.map((stageName, index) => ({
       name: stageName,
       dependsOn: index > 0 ? [stageNames[index - 1]!] : [],
-      type: index === stageNames.length - 1 ? ("approval" as const) : ("agent" as const),
+      type: index === stageNames.length - 1 ? ("acceptance" as const) : ("agent" as const),
     }));
   }
 

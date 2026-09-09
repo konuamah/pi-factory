@@ -402,7 +402,7 @@ function normalizeWorkflowStages(stages: WorkflowStage[]): PlannerArtifact["work
       { name: "implementation", dependsOn: ["planning"], type: "agent", role: "builder" },
       { name: "verification", dependsOn: ["implementation"], type: "command", commands: ["lint", "typecheck", "test", "build"] },
       { name: "review", dependsOn: ["verification"], type: "agent", role: "reviewer" },
-      { name: "approval", dependsOn: ["review"], type: "approval" },
+      { name: "acceptance", dependsOn: ["review"], type: "acceptance" },
     ];
   }
 
@@ -443,9 +443,8 @@ function buildTaskTitle(stageName: string, goal: string): string {
     case "verify":
     case "verification":
       return `Verify changes for: ${title}`;
-    case "approval":
-    case "approval-ready":
-      return `Prepare approval package for: ${title}`;
+    case "acceptance":
+      return `Prepare acceptance package for: ${title}`;
     case "merge":
       return `Merge approved changes for: ${title}`;
     default:

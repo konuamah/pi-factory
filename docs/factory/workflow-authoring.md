@@ -35,7 +35,7 @@ Each stage should include:
 
 - `name`
 - `description`
-- `type`: `agent`, `interview`, `command`, `approval`, or `task-graph`
+- `type`: `agent`, `interview`, `command`, `approval`, `acceptance`, or `task-graph`
 - `dependsOn` when not the first step
 - `role` for agent steps when known
 - `commands` for command steps
@@ -61,7 +61,7 @@ Use `interview` before planning when Factory must ask the user questions first.
 - that structured record reaches builder context, the reviewer prompt, and approval, not just the planner
 - final review also receives a scoped review surface built from `completed-tasks.json`, the candidate diff, direct imports/dependencies, `plan.json` `implementationContract`, and `verification.json`; trivial low-risk changes may skip the LLM reviewer entirely via deterministic review
 - the reviewer's prose verdict is classified from its conclusion into a `review.verdict` event (`block` | `pass` | `unknown`), and a blocking verdict is surfaced in the final approval gate — with no confirm UI, Factory refuses to silently auto-approve past a blocking review
-- final approval is a **post-review gate**: a workflow that asks for final approval should put a reviewer stage immediately before `approval`, and `approval.dependsOn` should reference that review stage so acceptance never happens without completed review evidence. Plan approval is the only intended human approval before implementation/review. The built-in default workflow and the setup presets already place `review` before `approval`; if a run ends in `review-unavailable`, Factory refused to open final approval because neither deterministic review nor a reviewer executor produced review evidence.
+- final acceptance is a **post-landing gate**: the lean flow is `plan approval → build → verify → review → landing → acceptance`.
 - Factory bundles the interview skill as `skills/grilling`; bind `skills.require: [grilling]` directly
 
 When the model returns several questions in one decision (separated by `---` in the interview prompt output), the Pi adapter presents them one at a time — a full editor when the host exposes it, otherwise an overlay — and folds every answer into a single structured interview record, so planning still receives one `interview-decisions.json` entry per interview stage.

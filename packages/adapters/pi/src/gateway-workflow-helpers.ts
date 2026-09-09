@@ -40,7 +40,7 @@ export async function collectWorkflowStages(
       "AI step — ask a model to plan, build, review, or repair",
       "Interview step — ask the user questions before planning",
       "Command step — run saved project checks like lint, typecheck, test, or build",
-      "Approval step — pause and ask you before Factory continues",
+      "Acceptance step — make the final user decision",
       "Task graph step — split larger work into smaller sub-tasks",
     ]);
     const type = workflowNodeTypeFromChoice(typeChoice);
@@ -90,7 +90,7 @@ export async function collectWorkflowStages(
       }
     }
 
-    if (type === "approval") {
+    if (type === "acceptance") {
       stage.requiresApproval = true;
     }
 
@@ -146,7 +146,7 @@ export function workflowPreviewLines(
           `Latest: ${renderWorkflowStepPreview(latest)}`,
           ...(latest.description ? [`Purpose: ${truncatePreviewLine(latest.description, 92)}`] : []),
         ]
-      : ["Next: add steps such as plan -> build -> verify -> approval."]),
+      : ["Next: add steps such as plan -> build -> verify -> review -> acceptance."]),
     "Command step = run checks like lint, typecheck, test, or build.",
   ];
 }
@@ -210,7 +210,7 @@ export function slugifyWorkflowPart(value: string): string {
 export function workflowNodeTypeFromChoice(choice: string | undefined): WorkflowNodeType {
   if (choice?.startsWith("Interview step")) return "interview";
   if (choice?.startsWith("Command step")) return "command";
-  if (choice?.startsWith("Approval step")) return "approval";
+  if (choice?.startsWith("Acceptance step")) return "acceptance";
   if (choice?.startsWith("Task graph step")) return "task-graph";
   return "agent";
 }
@@ -227,5 +227,3 @@ export function workflowRoleFromChoice(choice: string | undefined): ModelRole | 
 export function splitWorkflowCommands(value: string): string[] {
   return value.split(",").map((command) => command.trim()).filter(Boolean);
 }
-
-

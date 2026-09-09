@@ -7,9 +7,8 @@ export type RecoveryCheckpointPhase =
   | "implementation"
   | "verification-blocked"
   | "review"
-  | "approval-ready"
-  | "landing-planning"
-  | "post-landing-verification";
+  | "acceptance"
+  | "landing";
 
 export interface RecoveryCheckpoint {
   version: 1;

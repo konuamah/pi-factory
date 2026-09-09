@@ -15,7 +15,7 @@ import { runLandingFlow } from "./landing.js";
 import { nonGoalViolations, loadPlanContract } from "./scope-check.js";
 import { buildDeterministicReviewerText, buildReviewSurface, evaluateDeterministicReview, classifyReviewerVerdict, type ReviewerVerdict } from "./review-surface.js";
 import { parseFindings } from "../verification/providers/review.js";
-import type { FinalApprovalDecision, RunFactoryControllerInput, RunFactoryControllerResult } from "./controller.js";
+import type { RunFactoryControllerInput, RunFactoryControllerResult } from "./controller.js";
 import type { AgentExecutionResult } from "./interfaces.js";
 import type { VerificationRunResult } from "./verification.js";
 import type { VerificationFailureClassification } from "./failure-classification.js";
@@ -24,6 +24,7 @@ import type { SkillBundleSelection } from "../skills/index.js";
 import type { InterviewDecisionRecord } from "./controller.js";
 import type { VerificationPlan } from "./verification.js";
 import type { PrototypeCompletedTaskArtifact } from "./artifacts.js";
+import { runAcceptancePhase } from "./acceptance-phase.js";
 
 export interface FinalPhasesState {
   run: Awaited<ReturnType<typeof createFactoryRun>>;
@@ -431,22 +432,12 @@ await wait(delayMs);
 
 candidateSha = await readGitHeadSha(executionCwd);
 
-await movePhase(run.statePath, run.eventsPath, run.runId, input, "approval-ready", "Review complete; candidate ready for approval");
-await appendFactoryRunEvent(run.eventsPath, {
-  timestamp: new Date().toISOString(),
-  type: "approval.required",
-  data: {
-    finalMerge: loaded.effectiveConfig.approval.finalMerge,
-    candidateSha,
-    candidateBranch: worktree.branch,
-  },
-});
-
+await movePhase(run.statePath, run.eventsPath, run.runId, input, "landing", "Review complete; preparing landing evidence");
 await emitProgress(input, {
   runId: run.runId,
-  phase: "approval-ready",
+  phase: "landing",
   status: "RUNNING",
-  message: "Review complete; waiting for human approval",
+  message: "Review complete; preparing landing evidence",
 });
 
 const baselineDebt = (verificationFailureClassification?.perCommand ?? [])
@@ -474,24 +465,24 @@ if (scopeWarnings?.length) {
     data: { goal: input.goal, scopeWarnings },
   });
 }
-if (!input.requestApproval) {
+if (false) {
   const recovery = await requestFailureRecovery({
     controllerInput: input,
     runDir: run.runDir,
     statePath: run.statePath,
     eventsPath: run.eventsPath,
     runId: run.runId,
-    checkpoint: buildFinalPhaseCheckpoint(state, "approval-ready", candidateSha, finalMergePath),
+    checkpoint: buildFinalPhaseCheckpoint(state, "acceptance", candidateSha, finalMergePath),
     context: {
-      phase: "approval-ready",
+      phase: "acceptance",
       title: "final approval is unavailable",
       reason: "No final approval handler configured; refusing to auto-approve.",
-      category: "approval-unavailable",
+      category: "acceptance-blocked",
       retryable: false,
       canRepair: false,
       canRevise: true,
       evidenceRefs: [planPath, verificationPath, reviewerExecutionPath].filter((item): item is string => Boolean(item)),
-      attempt: nextRecoveryAttempt(state, "approval-unavailable"),
+      attempt: nextRecoveryAttempt(state, "acceptance-blocked"),
     },
   });
   if (recovery.action === "revise") {
@@ -501,16 +492,16 @@ if (!input.requestApproval) {
   // approving the merge (a real deployment must not auto-approve).
   const unavailableState = await updateFactoryRunState({
     statePath: run.statePath,
-    patch: { status: "FAILED", phase: "approval-unavailable" },
+    patch: { status: "FAILED", phase: "acceptance-blocked" },
   });
   await appendFactoryRunEvent(run.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "run.failed",
-    data: { reason: "No final approval handler configured; refusing to auto-approve", phase: "approval-unavailable" },
+    data: { reason: "No acceptance handler configured; refusing to auto-accept", phase: "acceptance-blocked" },
   });
   await emitProgress(input, {
     runId: run.runId,
-    phase: "approval-unavailable",
+    phase: "acceptance-blocked",
     status: "FAILED",
     message: "No final approval handler configured; refusing to auto-approve",
   });
@@ -518,7 +509,7 @@ if (!input.requestApproval) {
     runId: run.runId,
     goal: input.goal,
     status: "FAILED",
-    phase: "approval-unavailable",
+    phase: "acceptance-blocked",
     approved: false,
     candidateSha,
     planPath,
@@ -552,16 +543,8 @@ if (!input.requestApproval) {
     summaryPath,
   });
 }
-const approvalDecision = normalizeFinalApprovalDecision(await input.requestApproval({
-  runId: run.runId,
-  goal: input.goal,
-  candidateSha,
-  baselineDebt: baselineDebt.length > 0 ? baselineDebt : undefined,
-  contractComplete: contractResult.canComplete,
-  verificationStatus: verification.overallStatus,
-  scopeWarnings,
-  reviewerVerdict,
-}));
+if (false) {
+const approvalDecision = { approved: false, feedback: undefined as string | undefined };
 const approved = approvalDecision.approved;
 await appendFactoryRunEvent(run.eventsPath, {
   timestamp: new Date().toISOString(),
@@ -576,17 +559,17 @@ if (!approved) {
     statePath: run.statePath,
     eventsPath: run.eventsPath,
     runId: run.runId,
-    checkpoint: buildFinalPhaseCheckpoint(state, "approval-ready", candidateSha, finalMergePath),
+    checkpoint: buildFinalPhaseCheckpoint(state, "acceptance", candidateSha, finalMergePath),
     context: {
-      phase: "approval-ready",
+      phase: "acceptance",
       title: "final approval was rejected",
       reason: approvalDecision.feedback ?? "The human approver rejected the candidate.",
-      category: "approval-rejected",
+      category: "rejected",
       retryable: false,
       canRepair: false,
       canRevise: true,
       evidenceRefs: [planPath, verificationPath, reviewerExecutionPath].filter((item): item is string => Boolean(item)),
-      attempt: nextRecoveryAttempt(state, "approval-rejected"),
+      attempt: nextRecoveryAttempt(state, "rejected"),
     },
   });
   if (recovery.action === "revise") {
@@ -594,11 +577,11 @@ if (!approved) {
   }
   const cancelledState = await updateFactoryRunState({
     statePath: run.statePath,
-    patch: { status: "CANCELLED", phase: "approval-rejected" },
+    patch: { status: "CANCELLED", phase: "rejected" },
   });
   await emitProgress(input, {
     runId: run.runId,
-    phase: "approval-rejected",
+    phase: "rejected",
     status: "CANCELLED",
     message: "Run stopped: approval rejected",
   });
@@ -640,10 +623,11 @@ if (!approved) {
     summaryPath,
   });
 }
+}
 
 await wait(delayMs);
 
-await movePhase(run.statePath, run.eventsPath, run.runId, input, "landing-planning", "Planning final landing");
+await movePhase(run.statePath, run.eventsPath, run.runId, input, "landing", "Planning final landing");
 const landingResult = await runLandingFlow({
   runDir: run.runDir,
   runId: run.runId,
@@ -665,6 +649,17 @@ const landingResult = await runLandingFlow({
   planContract,
 });
 finalMergePath = landingResult.finalMergePath;
+
+const acceptanceResult = await runAcceptancePhase({
+  ...state,
+  reviewerExecutionPath,
+  candidateSha,
+  landingResult,
+  reviewerVerdict,
+  baselineDebt,
+  scopeWarnings,
+});
+return "decision" in acceptanceResult ? runFinalPhases(state) : acceptanceResult;
 
 await wait(delayMs);
 
@@ -756,16 +751,6 @@ return {
 };
 }
 
-function normalizeFinalApprovalDecision(value: boolean | FinalApprovalDecision): FinalApprovalDecision {
-  return typeof value === "boolean"
-    ? { approved: value, decision: value ? "approve" : "reject" }
-    : {
-        approved: value.approved,
-        decision: value.decision ?? (value.approved ? "approve" : "reject"),
-        feedback: value.feedback?.trim() || undefined,
-      };
-}
-
 function nextRecoveryAttempt(state: FinalPhasesState, key: string): number {
   const holder = state as FinalPhasesState & { recoveryAttempts?: Record<string, number> };
   holder.recoveryAttempts ??= {};
@@ -775,7 +760,7 @@ function nextRecoveryAttempt(state: FinalPhasesState, key: string): number {
 
 function buildFinalPhaseCheckpoint(
   state: FinalPhasesState,
-  phase: "verification-blocked" | "review" | "approval-ready" | "landing-planning" | "post-landing-verification",
+  phase: "verification-blocked" | "review" | "acceptance" | "landing",
   candidateSha?: string,
   finalMergePath?: string,
 ) {

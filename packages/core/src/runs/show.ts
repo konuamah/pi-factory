@@ -21,6 +21,7 @@ export interface FactoryRunShowResult {
     reason?: string;
     repairAttempted?: boolean;
   };
+  evidence?: Record<string, unknown>;
   pullRequest?: {
     status?: string;
     url?: string;
@@ -134,6 +135,7 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
     pullRequest: finalMerge?.pullRequest && typeof finalMerge.pullRequest === "object"
       ? finalMerge.pullRequest as FactoryRunShowResult["pullRequest"]
       : undefined,
+    evidence: [...events].reverse().find((event) => event.type === "acceptance.accepted" || event.type === "acceptance.rejected" || event.type === "acceptance.revise_requested")?.data?.evidence as Record<string, unknown> | undefined,
     planDecision: planSummary.decision,
     planFeedback: planSummary.feedback,
     implementationStarted: planSummary.implementationStarted,

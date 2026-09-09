@@ -38,9 +38,9 @@ Fix:
 
 ## Missing Approval Handler Auto-Approves
 
-Symptom: no `requestPlanApproval` / `requestApproval` handler is configured and the run silently approves the plan or merge.
+Symptom: no `requestPlanApproval` / `requestAcceptance` handler is configured and the run silently approves the plan or acceptance.
 
-Fix: missing approval handlers now fail loud instead of auto-approving — the run ends `FAILED` with phase `plan-approval-unavailable` / `approval-unavailable` and a `run.failed` event. The Pi gateway always passes both handlers; this is a guard for API/harness callers that omit them.
+Fix: missing approval handlers now fail loud instead of auto-approving — the run ends `FAILED` with phase `plan-approval-unavailable` / `acceptance-blocked` and a `run.failed` event. The Pi gateway always passes the acceptance handler; this is a guard for API/harness callers that omit it.
 
 ## Missing Planner Executor Produces Empty Plan
 

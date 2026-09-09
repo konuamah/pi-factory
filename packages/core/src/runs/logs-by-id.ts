@@ -264,6 +264,12 @@ function formatEventLine(event: { timestamp?: string; type?: string; data?: Reco
   if (type === "plan.revision_requested") {
     return `${timestamp} plan revision requested${typeof event.data?.feedback === "string" ? ` | feedback: ${event.data.feedback}` : ""}`;
   }
+  if (type === "acceptance.accepted" || type === "acceptance.rejected" || type === "acceptance.revise_requested") {
+    return `${timestamp} ${type.replace("acceptance.", "acceptance ")}${typeof event.data?.feedback === "string" ? ` | feedback: ${event.data.feedback}` : ""}`;
+  }
+  if (type === "landing.guard_blocked_recorded" || type === "landing.post_verification_failed_recorded") {
+    return `${timestamp} ${type} | reason: ${typeof event.data?.reason === "string" ? event.data.reason : "unknown"}`;
+  }
   if (type === "run.resumed" || type === "run.resume_requested") {
     return `${timestamp} ${type}${typeof event.data?.suggestedPhase === "string" ? ` | suggested phase: ${event.data.suggestedPhase}` : ""}${typeof event.data?.nextStatus === "string" ? ` | next status: ${event.data.nextStatus}` : ""}${typeof event.data?.policyReason === "string" ? ` | policy: ${event.data.policyReason}` : ""}`;
   }

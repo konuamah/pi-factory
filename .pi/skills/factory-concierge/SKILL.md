@@ -122,6 +122,7 @@ Use focused Factory operational skills for user-facing behavior:
 - failures: `factory-troubleshooting`
 - quality testing: `factory-quality-testing`
 - scope handoff (non-goal files in verification/approval/landing): see `docs/factory/benchmark-running.md` "Scope handoff" — flags `scope.verification` / `scope.landing` (`"warn"` default, `"block"` to enforce)
+- Acceptance is the single final user decision after landing; landing and post-landing verification are shown as evidence in that gate.
 
 ## Approval Rules
 

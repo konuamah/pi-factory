@@ -115,7 +115,7 @@ export async function setupControllerRun(
       baseBranch: loaded.effectiveConfig.git.baseBranch,
     });
 
-    const phases = ["discovery", "planning", "plan-approval", "implementation", "integration", "verification", "repair", "verified", "review", "approval-ready", "merge", "complete"];
+    const phases = ["discovery", "planning", "plan-approval", "implementation", "integration", "verification", "repair", "verified", "review", "landing", "acceptance"];
     const delayMs = input.delayMs ?? 150;
     let builderExecutionPaths: string[] = [];
     let integrationPath: string | undefined;

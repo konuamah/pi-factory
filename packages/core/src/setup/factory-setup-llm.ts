@@ -143,7 +143,7 @@ export function buildDeterministicRecommendation(ctx: FactorySetupContext): Fact
             { name: "migration-check", type: "command", commands: ["pnpm check:migrations"], dependsOn: ["build"] },
             { name: "integration-verify", type: "command", commands: ["pnpm test"], dependsOn: ["migration-check"] },
             { name: "review", type: "agent", role: "reviewer", dependsOn: ["integration-verify"] },
-            { name: "approval", type: "approval", dependsOn: ["review"] },
+            { name: "acceptance", type: "acceptance", dependsOn: ["review"] },
           ],
         },
         reason: "Database changes can affect app and deploy, so verify them before review.",

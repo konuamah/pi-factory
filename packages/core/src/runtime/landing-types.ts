@@ -18,6 +18,7 @@ export type LandingOutcome =
   | "pull-request-created"
   | "pull-request-existing"
   | "pull-request-failed";
+export type LandingTerminalPhase = "complete" | "merge-blocked" | "pull-request-opened" | "accepted" | "accepted-with-pr" | "acceptance-blocked";
 
 export interface LandingPlan {
   strategy: LandingStrategy;
@@ -47,7 +48,7 @@ export interface LandingExecutionResult {
 export interface LandingResult {
   finalMergePath: string;
   status: "COMPLETED" | "BLOCKED";
-  phase: "complete" | "merge-blocked" | "pull-request-opened";
+  phase: LandingTerminalPhase;
   approved: boolean;
   landingStatus: LandingStatus;
   landingAttempts: number;
@@ -58,6 +59,14 @@ export interface LandingResult {
     sourceBranch: string;
     targetBranch: string;
     reason: string;
+  };
+  targetHeadBefore?: string;
+  targetHeadAfter?: string;
+  postLandingVerification?: {
+    status: "pending" | "passed" | "failed" | "incomplete" | "error";
+    commands: string[];
+    reason?: string;
+    repairAttempted?: boolean;
   };
 }
 

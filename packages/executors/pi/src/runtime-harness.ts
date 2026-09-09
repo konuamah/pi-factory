@@ -99,9 +99,9 @@ export async function runPiRuntimeHarness(): Promise<void> {
       process.stdout.write(`\nplan auto-approved for ${runId}: ${approvalGoal} | tasks=${taskCount} | stages=${workflowStages.join('->')} | plan=${planPath}\n`);
       return { decision: 'approve' };
     },
-    requestApproval: async ({ runId, goal: approvalGoal }) => {
-      process.stdout.write(`\nfinal approval auto-approved for ${runId}: ${approvalGoal}\n`);
-      return true;
+    requestAcceptance: async ({ runId, goal: acceptanceGoal }) => {
+      process.stdout.write(`\nfinal acceptance auto-accepted for ${runId}: ${acceptanceGoal}\n`);
+      return { decision: 'accept' };
     },
   });
 
@@ -186,4 +186,3 @@ async function judgeFinishedRun(input: {
     process.stdout.write(`judge=error (${error instanceof Error ? error.message : String(error)})\n`);
   }
 }
-

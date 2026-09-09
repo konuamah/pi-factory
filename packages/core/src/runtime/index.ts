@@ -17,6 +17,7 @@ export * from "./file-apply.js";
 export * from "./failure-classification.js";
 export * from "./ai-failure-classifier.js";
 export * from "./failure-recovery.js";
+export * from "./recovery-narrator.js";
 export * from "./recovery-checkpoint.js";
 export * from "./review-surface.js";
 export * from "./dependencies.js";

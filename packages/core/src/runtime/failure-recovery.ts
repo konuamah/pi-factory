@@ -3,6 +3,8 @@ import type { DecisionOption, DecisionRequest } from "../decisions/index.js";
 import { requestHumanDecision } from "./phase-plumbing.js";
 import { writeRecoveryCheckpoint, type RecoveryCheckpointInput } from "./recovery-checkpoint.js";
 import type { RunFactoryControllerInput } from "./controller.js";
+import { fallbackRecoveryNarration, narrateRecovery, type RecoveryOptionId } from "./recovery-narrator.js";
+import type { AgentExecutionInput, AgentExecutor } from "./interfaces.js";
 
 export type FailureRecoveryAction = "retry" | "repair" | "revise" | "stop";
 
@@ -29,21 +31,30 @@ export function shouldUseInteractiveRecovery(input: RunFactoryControllerInput): 
   return input.failureRecovery?.enabled !== false && Boolean(input.requestDecision);
 }
 
-export function buildFailureRecoveryRequest(runId: string, context: FailureRecoveryContext): DecisionRequest {
-  const options: DecisionOption[] = [
-    ...(context.retryable ? [{ id: "retry", label: "I fixed it; retry this phase" }] : []),
-    ...(context.canRepair ? [{ id: "repair", label: "Let Factory repair and retry" }] : []),
-    ...(context.canRevise ? [{ id: "revise", label: "Revise with my guidance" }] : []),
-    { id: "stop", label: "Stop and preserve the failure" },
+export async function buildFailureRecoveryRequest(runId: string, context: FailureRecoveryContext, narrator?: { executor?: AgentExecutor; model?: { provider?: string; model: string }; limits?: AgentExecutionInput["limits"]; disableNarrator?: boolean }): Promise<DecisionRequest> {
+  const enabledOptions: RecoveryOptionId[] = [
+    ...(context.retryable ? ["retry" as const] : []),
+    ...(context.canRepair ? ["repair" as const] : []),
+    ...(context.canRevise ? ["revise" as const] : []),
+    "stop",
   ];
+  let narration;
+  try {
+    narration = narrator?.disableNarrator
+      ? fallbackRecoveryNarration(context, enabledOptions)
+      : await narrateRecovery({ runId, phase: context.phase, context, enabledOptions, ...narrator });
+  } catch {
+    narration = fallbackRecoveryNarration(context, enabledOptions);
+  }
+  const options: DecisionOption[] = narration.options;
   return {
     id: `${runId}-recovery-${slug(context.phase)}-${context.attempt}`,
-    title: `Factory needs help: ${context.title}`,
+    title: narration.title,
     question: [
       `Phase: ${context.phase}`,
-      `Problem: ${truncate(context.reason, 1200)}`,
+      `Problem: ${truncate(narration.problem, 1200)}`,
       `Category: ${context.category}`,
-      "Fix the issue if needed, then choose how Factory should continue.",
+      narration.howToRecover,
     ].join("\n"),
     context: `Recovery attempt ${context.attempt} of ${context.maxAttempts ?? 3}. Factory will not claim success without rerunning the affected phase.`,
     options,
@@ -67,7 +78,11 @@ export async function requestFailureRecovery(input: {
     return { action: "stop", requestId: "" };
   }
   const context = { ...input.context, maxAttempts };
-  const request = buildFailureRecoveryRequest(input.runId, context);
+  const request = await buildFailureRecoveryRequest(input.runId, context, {
+    executor: input.controllerInput.failureClassifierExecutor ?? input.controllerInput.reviewerExecutor,
+    model: input.controllerInput.failureRecovery?.narratorModel,
+    disableNarrator: input.controllerInput.failureRecovery?.disableNarrator,
+  });
   if (input.checkpoint) {
     await writeRecoveryCheckpoint(input.runDir, {
       ...input.checkpoint,
@@ -95,7 +110,7 @@ export async function requestFailureRecovery(input: {
     runId: input.runId,
     request,
   });
-  const allowed = new Set(request.options.map((option) => option.id));
+  const allowed = new Set([...request.options.map((option) => option.id), "custom"]);
   if (!allowed.has(result.optionId)) {
     await appendFactoryRunEvent(input.eventsPath, {
       timestamp: new Date().toISOString(),
@@ -104,13 +119,14 @@ export async function requestFailureRecovery(input: {
     });
     return { action: "stop", feedback: `Invalid recovery option: ${result.optionId}`, requestId: request.id };
   }
-  const action = result.optionId as FailureRecoveryAction;
+  const feedback = result.feedback?.trim() || undefined;
+  const action: FailureRecoveryAction = result.optionId === "custom" ? (feedback ? "revise" : "stop") : result.optionId as FailureRecoveryAction;
   await appendFactoryRunEvent(input.eventsPath, {
     timestamp: new Date().toISOString(),
     type: "run.recovery_resolved",
     data: { decisionRequestId: request.id, phase: input.context.phase, action, attempt: input.context.attempt },
   });
-  return { action, feedback: result.feedback?.trim() || undefined, requestId: request.id };
+  return { action, feedback, requestId: request.id };
 }
 
 function slug(value: string): string {

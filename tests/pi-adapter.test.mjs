@@ -196,6 +196,7 @@ test('runtime recovery decision captures selected action and optional notes', as
         assert.deepEqual(options, [
           'I fixed it; retry this phase',
           'Stop and preserve the failure',
+          'Custom answer…',
         ]);
         return 'I fixed it; retry this phase';
       },

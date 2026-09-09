@@ -74,6 +74,10 @@ When a live Pi run has a decision UI available, recoverable runtime problems can
 
 This does not bypass safety: missing decision handlers, exhausted recovery attempts, hard resource limits, permission/capability denials, and unrecoverable states still fail loud with `summary.json`, `events.jsonl`, and the relevant phase artifact.
 
+### Failure Recovery Wording
+
+Factory's runtime recovery dialog uses a small LLM narrator by default for its title, problem description, recovery guidance, and enabled option labels. It reuses `failureClassifierExecutor`, or the configured reviewer executor when the classifier slot is absent. The option ids, option set, and controller state machine remain deterministic. If `failureRecovery.disableNarrator: true` is set or neither executor is configured, Factory uses deterministic fallback wording and makes no narrator call. Malformed, over-length, or out-of-bounds output also uses the fallback.
+
 ## Setup Fails Before A Run Record Exists
 
 Symptom: config load, worktree creation, or run creation fails and the user previously saw a raw stack trace with no run artifact.

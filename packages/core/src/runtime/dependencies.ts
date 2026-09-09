@@ -24,6 +24,17 @@ export interface DependencyHydrationRemediationCandidate {
   category?: "missing-executable" | "isolated-environment";
 }
 
+export interface RemediationDecision {
+  approved: boolean;
+  feedback?: string;
+  decision?: "approve" | "reject" | "revise";
+}
+
+export function normalizeRemediationDecision(value: boolean | RemediationDecision): RemediationDecision {
+  if (typeof value === "boolean") return { approved: value, decision: value ? "approve" : "reject" };
+  return { approved: value.approved, decision: value.decision ?? (value.approved ? "approve" : "reject"), feedback: value.feedback?.trim() || undefined };
+}
+
 export interface DependencyHydrationResult {
   status: "completed" | "skipped";
   reason: string;
@@ -76,7 +87,7 @@ export async function hydrateWorkspaceDependencies(input: {
   phase: string;
   taskId?: string;
   onEvent?: (event: { type: string; data: Record<string, unknown> }) => Promise<void>;
-  onRemediation?: (candidate: DependencyHydrationRemediationCandidate) => Promise<boolean>;
+  onRemediation?: (candidate: DependencyHydrationRemediationCandidate) => Promise<boolean | RemediationDecision>;
   mode?: "harness" | "agent";
 }): Promise<DependencyHydrationResult> {
   const cacheRoot = path.resolve(input.config.dependencies.cacheRoot);
@@ -103,9 +114,9 @@ export async function hydrateWorkspaceDependencies(input: {
       },
     });
     if (!preflight.ok && preflight.remediation && input.onRemediation) {
-      const approved = await input.onRemediation(preflight.remediation);
+      const approved = normalizeRemediationDecision(await input.onRemediation(preflight.remediation));
       await input.onEvent?.({
-        type: approved ? "dependencies.remediation_approved" : "dependencies.remediation_rejected",
+        type: approved.approved ? "dependencies.remediation_approved" : "dependencies.remediation_rejected",
         data: {
           runId: input.runId,
           phase: input.phase,
@@ -113,7 +124,7 @@ export async function hydrateWorkspaceDependencies(input: {
           ...preflight.remediation,
         },
       });
-      if (approved) {
+      if (approved.approved) {
         setupCommands = applyRemediation(setupCommands, preflight.remediation);
       }
     }

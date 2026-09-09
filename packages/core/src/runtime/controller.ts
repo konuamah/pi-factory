@@ -93,6 +93,8 @@ export interface PlanApprovalResult {
 export interface FailureRecoveryConfig {
   enabled?: boolean;
   maxAttempts?: number;
+  disableNarrator?: boolean;
+  narratorModel?: { provider?: string; model: string };
 }
 
 export interface FinalApprovalDecision {
@@ -119,7 +121,7 @@ export interface RunFactoryControllerInput {
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string; candidateSha?: string; baselineDebt?: Array<{ commandName: string; category: string; reason: string; suggestedAction: string; implicatedFiles?: string[] }>; contractComplete: boolean; verificationStatus?: string; scopeWarnings?: Array<{ file: string; nonGoal: string }>; reviewerVerdict?: { verdict: "block" | "pass" | "unknown"; summary: string } }) => Promise<boolean | FinalApprovalDecision>;
-  requestDependencyRemediation?: (candidate: import("./dependencies.js").DependencyHydrationRemediationCandidate) => Promise<boolean>;
+  requestDependencyRemediation?: (candidate: import("./dependencies.js").DependencyHydrationRemediationCandidate) => Promise<boolean | import("./dependencies.js").RemediationDecision>;
   requestDecision?: (request: DecisionRequest) => Promise<DecisionResult>;
   failureRecovery?: FailureRecoveryConfig;
   delayMs?: number;

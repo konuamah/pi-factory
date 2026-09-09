@@ -130,6 +130,8 @@ When Concierge launches setup, the setup flow must ask user-input questions befo
 
 When diagnosing live task runs, know that recoverable runtime failures may pause as `DECISION_REQUIRED / decision-runtime` with a `RUNTIME` / `FAILURE_RECOVERY` decision and `recovery-checkpoint.json`. This can happen in discovery, planning, implementation, integration, verification-planning, review, approval, landing, and post-landing verification. Tell the user to read the phase/problem, fix the cause if needed, choose retry/revise/repair when offered, or stop to preserve artifacts. If no decision handler is available, Factory still fails loud and the user should inspect `/factory show <run-id>` and `/factory logs <run-id>`.
 
+Recovery wording may be LLM-generated through the failure-classifier or reviewer executor, but enabled option ids and recovery behavior remain code-controlled; missing executors or `failureRecovery.disableNarrator` use deterministic fallback copy.
+
 Workflows are a first-class responsibility. Help the user design, list, inspect, create, and set workflows. For broad workflow creation, use `create-workflow`. For a specific existing workflow, use `show-workflow` or `set-default-workflow` with the workflow id. Ask for approval before changing the default workflow.
 
 When editing `factory.yaml`, always use the workflow registry shape from `docs/factory/workflow-authoring.md`: top-level `defaultWorkflowId` plus `workflows`, where each workflow has `id`, `name`, and `stages`. Do not create a top-level `stages:` list; Factory resolves runs from the workflow registry, so a top-level `stages:` block can be ignored and cause interview stages to be skipped.

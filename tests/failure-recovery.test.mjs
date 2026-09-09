@@ -25,8 +25,8 @@ async function withRun(fn) {
   }
 }
 
-test('buildFailureRecoveryRequest creates a runtime recovery decision with bounded actions', () => {
-  const request = buildFailureRecoveryRequest('run_1', {
+test('buildFailureRecoveryRequest creates a runtime recovery decision with bounded actions', async () => {
+  const request = await buildFailureRecoveryRequest('run_1', {
     phase: 'verification-planning',
     title: 'verification planning failed',
     reason: 'Planner omitted all runnable commands',
@@ -37,7 +37,7 @@ test('buildFailureRecoveryRequest creates a runtime recovery decision with bound
     evidenceRefs: ['/tmp/run/verification-planner-execution.json'],
     attempt: 2,
     maxAttempts: 3,
-  });
+  }, { disableNarrator: true });
 
   assert.equal(request.source, 'RUNTIME');
   assert.equal(request.reason, 'FAILURE_RECOVERY');
@@ -129,7 +129,7 @@ test('requestFailureRecovery stops when no decision handler is configured', asyn
 
 test('resumeLatestFactoryRun reports a pending runtime recovery decision without reopening it', async () => {
   await withRun(async (run) => {
-    const request = buildFailureRecoveryRequest(run.runId, {
+    const request = await buildFailureRecoveryRequest(run.runId, {
       phase: 'implementation',
       title: 'implementation failed',
       reason: 'builder failed',

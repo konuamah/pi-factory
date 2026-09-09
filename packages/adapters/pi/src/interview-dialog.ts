@@ -55,6 +55,35 @@ export async function requestInterviewDecision(
   };
 }
 
+/** Uses the interview option UI for runtime recovery without changing recovery ids. */
+export async function requestRecoveryDecision(
+  ui: FactoryPiUi,
+  request: DecisionRequest,
+): Promise<DecisionResult> {
+  const question = [
+    request.question,
+    "",
+    "Options:",
+    ...request.options.map((option) => `[${option.id}] ${option.label}${option.description ? ` — ${option.description}` : ""}`),
+  ].join("\n");
+  const result = await requestInterviewDecision(ui, {
+    ...request,
+    question,
+    options: [{ id: "recovery", label: "Continue recovery" }],
+  });
+  const answer = result.interviewQuestions?.[0];
+  const optionId = answer?.selectedOptionId ?? (answer?.customAnswer ? "custom" : "stop");
+  const notes = optionId !== "custom" && optionId !== "stop" && ui.input
+    ? (await ui.input("Recovery notes (optional)", "Tell Factory what you fixed or want changed"))?.trim()
+    : undefined;
+  return {
+    requestId: request.id,
+    optionId,
+    ...(answer?.customAnswer ? { feedback: answer.customAnswer.slice(0, 4000) } : notes ? { feedback: notes.slice(0, 4000) } : {}),
+    decidedAt: result.decidedAt,
+  };
+}
+
 async function askOneQuestion(
   ui: FactoryPiUi,
   request: DecisionRequest,
@@ -354,7 +383,7 @@ function buildEditorPrompt(title: string, question: ParsedInterviewQuestion): st
   ].filter((line): line is string => Boolean(line)).join("\n");
 }
 
-function overlayConfig(): { overlay: boolean; overlayOptions: Record<string, unknown> } {
+export function overlayConfig(): { overlay: boolean; overlayOptions: Record<string, unknown> } {
   return {
     overlay: true,
     overlayOptions: {
@@ -366,7 +395,7 @@ function overlayConfig(): { overlay: boolean; overlayOptions: Record<string, unk
   };
 }
 
-function fixedHeightLines(lines: string[], width: number, height: number): string[] {
+export function fixedHeightLines(lines: string[], width: number, height: number): string[] {
   const rendered = lines.slice(0, height).map((line) => truncateStyledLine(line, width));
   while (rendered.length < height) {
     rendered.push("");
@@ -415,7 +444,7 @@ function stripMarkdown(value: string): string {
   return value.replace(/\*\*/g, "").replace(/^[-*]\s+/, "").trim();
 }
 
-function isPrintableInput(value: string): boolean {
+export function isPrintableInput(value: string): boolean {
   return value.length > 0 && !value.startsWith("\u001b") && [...value].every((char) => {
     const codePoint = char.codePointAt(0) ?? 0;
     return codePoint >= 32 && codePoint !== 127;

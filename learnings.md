@@ -1,5 +1,7 @@
 # learnings.md
 
+- Recovery narration may be model-generated, but option ids, enabled actions, stop semantics, and the recovery state machine must remain deterministic with a bounded fallback.
+
 - Recoverable live Factory failures should use the same persisted decision-gate shape as interviews: explain the phase/problem, offer bounded actions, accept optional user notes, and retry only a safe phase-local operation. Missing handlers, hard limits, permission/capability denials, and exhausted attempts must still fail loud with artifacts instead of pretending there are no failures.
 - When repository topology is ambiguous, use deterministic discovery to gather candidate roots/scripts, then use a reasoning step to choose execution strategy.
 - Verification failures should be separated into harness/config selection issues versus real project code issues.

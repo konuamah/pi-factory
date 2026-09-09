@@ -3,6 +3,23 @@ import path from "node:path";
 import { summarizeGuidanceEvents, type GuidanceSummary } from "./guidance.js";
 import { readRunToolActivity } from "./tool-activity.js";
 
+export interface AcceptanceEvidenceSummary {
+  decision: "accept" | "revise" | "reject" | null;
+  feedback?: string;
+  landingStatus?: "landed" | "pull-request" | "skipped" | "blocked";
+  landingPhase?: "complete" | "merge-blocked" | "pull-request-opened" | "accepted" | "accepted-with-pr" | "acceptance-blocked";
+  landingReason?: string;
+  pullRequest?: { status?: "created" | "existing" | "failed"; url?: string; sourceBranch?: string; targetBranch?: string; reason?: string };
+  targetHeadBefore?: string;
+  targetHeadAfter?: string;
+  postLandingVerification?: { overallStatus?: "passed" | "failed" | "incomplete" | "error" | "pending"; commands?: string[]; reason?: string; repairAttempted?: boolean };
+  verificationStatus?: "passed" | "failed" | "incomplete";
+  contractComplete?: boolean;
+  baselineDebt?: Array<{ commandName: string; category: string; reason: string; suggestedAction: string; implicatedFiles?: string[] }>;
+  scopeWarnings?: Array<{ file: string; nonGoal: string }>;
+  reviewVerdict?: { verdict: "block" | "pass" | "unknown"; summary: string };
+}
+
 export interface FactoryRunShowResult {
   runDir?: string;
   state?: Record<string, unknown>;
@@ -47,6 +64,7 @@ export interface FactoryRunShowResult {
     workspaceBranch?: string;
   };
   guidance?: GuidanceSummary;
+  acceptanceEvidence?: AcceptanceEvidenceSummary;
   integrationFailure?: {
     reason?: string;
     conflictingFiles: string[];
@@ -136,6 +154,7 @@ export async function showFactoryRun(runsDir: string, runId: string): Promise<Fa
       ? finalMerge.pullRequest as FactoryRunShowResult["pullRequest"]
       : undefined,
     evidence: [...events].reverse().find((event) => event.type === "acceptance.accepted" || event.type === "acceptance.rejected" || event.type === "acceptance.revise_requested")?.data?.evidence as Record<string, unknown> | undefined,
+    acceptanceEvidence: await readAcceptanceEvidence(runDir),
     planDecision: planSummary.decision,
     planFeedback: planSummary.feedback,
     implementationStarted: planSummary.implementationStarted,
@@ -229,16 +248,48 @@ async function readJsonFile(filePath: string): Promise<Record<string, unknown> |
 async function readJsonlFile(filePath: string): Promise<Array<{ type?: string; data?: Record<string, unknown> }>> {
   try {
     const raw = await fs.readFile(filePath, "utf8");
-    return raw
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as { type?: string; data?: Record<string, unknown> });
+    return raw.split(/\r?\n/).filter(Boolean).flatMap((line) => {
+      try { return [JSON.parse(line) as { type?: string; data?: Record<string, unknown> }]; } catch { return []; }
+    });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return [];
     }
     throw error;
   }
+}
+
+export async function readAcceptanceEvidence(runDir: string): Promise<AcceptanceEvidenceSummary | undefined> {
+  const [finalMerge, events] = await Promise.all([readJsonFile(path.join(runDir, "final-merge.json")), readJsonlFile(path.join(runDir, "events.jsonl"))]);
+  const acceptanceEvent = [...events].reverse().find((event) => ["acceptance.accepted", "acceptance.rejected", "acceptance.revise_requested"].includes(event.type ?? ""));
+  if (!finalMerge && !acceptanceEvent) return undefined;
+  const data = acceptanceEvent?.data ?? {};
+  const evidence = recordValue(data.evidence) ?? {};
+  const outcome = recordValue(evidence.landingOutcome);
+  const pr = recordValue(outcome?.pullRequest) ?? recordValue(finalMerge?.pullRequest);
+  const plv = recordValue(evidence.postLandingVerification) ?? recordValue(finalMerge?.postLandingVerification);
+  const verdict = recordValue(evidence.reviewVerdict);
+  const debt = Array.isArray(evidence.baselineDebt) ? evidence.baselineDebt.filter((v): v is Record<string, unknown> => Boolean(v) && typeof v === "object").map((v) => ({ commandName: stringValue(v.commandName) ?? "", category: stringValue(v.category) ?? "", reason: stringValue(v.reason) ?? "", suggestedAction: stringValue(v.suggestedAction) ?? "", ...(Array.isArray(v.implicatedFiles) ? { implicatedFiles: stringArray(v.implicatedFiles) } : {}) })) : undefined;
+  const warnings = Array.isArray(evidence.scopeWarnings) ? evidence.scopeWarnings.filter((v): v is Record<string, unknown> => Boolean(v) && typeof v === "object").map((v) => ({ file: stringValue(v.file) ?? "", nonGoal: stringValue(v.nonGoal) ?? "" })) : undefined;
+  const decisions: Record<string, AcceptanceEvidenceSummary["decision"]> = { "acceptance.accepted": "accept", "acceptance.revise_requested": "revise", "acceptance.rejected": "reject" };
+  const mergeStatus = finalMerge?.status === "pull-request-created" || finalMerge?.status === "pull-request-existing" ? "pull-request" : finalMerge?.status === "failed" ? "blocked" : finalMerge?.status;
+  const landingStatus = stringValue(data.landingStatus ?? outcome?.status ?? mergeStatus);
+  const landingPhase = stringValue(finalMerge?.phase ?? outcome?.phase);
+  return {
+    decision: acceptanceEvent ? decisions[acceptanceEvent.type ?? ""] ?? null : null,
+    ...(stringValue(data.feedback) ? { feedback: stringValue(data.feedback) } : {}),
+    ...(landingStatus ? { landingStatus: landingStatus as AcceptanceEvidenceSummary["landingStatus"] } : {}),
+    ...(landingPhase ? { landingPhase: landingPhase as AcceptanceEvidenceSummary["landingPhase"] } : {}),
+    ...(stringValue(finalMerge?.reason ?? outcome?.reason ?? data.feedback) ? { landingReason: stringValue(finalMerge?.reason ?? outcome?.reason ?? data.feedback) } : {}),
+    ...(pr ? { pullRequest: Object.fromEntries(["status", "url", "sourceBranch", "targetBranch", "reason"].flatMap((key) => stringValue(pr[key]) ? [[key, stringValue(pr[key])]] : [])) as AcceptanceEvidenceSummary["pullRequest"] } : {}),
+    ...(stringValue(finalMerge?.targetHeadBefore ?? outcome?.targetHeadBefore) ? { targetHeadBefore: stringValue(finalMerge?.targetHeadBefore ?? outcome?.targetHeadBefore) } : {}),
+    ...(stringValue(finalMerge?.targetHeadAfter ?? outcome?.targetHeadAfter) ? { targetHeadAfter: stringValue(finalMerge?.targetHeadAfter ?? outcome?.targetHeadAfter) } : {}),
+    ...(plv ? { postLandingVerification: { overallStatus: stringValue(plv.overallStatus ?? plv.status) as AcceptanceEvidenceSummary["postLandingVerification"] extends { overallStatus?: infer S } ? S : never, commands: stringArray(plv.commands), reason: stringValue(plv.reason), repairAttempted: booleanValue(plv.repairAttempted) } } : {}),
+    ...(stringValue(evidence.verificationStatus) ? { verificationStatus: stringValue(evidence.verificationStatus) as AcceptanceEvidenceSummary["verificationStatus"] } : {}),
+    ...(typeof evidence.contractComplete === "boolean" ? { contractComplete: evidence.contractComplete } : {}),
+    ...(debt?.length ? { baselineDebt: debt } : {}), ...(warnings?.length ? { scopeWarnings: warnings } : {}),
+    ...(verdict ? { reviewVerdict: { verdict: ["block", "pass", "unknown"].includes(stringValue(verdict.verdict) ?? "") ? stringValue(verdict.verdict) as "block" | "pass" | "unknown" : "unknown", summary: (stringValue(verdict.summary) ?? "").slice(0, 1200) } } : {}),
+  };
 }
 
 function summarizePlanEvents(events: Array<{ type?: string; data?: Record<string, unknown> }>): {

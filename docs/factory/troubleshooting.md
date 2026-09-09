@@ -368,3 +368,7 @@ task commits is landed as a branch merge so an approval or cleanup commit cannot
 hide the actual source changes. Recovery request ids are unique across retries
 and acceptance re-entry, so a resolved decision cannot be reopened as if it
 were pending.
+
+### Dashboard Acceptance Evidence
+
+The dashboard run-detail page exposes the acceptance evidence recorded at the acceptance dialog, including reviewer verdict and summary (with blocking verdicts highlighted), the user's decision and feedback, landing and pull-request metadata, post-landing verification, baseline debt, and scope warnings. This surface is read-only; legacy runs without acceptance artifacts omit `acceptanceEvidence` and show an explanatory empty state.

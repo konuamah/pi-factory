@@ -9,6 +9,7 @@ import { listRegisteredCapabilities } from "../capabilities/registry.js";
 import { initializeCapabilitySystem } from "../capabilities/registry.js";
 import { getProvider } from "../capabilities/providers.js";
 import { checkExecutability } from "../capabilities/executability.js";
+import { readAcceptanceEvidence } from "../runs/show.js";
 
 export interface DashboardStatus {
   repository: { name?: string; branch?: string; commit?: string; root?: string };
@@ -115,8 +116,9 @@ export async function queryRun(cwd: string, runId: string): Promise<Record<strin
   const verification = await readJson(path.join(runDir, "verification.json")).catch(() => undefined);
   const modelLedger = await readModelLedgerLines(runDir);
   const decisions = await readDecisionLedger(runDir).catch(() => []);
+  const acceptanceEvidence = await readAcceptanceEvidence(runDir).catch(() => undefined);
 
-  return {
+  const result: Record<string, unknown> = {
     runId,
     runDir,
     state,
@@ -130,6 +132,8 @@ export async function queryRun(cwd: string, runId: string): Promise<Record<strin
     title: summary?.title,
     goal: summary?.goal,
   };
+  if (acceptanceEvidence) result.acceptanceEvidence = acceptanceEvidence;
+  return result;
 }
 
 export async function queryConstitution(cwd: string): Promise<Record<string, unknown>> {

@@ -122,7 +122,7 @@ Use focused Factory operational skills for user-facing behavior:
 - failures: `factory-troubleshooting`
 - quality testing: `factory-quality-testing`
 - scope handoff (non-goal files in verification/approval/landing): see `docs/factory/benchmark-running.md` "Scope handoff" — flags `scope.verification` / `scope.landing` (`"warn"` default, `"block"` to enforce)
-- Acceptance is the single final user decision after landing; landing and post-landing verification are shown as evidence in that gate.
+- Acceptance is the single final user decision after landing; landing and post-landing verification are shown as evidence in that gate. The dashboard run detail exposes this acceptance evidence, including reviewer blocking summaries, read-only.
 - Controller-only stages such as approval/acceptance must never run as Builder tasks. Multi-commit candidates must land as a branch merge, and recovery decision ids must remain unique across retries and acceptance re-entry.
 
 ## Approval Rules

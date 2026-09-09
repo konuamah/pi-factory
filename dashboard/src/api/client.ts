@@ -34,6 +34,23 @@ export interface RunPlan {
   [key: string]: unknown;
 }
 
+export interface AcceptanceEvidenceView {
+  decision?: "accept" | "revise" | "reject" | null;
+  feedback?: string;
+  landingStatus?: string;
+  landingPhase?: string;
+  landingReason?: string;
+  pullRequest?: { status?: string; url?: string; sourceBranch?: string; targetBranch?: string; reason?: string };
+  targetHeadBefore?: string;
+  targetHeadAfter?: string;
+  postLandingVerification?: { overallStatus?: string; commands?: string[]; reason?: string; repairAttempted?: boolean };
+  verificationStatus?: string;
+  contractComplete?: boolean;
+  baselineDebt?: Array<{ commandName: string; category: string; reason: string; suggestedAction: string; implicatedFiles?: string[] }>;
+  scopeWarnings?: Array<{ file: string; nonGoal: string }>;
+  reviewVerdict?: { verdict: "block" | "pass" | "unknown"; summary: string };
+}
+
 export interface RunDetail {
   runId?: string;
   runDir?: string;
@@ -47,6 +64,7 @@ export interface RunDetail {
   verification?: Record<string, unknown>;
   models?: Array<Record<string, unknown>>;
   decisions?: Array<Record<string, unknown>>;
+  acceptanceEvidence?: AcceptanceEvidenceView;
 }
 
 export interface ConstitutionOverview {

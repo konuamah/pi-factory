@@ -120,7 +120,7 @@ End-to-end Factory setup includes:
 - `/factory doctor` or `/factory status` verification after changes.
 - Harbor-based quality testing for repeated task evaluation and benchmark-style validation.
 - Scope handoff (non-goal files in verification/approval/landing): `scope.verification` / `scope.landing` config flags (`"warn"` default, `"block"` to enforce) — see `docs/factory/benchmark-running.md` "Scope handoff".
-- Acceptance is the single final user decision after landing; landing and post-landing verification are shown as evidence in that gate.
+- Acceptance is the single final user decision after landing; landing and post-landing verification are shown as evidence in that gate. The dashboard run detail exposes this acceptance evidence, including reviewer blocking summaries, read-only.
 - Controller-only stages such as approval/acceptance must never run as Builder tasks. Multi-commit candidates must land as a branch merge, and recovery decision ids must remain unique across retries and acceptance re-entry.
 
 Operational domains are split across focused Factory skills: setup operations, workflows, model routing, skills library, dashboard, constitution, permissions/safety, troubleshooting, worktrees/dependencies, and quality testing. Use the selected operational skill as authority for domain details and keep this Concierge skill focused on routing, approval, and command allowlists.

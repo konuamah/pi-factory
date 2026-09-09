@@ -1,5 +1,7 @@
 # learnings.md
 
+- Dashboard run details should expose normalized acceptance evidence, especially reviewer blocking verdict summaries and the user's final decision, without making the read-only surface appear actionable.
+
 - Recovery narration may be model-generated, but option ids, enabled actions, stop semantics, and the recovery state machine must remain deterministic with a bounded fallback.
 
 - Recoverable live Factory failures should use the same persisted decision-gate shape as interviews: explain the phase/problem, offer bounded actions, accept optional user notes, and retry only a safe phase-local operation. Missing handlers, hard limits, permission/capability denials, and exhausted attempts must still fail loud with artifacts instead of pretending there are no failures.

@@ -27,7 +27,7 @@ import { classifyVerificationFailuresWithAI, type ClassificationSource } from ".
 import { validateDiscoveryOutput, buildDiscoveryEvidencePacket, shouldRetryDiscoveryJsonRepair, buildDiscoveryJsonRepairPrompt, normalizeDiscoveryFilePath, type DiscoveryContract, type DiscoveryEvidencePacket } from "./discovery-validate.js";
 import { buildCompiledPrompt, buildNoChangeRetryPrompt, buildIntegrationRepairPrompt, buildRepairPrompt, buildEnvironmentPrepPrompt, buildReviewerPrompt, renderSkillBundleForPrompt } from "./prompts.js";
 import { readGitConflictFiles, hasGitMergeInProgress, resolveTaskWorkspace, commitWorkspaceChanges, readChangedFiles, readGitHeadSha } from "./git-ops.js";
-import { uniqueStrings, taskWorkspacesChangedFiles, isBuildStage, roleTools, isExecutableWorkflowNode, findBuiltInWorkflowStage } from "./task-utils.js";
+import { uniqueStrings, taskWorkspacesChangedFiles, isBuildStage, roleTools, isExecutableWorkflowNode, findBuiltInWorkflowStage, classifyInterviewExecutionPoint, orderWorkflowStages } from "./task-utils.js";
 import { movePhase, emitProgress, wait, requestHumanDecision, loadConstitutionConflicts, loadRunDecisions } from "./phase-plumbing.js";
 import { runImplementationTasks } from "./implementation.js";
 import { runIntegrationPhase, classifyIntegrationFailure } from "./integration-phase.js";
@@ -362,6 +362,39 @@ export async function runFactoryControllerInner(
   verificationFailureClassification = verificationPhase.verificationFailureClassification;
   contractResult = verificationPhase.contractResult;
   const completedTasks = buildCompletedTasks(implementationRun.taskWorkspaces, loaded.effectiveConfig.git.baseBranch);
+  const postVerificationInterviews = orderWorkflowStages(workflowStages).filter(
+    (stage) => stage.type === "interview" && classifyInterviewExecutionPoint(stage, workflowStages) === "post-verification",
+  );
+  if (postVerificationInterviews.length > 0 && verification.overallStatus === "passed" && contractResult.canComplete) {
+    const postInterview = await runInterviewStages({
+      stages: postVerificationInterviews,
+      run,
+      input,
+      executionCwd,
+      goal: input.goal,
+      config: loaded.effectiveConfig,
+      plannerGuidanceText: plannerGuidance.text,
+      plannerSkills,
+      runTaskType,
+      discoveryOutputText,
+      executionPhase: "post-verification",
+      verificationContext: {
+        verificationStatus: verification.overallStatus,
+        changedFiles: completedTasks.flatMap((task) => task.changedFiles ?? []),
+        ...(plan?.summary ? { planSummary: plan.summary } : {}),
+      },
+    });
+    const postDecisions = postInterview.decisions ?? [];
+    interviewDecisions = [...interviewDecisions, ...postDecisions];
+    if (postDecisions.length > 0) {
+      await fs.writeFile(path.join(run.runDir, "interview-decisions.json"), JSON.stringify(interviewDecisions, null, 2), "utf8");
+    }
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "interview.post_verification_completed",
+      data: { stageCount: postVerificationInterviews.length, decisionCount: postDecisions.length },
+    });
+  }
   const finalResult = await runFinalPhases({
     run,
     input: {

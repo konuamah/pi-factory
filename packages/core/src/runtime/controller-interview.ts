@@ -30,7 +30,9 @@ export async function runInterviewStages(input: {
   plannerSkills: SkillBundleSelection;
   runTaskType: TaskTypeSelection;
   discoveryOutputText?: string;
-}): Promise<{ text?: string; executionPath?: string; decisions?: InterviewDecisionRecord[] }> {
+  executionPhase: "pre-planning" | "post-verification";
+  verificationContext?: { verificationStatus: string; changedFiles: string[]; planSummary?: string };
+}): Promise<{ text?: string; executionPath?: string; decisions?: InterviewDecisionRecord[]; executionPhase: "pre-planning" | "post-verification" }> {
   const answers: string[] = [];
   let lastExecutionPath: string | undefined;
   const structuredDecisions: InterviewDecisionRecord[] = [];
@@ -51,7 +53,7 @@ export async function runInterviewStages(input: {
       });
       throw new Error(`Interview failed: Missing required workflow skill(s): ${skillPolicy.missingRequired.join(", ")}`);
     }
-    await movePhase(input.run.statePath, input.run.eventsPath, input.run.runId, input.input, "interview", `Interviewing before planning: ${stage.name}`);
+    await movePhase(input.run.statePath, input.run.eventsPath, input.run.runId, input.input, "interview", `${input.executionPhase === "post-verification" ? "Interviewing verified candidate" : "Interviewing before planning"}: ${stage.name}`);
     const model = resolveModelForRole({
       role,
       taskType: input.runTaskType.id,
@@ -80,6 +82,8 @@ export async function runInterviewStages(input: {
         guidanceText: input.plannerGuidanceText,
         skillBundleText: renderSkillBundleForPrompt(skillPolicy.bundle),
         discoveryReport: input.discoveryOutputText,
+        executionPhase: input.executionPhase,
+        verificationContext: input.verificationContext,
       }),
       model: model.model,
       tools: ["read", "grep", "find", "ls"],
@@ -118,7 +122,9 @@ export async function runInterviewStages(input: {
         id: `${input.run.runId}-${slugifyGoal(stage.name)}-interview`,
         title: `Interview: ${stage.name}`,
         question: output,
-        context: "Answer the interview questions. Factory will include your answer in the planner prompt before producing the implementation plan.",
+        context: input.executionPhase === "post-verification"
+          ? "Answer the interview questions about the verified candidate. Factory will include your answer in the reviewer and approval prompts; it will NOT be fed back into planning or building."
+          : "Answer the interview questions. Factory will include your answer in the planner prompt before producing the implementation plan.",
         options: [
           {
             id: "answered",
@@ -140,6 +146,7 @@ export async function runInterviewStages(input: {
     structuredDecisions.push({
       stage: stage.name,
       role,
+      executionPhase: input.executionPhase,
       question: output,
       optionId: decision.optionId,
       answer: decision.feedback,
@@ -168,7 +175,7 @@ export async function runInterviewStages(input: {
       data: { artifactPath, decisionCount: structuredDecisions.length },
     });
   }
-  return { text: answers.length > 0 ? answers.join("\n\n") : undefined, executionPath: lastExecutionPath, decisions: structuredDecisions };
+  return { text: answers.length > 0 ? answers.join("\n\n") : undefined, executionPath: lastExecutionPath, decisions: structuredDecisions, executionPhase: input.executionPhase };
 }
 
 export function executorForRole(input: RunFactoryControllerInput, role: ModelRole): AgentExecutor | undefined {
@@ -202,12 +209,14 @@ export function buildInterviewPrompt(input: {
   guidanceText?: string;
   skillBundleText?: string;
   discoveryReport?: string;
+  executionPhase?: "pre-planning" | "post-verification";
+  verificationContext?: { verificationStatus: string; changedFiles: string[]; planSummary?: string };
 }): string {
   const taskObjective = taskObjectiveForPrompt(input.goal);
   return [
     "Role: Interview",
     "",
-    "Your job is to ask the user the questions needed before Factory plans implementation.",
+    input.executionPhase === "post-verification" ? "Your job is to ask the user questions about the verified candidate before review." : "Your job is to ask the user the questions needed before Factory plans implementation.",
     "Do not implement code. Do not write the implementation plan.",
     "If no user interview is needed, return exactly: INTERVIEW_COMPLETE",
     "",
@@ -217,13 +226,20 @@ export function buildInterviewPrompt(input: {
     input.skillBundleText ? `Selected skills:\n${input.skillBundleText}` : undefined,
     input.guidanceText ? `Project guidance context:\n${input.guidanceText}` : undefined,
     input.discoveryReport ? `Validated Discovery result:\n${input.discoveryReport}` : undefined,
+    input.executionPhase === "post-verification" && input.verificationContext ? [
+      "",
+      "Verified candidate context:",
+      `Verification status: ${input.verificationContext.verificationStatus}`,
+      `Changed files:\n${input.verificationContext.changedFiles.join("\n")}`,
+      input.verificationContext.planSummary ? `Plan summary:\n${input.verificationContext.planSummary}` : undefined,
+    ].filter(Boolean).join("\n") : undefined,
     "",
     "Ask concise, answerable questions. Prefer one round of high-impact questions.",
     "When a question is genuinely multiple-choice, include an explicit options block in this exact shape:",
     "Options:\n[A] <option label> — <optional short description>\n[B] <option label> — <optional short description>",
     "Do not emit an 'Other' option; Factory renders a built-in custom-answer path automatically.",
     "If a question is open-ended, omit the Options block and ask for free text.",
-    "The user answer will be recorded and passed into the planner.",
+    input.executionPhase === "post-verification" ? "The user answer will be recorded and passed to review and approval only." : "The user answer will be recorded and passed into the planner.",
   ].filter(Boolean).join("\n");
 }
 
@@ -398,6 +414,5 @@ export function buildPlannerPrompt(
     "- End with exactly: WAITING_FOR_APPROVAL",
   ].filter(Boolean).join("\n");
 }
-
 
 

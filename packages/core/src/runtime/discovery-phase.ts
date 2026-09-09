@@ -2,7 +2,7 @@
 
 import { selectConstitutionContext } from "../constitution/index.js";
 import { collectRuntimeSkillSignals, applyWorkflowSkillPolicy, summarizeSkillBundle } from "./skills.js";
-import { findBuiltInWorkflowStage } from "./task-utils.js";
+import { classifyInterviewExecutionPoint, findBuiltInWorkflowStage, orderWorkflowStages } from "./task-utils.js";
 import { resolveFactorySkills, initializeFactorySkills } from "../skills/index.js";
 import { failBuiltInSkillPolicy } from "./controller-helpers.js";
 import { resolveRunTaskTypeWithPaths } from "./verification-planning.js";
@@ -77,7 +77,7 @@ const repoSkillSignals = await collectRuntimeSkillSignals(projectRoot);
 const workflowStages = loaded.effectiveConfig.resolvedWorkflow?.stages ?? [];
 const discoveryStage = findBuiltInWorkflowStage(workflowStages, ["discover", "discovery"]);
 const plannerStage = findBuiltInWorkflowStage(workflowStages, ["plan", "planning"]);
-const interviewStages = workflowStages.filter((stage) => stage.type === "interview");
+const interviewStages = orderWorkflowStages(workflowStages).filter((stage) => stage.type === "interview" && classifyInterviewExecutionPoint(stage, workflowStages) === "pre-planning");
 
 let discoverySkills = resolveFactorySkills({
   goal: input.goal,
@@ -365,6 +365,7 @@ const interviewResult = await runInterviewStages({
   plannerSkills,
   runTaskType,
   discoveryOutputText,
+  executionPhase: "pre-planning",
 });
 const interviewContext = interviewResult.text;
 const interviewExecutionPath = interviewResult.executionPath;

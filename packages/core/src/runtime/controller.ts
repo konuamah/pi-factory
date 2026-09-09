@@ -45,7 +45,7 @@ import {
 import { appendModelLedgerEntry } from "../runs/model-ledger.js";
 import { appendDecisionLedgerEntry, findPendingDecision } from "../decisions/index.js";
 import type { AbortDecision } from "./interfaces.js";
-import type { DecisionRequest, DecisionResult } from "../decisions/index.js";
+import type { DecisionRequest, DecisionResult, InterviewQuestionDecision } from "../decisions/index.js";
 import { gatherVerificationRequirements, initializeVerificationProviders, runVerificationEngine } from "../verification/index.js";
 import type { VerificationContractPlan, VerificationEngineResult } from "../verification/index.js";
 import type { ReviewProviderOptions } from "../verification/providers/review.js";
@@ -66,6 +66,18 @@ export type PlanApprovalDecision = "approve" | "reject" | "revise";
 export interface PlanApprovalResult {
   decision: PlanApprovalDecision;
   feedback?: string;
+}
+
+export interface InterviewDecisionRecord {
+  stage: string;
+  role?: string;
+  executionPhase?: "pre-planning" | "post-verification";
+  question: string;
+  optionId: string;
+  answer?: string;
+  skipped?: boolean;
+  questions?: InterviewQuestionDecision[];
+  decisionRequestId: string;
 }
 
 export interface RunFactoryControllerInput {

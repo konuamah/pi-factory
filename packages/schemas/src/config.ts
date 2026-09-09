@@ -63,7 +63,7 @@ export interface SetupCommandStep {
 
 export type SetupCommandConfig = string | SetupCommandStep[];
 
-export type WorkflowNodeType = "agent" | "command" | "acceptance" | "task-graph" | "interview";
+export type WorkflowNodeType = "agent" | "command" | "approval" | "acceptance" | "task-graph" | "interview";
 
 export type Capability =
   | "repo.read"

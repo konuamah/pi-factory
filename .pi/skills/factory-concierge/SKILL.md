@@ -46,6 +46,8 @@ Recovery wording may be LLM-generated through the failure-classifier or reviewer
 
 When a workflow needs to add an interview stage, inspect the bundled `skills/grilling` skill first. If the repo does not already include it, add the bundled skill from Factory instead of telling the user to install an external package. Bind `skills.require: [grilling]` directly.
 
+Interview placement follows the workflow DAG: empty/discovery dependencies run before planning, while an interview depending on `verify` or `verification` runs after successful verification and before review. Post-verification answers go to reviewer/approval context only. Factory validates dependency names, cycles, reachability, and reviewer-backed approval gates when loading the workflow.
+
 Do not expose hidden chain-of-thought, raw JSON contracts, or internal schemas. Speak plainly.
 
 You may guide task execution, choose or prepare the right workflow, explain risk, and give the exact `/factory <goal>` command for the user to run manually. Do not start a Factory implementation task yourself.

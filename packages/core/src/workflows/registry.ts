@@ -12,6 +12,75 @@ import type {
 
 export const DEFAULT_WORKFLOW_ID = "default-dev";
 
+export type WorkflowValidationIssue = {
+  code: "unknown-depends-on" | "cycle" | "unreachable-stage" | "approval-without-review";
+  workflowId: string;
+  stage: string;
+  detail: string;
+};
+
+export function validateWorkflowDependencies(workflow: WorkflowDefinition): WorkflowValidationIssue[] {
+  const issues: WorkflowValidationIssue[] = [];
+  const byName = new Map(workflow.stages.map((stage) => [stage.name, stage]));
+  for (const stage of workflow.stages) {
+    for (const dependency of stage.dependsOn ?? []) {
+      if (!byName.has(dependency)) {
+        issues.push({ code: "unknown-depends-on", workflowId: workflow.id, stage: stage.name, detail: `dependsOn references unknown stage '${dependency}'` });
+      }
+    }
+  }
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (name: string, stack: string[]) => {
+    if (visited.has(name) || !byName.has(name)) return;
+    if (visiting.has(name)) {
+      issues.push({ code: "cycle", workflowId: workflow.id, stage: name, detail: `dependency cycle: ${[...stack, name].join(" -> ")}` });
+      return;
+    }
+    visiting.add(name);
+    for (const dependency of byName.get(name)?.dependsOn ?? []) visit(dependency, [...stack, name]);
+    visiting.delete(name);
+    visited.add(name);
+  };
+  for (const stage of workflow.stages) visit(stage.name, []);
+
+  const reachable = new Set(workflow.stages.filter((stage) => !(stage.dependsOn?.length)).map((stage) => stage.name));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const stage of workflow.stages) {
+      if (!reachable.has(stage.name) && (stage.dependsOn ?? []).some((dependency) => reachable.has(dependency))) {
+        reachable.add(stage.name);
+        changed = true;
+      }
+    }
+  }
+  for (const stage of workflow.stages) {
+    if (!reachable.has(stage.name)) issues.push({ code: "unreachable-stage", workflowId: workflow.id, stage: stage.name, detail: "stage is not reachable from any workflow root" });
+  }
+
+  const reviewerNames = new Set(workflow.stages.filter((stage) => stage.role === "reviewer").map((stage) => stage.name));
+  const dependsOnReviewer = (name: string, seen = new Set<string>()): boolean => {
+    if (seen.has(name)) return false;
+    seen.add(name);
+    return reviewerNames.has(name) || (byName.get(name)?.dependsOn ?? []).some((dependency) => dependsOnReviewer(dependency, seen));
+  };
+  for (const stage of workflow.stages) {
+    if (stage.type === "acceptance" || stage.type === "approval") {
+      if (!(stage.dependsOn ?? []).some((dependency) => dependsOnReviewer(dependency))) {
+        issues.push({ code: "approval-without-review", workflowId: workflow.id, stage: stage.name, detail: `${stage.type} must depend (directly or transitively) on a reviewer stage (role === 'reviewer')` });
+      }
+    }
+  }
+  return issues;
+}
+
+function validateWorkflows(workflows: WorkflowDefinition[]): void {
+  const issues = workflows.flatMap(validateWorkflowDependencies);
+  if (issues.length > 0) throw new Error(`Invalid workflow dependencies:\n${issues.map((issue) => `[${issue.code}] ${issue.workflowId}/${issue.stage}: ${issue.detail}`).join("\n")}`);
+}
+
 export function defaultWorkflowDefinition(): WorkflowDefinition {
   return {
     id: DEFAULT_WORKFLOW_ID,
@@ -30,17 +99,21 @@ export function defaultWorkflowDefinition(): WorkflowDefinition {
 
 export function normalizeWorkflowConfig(input?: WorkflowConfig): WorkflowConfig {
   if (!input) {
-    return {
+    const config = {
       defaultWorkflowId: DEFAULT_WORKFLOW_ID,
       workflows: [defaultWorkflowDefinition()],
     };
+    validateWorkflows(config.workflows);
+    return config;
   }
 
   // Legacy: single stages array becomes the default workflow.
-  return {
+  const config = {
     defaultWorkflowId: input.defaultWorkflowId ?? DEFAULT_WORKFLOW_ID,
     workflows: input.workflows ?? [defaultWorkflowDefinition()],
   };
+  validateWorkflows(config.workflows);
+  return config;
 }
 
 export function resolveWorkflowDefinition(
@@ -70,7 +143,8 @@ export async function readWorkflowRegistry(cwd: string): Promise<WorkflowRegistr
       defaultWorkflowId: normalized.defaultWorkflowId ?? DEFAULT_WORKFLOW_ID,
       workflows: normalized.workflows ?? [defaultWorkflowDefinition()],
     };
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return {
       defaultWorkflowId: DEFAULT_WORKFLOW_ID,
       workflows: [defaultWorkflowDefinition()],

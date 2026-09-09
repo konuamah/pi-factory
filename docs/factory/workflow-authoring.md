@@ -64,6 +64,21 @@ Use `interview` before planning when Factory must ask the user questions first.
 - final acceptance is a **post-landing gate**: the lean flow is `plan approval → build → verify → review → landing → acceptance`.
 - Factory bundles the interview skill as `skills/grilling`; bind `skills.require: [grilling]` directly
 
+Interview stages can also run at arbitrary DAG points. An interview with `dependsOn: [verify]` or
+`dependsOn: [verification]` runs after verification passes and before review; its answer is sent to
+review and approval only, never back into planning or building. Execution order comes from
+`dependsOn`, not the interview's `role`.
+
+```yaml
+- name: post_verify_interview
+  type: interview
+  role: planner
+  dependsOn: [verify]
+```
+
+Factory rejects unknown dependencies, dependency cycles, unreachable stages, and approval/acceptance
+stages that do not depend on a reviewer stage.
+
 When the model returns several questions in one decision (separated by `---` in the interview prompt output), the Pi adapter presents them one at a time — a full editor when the host exposes it, otherwise an overlay — and folds every answer into a single structured interview record, so planning still receives one `interview-decisions.json` entry per interview stage.
 
 Interview questions may also include an optional structured multiple-choice block inside the question text:

@@ -63,3 +63,33 @@ export function findBuiltInWorkflowStage(stages: WorkflowStage[], names: string[
   const normalized = new Set(names.map((name) => name.toLowerCase()));
   return stages.find((stage) => normalized.has(stage.name.toLowerCase()));
 }
+
+export function classifyInterviewExecutionPoint(
+  stage: WorkflowStage,
+  allStages: WorkflowStage[],
+): "pre-planning" | "post-verification" {
+  const byName = new Map(allStages.map((candidate) => [candidate.name, candidate]));
+  const seen = new Set<string>();
+  const reachesVerification = (name: string): boolean => {
+    if (name === "verify" || name === "verification") return true;
+    if (seen.has(name)) return false;
+    seen.add(name);
+    return (byName.get(name)?.dependsOn ?? []).some(reachesVerification);
+  };
+  return (stage.dependsOn ?? []).some(reachesVerification) ? "post-verification" : "pre-planning";
+}
+
+export function orderWorkflowStages(stages: WorkflowStage[]): WorkflowStage[] {
+  const byName = new Map(stages.map((stage) => [stage.name, stage]));
+  const remaining = new Map(stages.map((stage) => [stage.name, new Set(stage.dependsOn ?? [])]));
+  const ordered: WorkflowStage[] = [];
+  while (remaining.size > 0) {
+    const ready = stages.filter((stage) => remaining.has(stage.name) && [...(remaining.get(stage.name) ?? [])].every((dep) => !remaining.has(dep)));
+    if (ready.length === 0) return stages;
+    for (const stage of ready) {
+      ordered.push(byName.get(stage.name)!);
+      remaining.delete(stage.name);
+    }
+  }
+  return ordered;
+}

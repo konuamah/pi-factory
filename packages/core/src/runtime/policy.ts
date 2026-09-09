@@ -3,6 +3,7 @@ import { appendDecisionLedgerEntry, type DecisionOption } from "../decisions/ind
 import { emitProgress, requestHumanDecision } from "./phase-plumbing.js";
 import { verifyDecisionConstraints } from "./policy-constraints.js";
 import type { RunFactoryControllerInput } from "./controller.js";
+import type { AgentExecutor } from "./interfaces.js";
 
 export type RuntimePolicyAction = "continue" | "retry" | "revise" | "repair" | "rerunImplementation" | "abort";
 
@@ -36,6 +37,27 @@ export interface RuntimePolicyExecutor {
   execute(input: { context: RuntimePolicyContext; controllerInput: RunFactoryControllerInput }): Promise<RuntimePolicyDecision>;
 }
 
+export function createAgentPolicyExecutor(executor: AgentExecutor, model?: { provider?: string; model: string }): RuntimePolicyExecutor {
+  return {
+    async execute({ context, controllerInput }) {
+      const result = await executor.execute({
+        executionId: `policy-${context.runId}-${context.currentPhase}-${context.attempt}`,
+        cwd: controllerInput.cwd,
+        model,
+        prompt: [
+          "You are Factory's runtime policy model. Choose the safest next action from the evidence.",
+          "Return JSON only: {action, nextPhase?, feedback?, evidenceRefs?, attempt, decidedAt}.",
+          "Allowed actions: continue, retry, revise, repair, rerunImplementation, abort.",
+          "Do not invent permissions or override constraints. Prefer recovery over abort when a safe recovery action exists.",
+          JSON.stringify(context),
+        ].join("\n"),
+      });
+      if (result.status !== "completed") throw new Error(result.errorMessage ?? "Policy model execution failed");
+      return parsePolicyDecision(result.outputText);
+    },
+  };
+}
+
 const MAX_CONSTRAINT_VIOLATIONS = 2;
 
 export async function requestRuntimePolicy(input: {
@@ -49,8 +71,12 @@ export async function requestRuntimePolicy(input: {
   if (input.controllerInput.policy?.enabled === false) return decision("abort", input.context, "Runtime policy disabled");
   if (input.context.attempt > input.context.maxAttempts) return decision("abort", input.context, `Attempt ${input.context.attempt} exceeds maxAttempts ${input.context.maxAttempts}`);
   for (let violation = 0; violation <= MAX_CONSTRAINT_VIOLATIONS; violation += 1) {
-    const result = input.controllerInput.policyExecutor
-      ? await input.controllerInput.policyExecutor.execute({ context: input.context, controllerInput: input.controllerInput })
+    const executor = input.controllerInput.policyExecutor
+      ?? (input.controllerInput.failureClassifierExecutor || input.controllerInput.reviewerExecutor
+        ? createAgentPolicyExecutor(input.controllerInput.failureClassifierExecutor ?? input.controllerInput.reviewerExecutor!)
+        : undefined);
+    const result = executor
+      ? await executor.execute({ context: input.context, controllerInput: input.controllerInput })
       : await fallbackDecision(input);
     const validation = verifyDecisionConstraints(result, input.context, input.controllerInput.policy);
     await appendFactoryRunEvent(input.eventsPath, {
@@ -94,4 +120,19 @@ function policyOptions(context: RuntimePolicyContext): DecisionOption[] {
 
 function decision(action: RuntimePolicyAction, context: RuntimePolicyContext, feedback?: string): RuntimePolicyDecision {
   return { action, attempt: context.attempt, decidedAt: new Date().toISOString(), ...(feedback ? { feedback } : {}) };
+}
+
+function parsePolicyDecision(output: string): RuntimePolicyDecision {
+  const fenced = output.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
+  const candidate = fenced ?? output.match(/\{[\s\S]*\}/)?.[0];
+  if (!candidate) throw new Error("Policy model returned no JSON decision");
+  const parsed = JSON.parse(candidate) as Partial<RuntimePolicyDecision>;
+  return {
+    action: parsed.action as RuntimePolicyAction,
+    ...(parsed.nextPhase ? { nextPhase: parsed.nextPhase } : {}),
+    ...(parsed.feedback ? { feedback: parsed.feedback } : {}),
+    ...(parsed.evidenceRefs ? { evidenceRefs: parsed.evidenceRefs } : {}),
+    attempt: parsed.attempt ?? 0,
+    decidedAt: parsed.decidedAt ?? new Date().toISOString(),
+  };
 }

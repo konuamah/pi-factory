@@ -79,7 +79,7 @@ export async function requestFailureRecovery(input: {
     return { action: "stop", requestId: "" };
   }
   const context = { ...input.context, maxAttempts };
-  if (input.controllerInput.policyExecutor) {
+  if (input.controllerInput.policyExecutor || input.controllerInput.failureClassifierExecutor || input.controllerInput.reviewerExecutor) {
     const decision = await requestRuntimePolicy({
       controllerInput: input.controllerInput,
       runDir: input.runDir,

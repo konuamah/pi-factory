@@ -122,10 +122,10 @@ test('interview output rejects echoed instructions and keeps concrete questions'
   assert.equal(normalizeInterviewOutput([
     'Q1 - Which behavior?',
     '---',
-    'Q2 - Which clients?',
+    'Q2 – Which clients?',
     '---',
-    'Q1 - Which verification?',
+    'Q2 – Which verification?',
     '---',
-    'Q2 - Which fallback?',
-  ].join('\n')), 'Q1 - Which behavior?\n---\nQ2 - Which clients?');
+    'Q3 – Which fallback?',
+  ].join('\n')), 'Q1 - Which behavior?\n---\nQ2 – Which clients?');
 });

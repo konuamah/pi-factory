@@ -195,12 +195,12 @@ export function normalizeInterviewOutput(output: string): string | undefined {
     return undefined;
   }
   const lines = output.split(/\r?\n/);
-  const firstQuestion = lines.findIndex((line) => /^\s*Q\d+\s*[-:.]\s*\S+/i.test(line) && !/[<{][^>]*>/.test(line));
+  const firstQuestion = lines.findIndex((line) => /^\s*Q\d+\s*[-:.–—]\s*\S+/i.test(line) && !/[<{][^>]*>/.test(line));
   if (firstQuestion < 0) return undefined;
   const round: string[] = [];
   let previousNumber = 0;
   for (const line of lines.slice(firstQuestion)) {
-    const marker = /^\s*Q(\d+)\s*[-:.]\s*\S+/i.exec(line);
+    const marker = /^\s*Q(\d+)\s*[-:.–—]\s*\S+/i.exec(line);
     if (marker) {
       const number = Number(marker[1]);
       if (number <= previousNumber) break;

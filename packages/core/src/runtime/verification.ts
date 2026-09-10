@@ -191,13 +191,29 @@ export async function planVerificationExecution(input: {
     parsed = parseVerificationPlan(repair.outputText);
   }
   if (!parsed) {
-    if (input.allowDeterministicFallback) {
-      const plan = buildDeterministicVerificationPlan(evidence, selectedSkill, input.timeouts);
+    // A malformed planner response is an executor/model failure, not a
+    // repository verification failure. Keep the run recoverable by using the
+    // evidence-only plan while preserving both raw responses in the artifact.
+    if (input.allowDeterministicFallback || input.executor) {
+      const plan = await buildDeterministicVerificationPlan(evidence, selectedSkill, input.timeouts);
       return { ...plan, plannerOutputText: result.outputText, plannerRepairOutputText: repairOutputText, plannerUsedFallback: true };
     }
     throw new VerificationPlanningError(`VERIFICATION_PLANNER_INVALID_JSON: Verification planner returned invalid structured JSON after one repair attempt. Raw output (first 800 chars): ${result.outputText.slice(0, 800)}`);
   }
-  return { ...sanitizeVerificationPlan(parsed, evidence, selectedSkill, input.timeouts), plannerOutputText: result.outputText, plannerRepairOutputText: repairOutputText };
+  try {
+    return { ...sanitizeVerificationPlan(parsed, evidence, selectedSkill, input.timeouts), plannerOutputText: result.outputText, plannerRepairOutputText: repairOutputText };
+  } catch (error) {
+    if (input.executor) {
+      const plan = await buildDeterministicVerificationPlan(evidence, selectedSkill, input.timeouts);
+      return {
+        ...plan,
+        plannerOutputText: result.outputText,
+        plannerRepairOutputText: repairOutputText,
+        plannerUsedFallback: true,
+      };
+    }
+    throw error;
+  }
 }
 
 export async function runVerificationCommands(input: {

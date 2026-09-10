@@ -16,3 +16,4 @@
 - Workflow verify commands are an allowlist, not always the exact run set: when a verification planner executor exists, give it the goal, changed files, and allowed checks so it can choose the smallest useful subset; use deterministic changed-path filtering only as fallback.
 - Interview stages are DAG nodes: classify them from validated dependency edges, run post-verification interviews only after a passed verification contract, and keep their decisions out of planning while forwarding them to review and approval.
 - Landing should be an LLM-owned composed action list: parse and classify exact Git argv, enforce hard safety invariants deterministically, and revalidate any recovery plan instead of rewriting a rejected strategy.
+- Malformed LLM verification-planner output is a recoverable model failure: preserve the initial and repair responses, select the evidence-backed deterministic plan, and do not terminate the Factory run.

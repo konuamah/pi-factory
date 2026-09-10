@@ -89,6 +89,7 @@ Fix:
 - Put lint, build, unit/integration tests, smoke/e2e, and project-specific checks in the `verify`/`verification` command stage.
 - Add `commands.checks.<name>.timeout` for smoke/e2e or any command that could hang. Timeout values are seconds in `.factory/config.yaml`.
 - Treat verify-stage commands as an allowlist. With an LLM verification planner, Factory should choose the smallest useful subset from the goal and changed files; without one, deterministic changed-path filtering is the fallback.
+- If the verification planner or its JSON-repair response is malformed, Factory preserves both raw responses and continues with the evidence-backed deterministic verification plan. This is a planner recovery path, not a task failure; inspect `verification-plan.json` for `plannerUsedFallback: true`.
 - Repair runs only after verification classifies a failure. It should not compensate for a builder that never returned.
 
 ## Widget Truncated

@@ -52,6 +52,28 @@ export function normalizeRepoPath(value: string): string {
   return path.posix.normalize(value.replace(/\\/g, "/").replace(/^\.\/+/, ""));
 }
 
+export function filesReferToSamePath(left: string, right: string): boolean {
+  return normalizeRepoPath(left) === normalizeRepoPath(right);
+}
+
+export function isGeneratedPath(file: string): boolean {
+  const normalized = normalizeRepoPath(file);
+  return /^(?:dist|build|coverage|\.next|node_modules|target)\//.test(normalized)
+    || /(?:^|\/)(?:generated|__generated__)\//.test(normalized);
+}
+
+export function isIgnorableBaselineFailure(
+  classification: VerificationFailureClassification | undefined,
+  commandNames?: string[],
+): boolean {
+  if (!classification || classification.kind !== "baseline-unrelated") return false;
+  if (!commandNames || commandNames.length === 0) return true;
+  const selected = new Set(commandNames);
+  return classification.perCommand
+    .filter((failure) => selected.has(failure.commandName))
+    .every((failure) => failure.category === "baseline-unrelated" && failure.suggestedAction === "ignore");
+}
+
 export function sameFailure(a: VerificationCommandResult, b: VerificationCommandResult): boolean {
   return a.exitCode === b.exitCode && (a.stderr ?? "").trim() === (b.stderr ?? "").trim();
 }

@@ -52,7 +52,8 @@ import type { ReviewProviderOptions } from "../verification/providers/review.js"
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { classifyVerificationFailure, resolveFailureRelation } from "./failure-classification.js";
 import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands, type StructuredVerificationCommands, type VerificationCommandResult } from "./verification.js";
-import { hydrateWorkspaceDependencies, buildDependencyCacheEnv, DependencyHydrationError } from "./dependencies.js";
+import { hydrateWorkspaceDependencies, DependencyHydrationError } from "./dependencies.js";
+import { buildDependencyCacheEnv } from "./dependency-cache.js";
 
 export interface FactoryRunProgressEvent {
   runId: string;
@@ -977,7 +978,7 @@ async function runFactoryControllerInner(
       config: loaded.effectiveConfig,
     });
   } catch (error) {
-    const integrationFailure = await classifyIntegrationFailure(executionCwd, error);
+    const integrationFailure = await classifyLegacyIntegrationFailure(executionCwd, error);
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
       type: "integration.failed",
@@ -1834,7 +1835,7 @@ async function runFactoryControllerInner(
   };
 }
 
-interface TaskWorkspaceSelection {
+export interface TaskWorkspaceSelection {
   taskId: string;
   path: string;
   mode: "existing" | "created" | "in-place";
@@ -2552,7 +2553,7 @@ async function runIntegrationPhase(input: {
         status: "merged",
       });
     } catch (error) {
-      const failure = await classifyIntegrationFailure(input.executionCwd, error);
+      const failure = await classifyLegacyIntegrationFailure(input.executionCwd, error);
       await appendFactoryRunEvent(input.eventsPath, {
         timestamp: new Date().toISOString(),
         type: "integration.merge_failed",
@@ -2680,7 +2681,7 @@ async function attemptIntegrationAutoRepair(input: {
   return true;
 }
 
-export async function classifyIntegrationFailure(
+async function classifyLegacyIntegrationFailure(
   cwd: string,
   error: unknown,
 ): Promise<{ reason: string; conflictingFiles: string[]; mergeInProgress: boolean }> {
@@ -3166,7 +3167,7 @@ function extractCommandCwd(command: string): string | undefined {
   return match ? match[1].trim() : undefined;
 }
 
-function resolveNodeRole(task: PlannerTask): ModelRole {
+export function resolveNodeRole(task: PlannerTask): ModelRole {
   const role = task.role as ModelRole | undefined;
   if (role === "discovery" || role === "planner" || role === "reviewer" || role === "repair" || role === "builder") {
     return role;
@@ -3174,7 +3175,7 @@ function resolveNodeRole(task: PlannerTask): ModelRole {
   return "builder";
 }
 
-function attachDiscoveryFileHintsToBuildTasks(tasks: PlannerTask[], fileHints: string[]): void {
+export function attachDiscoveryFileHintsToBuildTasks(tasks: PlannerTask[], fileHints: string[]): void {
   const concreteHints = normalizeDiscoveryFileHints(fileHints);
   if (concreteHints.length === 0) {
     return;
@@ -3191,7 +3192,7 @@ function attachDiscoveryFileHintsToBuildTasks(tasks: PlannerTask[], fileHints: s
   }
 }
 
-function normalizeDiscoveryFileHints(fileHints: string[]): string[] {
+export function normalizeDiscoveryFileHints(fileHints: string[]): string[] {
   return uniqueStrings(
     fileHints
       .map(normalizeDiscoveryFilePath)

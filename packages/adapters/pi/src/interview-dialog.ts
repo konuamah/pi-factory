@@ -117,7 +117,7 @@ async function askOneQuestion(
   // The editor only displays its title above the input, so include the current
   // question there and keep the editable answer buffer empty.
   if (ui.editor) {
-    const answer = await ui.editor(`${title}\n\n${question.prompt}\n\nAnswer:`, "");
+    const answer = await ui.editor(`${title}\n\n${renderInterviewDocument(question.prompt).join("\n")}\n\nAnswer:`, "");
     const trimmed = answer?.trim() ?? "";
     return trimmed ? { answer: trimmed, custom: true } : skippedInterviewAnswer();
   }
@@ -148,8 +148,7 @@ async function askWithTextOverlay(
       render(width: number): string[] {
         const contentWidth = Math.max(24, width - 4);
         const hasAnswer = answer.trim().length > 0;
-        const questionLines = question
-          .split(/\r?\n/)
+        const questionLines = renderInterviewDocument(question)
           .flatMap((line) => wrapStyledLine(line, contentWidth));
         const header = [title, ""];
         const answerLines = wrapStyledLine(`> ${answer || ""}`, contentWidth);
@@ -226,8 +225,7 @@ async function askWithOptionsOverlay(
     const component = {
       render(width: number): string[] {
         const contentWidth = Math.max(24, width - 4);
-        const questionLines = question.prompt
-          .split(/\r?\n/)
+        const questionLines = renderInterviewDocument(question.prompt)
           .flatMap((line) => wrapStyledLine(line, contentWidth));
         const optionLines = [
           ...question.options.flatMap((option, index) => renderOptionLine(option, index, selected, contentWidth, mode === "select")),
@@ -329,7 +327,7 @@ async function askWithSelectFallback(
   question: ParsedInterviewQuestion,
 ): Promise<InterviewAnswer> {
   const choice = await ui.select?.(
-    `${title}\n\n${question.prompt}`,
+    `${title}\n\n${renderInterviewDocument(question.prompt).join("\n")}`,
     [
       ...question.options.map((option) => option.description ? `${option.label} — ${option.description}` : option.label),
       "Custom answer…",
@@ -341,7 +339,7 @@ async function askWithSelectFallback(
   if (choice === "Custom answer…") {
     const typed = ui.editor
       ? await ui.editor(buildEditorPrompt(title, question), "")
-      : await ui.input?.(`${title}\n\n${question.prompt}`, "Type your answer");
+      : await ui.input?.(`${title}\n\n${renderInterviewDocument(question.prompt).join("\n")}`, "Type your answer");
     const trimmed = typed?.trim() ?? "";
     return trimmed ? { answer: trimmed, custom: true } : skippedInterviewAnswer();
   }
@@ -373,7 +371,7 @@ function buildEditorPrompt(title: string, question: ParsedInterviewQuestion): st
   return [
     title,
     "",
-    question.prompt,
+    renderInterviewDocument(question.prompt).join("\n"),
     "",
     "Options:",
     ...optionLines,
@@ -401,6 +399,30 @@ export function fixedHeightLines(lines: string[], width: number, height: number)
     rendered.push("");
   }
   return rendered;
+}
+
+/** Render the Markdown commonly produced by interview documents for a TUI. */
+export function renderInterviewDocument(value: string): string[] {
+  return value.split(/\r?\n/).map((line) => {
+    const trimmed = line.trim();
+    if (/^([-*_])(?:\s*\1){2,}$/.test(trimmed)) return "────────────────────────";
+    if (/^#{1,6}\s+/.test(line)) return renderInline(`  ${line.replace(/^\s*#{1,6}\s+/, "").trim()}`);
+    if (/^\s*[-*+]\s+/.test(line)) return renderInline(`• ${line.replace(/^\s*[-*+]\s+/, "")}`);
+    if (/^\s*>\s?/.test(line)) return renderInline(`│ ${line.replace(/^\s*>\s?/, "")}`);
+    return renderInline(line);
+  });
+}
+
+function renderInline(line: string): string {
+  return line
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/_([^_]+)_/g, "$1");
+  });
 }
 
 function buildInterviewQuestionDecisions(questions: ParsedInterviewQuestion[], answers: InterviewAnswer[]): InterviewQuestionDecision[] {

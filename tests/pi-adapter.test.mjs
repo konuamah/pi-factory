@@ -7,8 +7,15 @@ import {
   resolveFinalApprovalConfirm,
   defaultFinalApproval,
 } from '../packages/adapters/pi/dist/approval.js';
+import { renderInterviewDocument } from '../packages/adapters/pi/dist/interview-dialog.js';
 import { requestDecisionInput } from '../packages/adapters/pi/dist/decision-dialog.js';
 import { buildFactoryRunResultTitle } from '../packages/adapters/pi/dist/gateway-prototype.js';
+
+test('interview documents render Markdown as readable terminal text', () => {
+  const lines = renderInterviewDocument('# Task Board\n\n## Overview\n\n* **Frontend:** React\n\n---');
+  assert.deepEqual(lines, ['  Task Board', '', '  Overview', '', '• Frontend: React', '', '────────────────────────']);
+  assert.ok(lines.every((line) => !/[#*_]/.test(line)));
+});
 
 function makePreview() {
   return {

@@ -64,6 +64,7 @@ export interface PreflightResult {
 export class DependencyHydrationError extends Error {
   constructor(
     message: string,
+    public readonly code: "DEPENDENCY_MISSING_EXECUTABLE" | "DEPENDENCY_SETUP_TIMEOUT" | "DEPENDENCY_HYDRATION_FAILED" | undefined,
     public readonly details: {
       dependencyKey?: string;
       command?: string;
@@ -88,19 +89,10 @@ export async function hydrateWorkspaceDependencies(input: {
   taskId?: string;
   onEvent?: (event: { type: string; data: Record<string, unknown> }) => Promise<void>;
   onRemediation?: (candidate: DependencyHydrationRemediationCandidate) => Promise<boolean | RemediationDecision>;
-  mode?: "harness" | "agent";
+  setupOverride?: string;
 }): Promise<DependencyHydrationResult> {
   const cacheRoot = path.resolve(input.config.dependencies.cacheRoot);
-  if (input.mode === "agent") {
-    const result = {
-      status: "skipped" as const,
-      reason: "dependency preparation delegated to agent",
-      cacheRoot,
-    };
-    await input.onEvent?.({ type: "dependencies.agent_delegated", data: eventData(input, result) });
-    return result;
-  }
-  let setupCommands = normalizeSetupCommands(input.config.commands.setup);
+  let setupCommands = normalizeSetupCommands(input.setupOverride ?? input.config.commands.setup);
   // Preflight: check that setup command executables exist before running.
   if (input.config.dependencies.enabled && input.config.dependencies.hydrate !== "never" && setupCommands.length > 0) {
     const preflight = await preflightSetupCommands(setupCommands);
@@ -134,6 +126,7 @@ export async function hydrateWorkspaceDependencies(input: {
         : ` Update the setup command or add \`${preflight.executable}\` to PATH.`;
       throw new DependencyHydrationError(
         `Setup command requires \`${preflight.executable}\` which is not available in PATH.${alts}`,
+        "DEPENDENCY_MISSING_EXECUTABLE",
         {
           dependencyKey: undefined,
           command: preflight.command,
@@ -151,6 +144,7 @@ export async function hydrateWorkspaceDependencies(input: {
         : ` Update the setup command or add \`${preflight.executable}\` to PATH.`;
       throw new DependencyHydrationError(
         `Setup command requires \`${preflight.executable}\` which is not available in PATH.${alts}`,
+        "DEPENDENCY_MISSING_EXECUTABLE",
         {
           dependencyKey: undefined,
           command: preflight.command,
@@ -251,7 +245,9 @@ export async function hydrateWorkspaceDependencies(input: {
               ...process.env,
               ...cacheEnv,
             },
-            maxBuffer: 1024 * 1024 * 10,
+            maxBuffer: input.config.runtime.limits?.dependencySetupMaxBufferBytes ?? 50 * 1024 * 1024,
+            timeout: input.config.runtime.limits?.dependencySetupTimeoutMs ?? 900_000,
+            killSignal: "SIGTERM",
           });
           stepOutputs.push({
             name: step.name,
@@ -296,7 +292,7 @@ export async function hydrateWorkspaceDependencies(input: {
     await input.onEvent?.({ type: "dependencies.hydration_completed", data: { ...eventData(input, result), stepOutputs } });
     return result;
   } catch (error) {
-    const execError = error as Error & { code?: number; stdout?: string; stderr?: string };
+    const execError = error as Error & { code?: number | string; stdout?: string; stderr?: string; killed?: boolean; signal?: NodeJS.Signals };
     const failedStep = setupCommands[stepOutputs.length] ?? setupCommands[0];
     await input.onEvent?.({
       type: "dependencies.hydration_failed",
@@ -317,12 +313,15 @@ export async function hydrateWorkspaceDependencies(input: {
     });
     throw new DependencyHydrationError(
       `Dependency hydration failed while running setup command${failedStep.name ? ` (${failedStep.name})` : ""}: ${failedStep.command}`,
+      execError.killed === true && (execError.signal === "SIGTERM" || execError.signal === "SIGKILL")
+        ? "DEPENDENCY_SETUP_TIMEOUT"
+        : "DEPENDENCY_HYDRATION_FAILED",
       {
         dependencyKey,
         command: failedStep.command,
         stepName: failedStep.name,
         cwd: commandCwd,
-        exitCode: execError.code,
+        exitCode: typeof execError.code === "number" ? execError.code : undefined,
         stdout: execError.stdout,
         stderr: execError.stderr,
       },

@@ -18,6 +18,8 @@ export function normalizeExecutionLimits(limits?: {
   turnTimeoutMs?: number;
   modelIdleTimeoutMs?: number;
   toolTimeoutMs?: number;
+  dependencySetupTimeoutMs?: number;
+  dependencySetupMaxBufferBytes?: number;
   runTimeoutMs?: number;
   adaptiveGrace?: { enabled?: boolean; durationMs?: number; maxExtensionsPerTurn?: number };
   maxTurns?: number;
@@ -171,6 +173,7 @@ export function mergeConfigLayers(input: {
       enabled: project?.dependencies?.enabled ?? global?.dependencies?.enabled ?? builtIns.dependencies.enabled,
       hydrate: project?.dependencies?.hydrate ?? global?.dependencies?.hydrate ?? builtIns.dependencies.hydrate,
       cacheRoot: project?.dependencies?.cacheRoot ?? global?.dependencies?.cacheRoot ?? builtIns.dependencies.cacheRoot,
+      cacheMaxAgeDays: project?.dependencies?.cacheMaxAgeDays ?? global?.dependencies?.cacheMaxAgeDays ?? builtIns.dependencies.cacheMaxAgeDays,
     },
     workflow: mergedWorkflow,
     resolvedWorkflow,

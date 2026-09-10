@@ -50,7 +50,7 @@ dependencies:
 ```
 
 Purpose:
-Provide shared cache environment variables to agent workspaces. Repository environment preparation is delegated to the agent, which inspects project instructions and runs the appropriate setup only when needed. Harness-controlled verification remains separate.
+Provide shared cache environment variables to agent workspaces. The dependency-strategy model may select the workspace, package manager, and setup command from Factory evidence; Factory executes that choice under hard timeouts and preflights verification executables.
 
 Inputs:
 - `.factory/config.yaml` `commands.setup`
@@ -94,7 +94,7 @@ Factory uses dependency files such as `package.json`, `pnpm-lock.yaml`, `pyproje
 
 Do not symlink one shared `node_modules`, `.venv`, or writable dependency directory across worktrees. Share immutable package downloads and compiler caches; keep installed workspace state local.
 
-Setup recommendation is deterministic when repository evidence is clear. If setup evidence is missing or ambiguous, `/factory setup` uses the Pi SDK executor as a standby recommendation path; the selected Pi-visible model proposes a command and the user approves it before config is written. Hydration itself only runs the approved/configured command and never substitutes tools automatically.
+Setup strategy is model-owned when an executor is available, with an evidence-backed deterministic fallback. Factory never trusts an invented workspace or command: it validates the model result, enforces setup limits, and records the selected strategy.
 
 `commands.setup` may be a single shell command or an ordered list of setup steps:
 
@@ -107,7 +107,11 @@ commands:
       command: cd api && pip install -r requirements.txt
 ```
 
-Factory runs each setup step in order. Before execution it checks for missing tools and, when a safe alternative exists, asks for approval to use it temporarily (for example `pip` to `pip3`); project config is not changed. If a setup command then hits a known environment policy that can be safely isolated, Factory may offer a worktree-local remediation such as a virtual environment. If a step fails and no approved remediation applies, the run fails during dependency hydration with the failing step name and command. Malformed setup entries fail during config validation instead of falling through to runtime.
+Factory runs each setup step in order under `dependencySetupTimeoutMs` and `dependencySetupMaxBufferBytes`. Before blocking verification, it checks every command's executable. Missing dependencies produce a recoverable blocked state with the failing command and a resume path; they do not become a misleading success.
+
+### Blocked by missing dependencies
+
+Install the missing dependency or revise the setup command, then resume the run. `verification.json` is authoritative for verification status, and cleanup can prune old dependency cache entries as well as stale run/worktree state.
 
 ## Hydration Modes
 

@@ -52,9 +52,11 @@ import type { VerificationContractPlan, VerificationEngineResult } from "../veri
 import type { ReviewProviderOptions } from "../verification/providers/review.js";
 import { updatePrototypeTaskArtifact } from "./tasks.js";
 import { classifyVerificationFailure, resolveFailureRelation } from "./failure-classification.js";
-import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands, type StructuredVerificationCommands, type VerificationCommandResult } from "./verification.js";
+import { normalizeVerificationCommands, planVerificationExecution, runVerificationCommands, runBlockingVerificationCommands, type StructuredVerificationCommands, type VerificationCommandResult } from "./verification.js";
 import { hydrateWorkspaceDependencies, DependencyHydrationError } from "./dependencies.js";
 import { buildDependencyCacheEnv } from "./dependency-cache.js";
+import { discoverDependencyEvidence } from "./dependency-evidence.js";
+import { planDependencyStrategy } from "./dependency-strategy.js";
 
 export interface FactoryRunProgressEvent {
   runId: string;
@@ -95,6 +97,7 @@ export interface RunFactoryControllerInput {
   repairExecutor?: AgentExecutor;
   reviewerExecutor?: AgentExecutor;
   verificationPlannerExecutor?: AgentExecutor;
+  dependencyStrategyExecutor?: AgentExecutor;
   onProgress?: (event: FactoryRunProgressEvent) => Promise<void> | void;
   requestPlanApproval?: (input: { runId: string; goal: string; planPath: string; taskCount: number; workflowStages: string[]; summary: string; discoveryText?: string; planText?: string; tasks: PlannerTask[] }) => Promise<PlanApprovalResult>;
   requestApproval?: (input: { runId: string; goal: string; candidateSha?: string }) => Promise<boolean>;
@@ -226,7 +229,7 @@ async function runFactoryControllerInner(
         branch: isolation.branch,
         reason: "Project config disables worktrees",
       };
-  const executionCwd = worktree.path;
+  let executionCwd = worktree.path;
 
   const run = await createFactoryRun({
     runsDir: path.join(projectRoot, ".factory", "runs"),
@@ -291,6 +294,21 @@ async function runFactoryControllerInner(
   });
 
   try {
+    const dependencyEvidence = await discoverDependencyEvidence(executionCwd, {
+      setup: typeof loaded.effectiveConfig.commands.setup === "string" ? loaded.effectiveConfig.commands.setup : undefined,
+    });
+    const dependencyStrategy = await planDependencyStrategy({
+      cwd: executionCwd,
+      goal: input.goal,
+      evidence: dependencyEvidence,
+      configuredSetup: typeof loaded.effectiveConfig.commands.setup === "string" ? loaded.effectiveConfig.commands.setup : undefined,
+      executor: input.dependencyStrategyExecutor ?? input.verificationPlannerExecutor,
+      model: loaded.effectiveConfig.models.planner,
+      limits: loaded.effectiveConfig.runtime.limits as Record<string, unknown>,
+      allowDeterministicFallback: true,
+    });
+    executionCwd = dependencyStrategy.cwd;
+    await appendFactoryRunEvent(run.eventsPath, { timestamp: new Date().toISOString(), type: "dependency_strategy.selected", data: dependencyStrategy as unknown as Record<string, unknown> });
     await hydrateWorkspaceDependencies({
       workspacePath: executionCwd,
       projectRoot,
@@ -303,31 +321,31 @@ async function runFactoryControllerInner(
         data: event.data,
       }),
       onRemediation: input.requestDependencyRemediation,
-      mode: "agent",
+      setupOverride: dependencyStrategy.setup,
     });
   } catch (error) {
     const failedState = await updateFactoryRunState({
       statePath: run.statePath,
-      patch: { status: "FAILED", phase: "dependency-hydration-failed" },
+      patch: { status: "BLOCKED", phase: "dependency-hydration-blocked" },
     });
     const reason = error instanceof DependencyHydrationError
       ? error.message
       : `Dependency hydration failed: ${error instanceof Error ? error.message : String(error)}`;
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
-      type: "run.failed",
+      type: "run.recovery_requested",
       data: { reason },
     });
     await emitProgress(input, {
       runId: run.runId,
       phase: failedState.phase,
-      status: "FAILED",
+      status: "BLOCKED",
       message: reason,
     });
     const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
       runId: run.runId,
       goal: input.goal,
-      status: "FAILED",
+      status: "BLOCKED",
       phase: failedState.phase,
       approved: false,
       planPath: path.join(run.runDir, "plan.json"),
@@ -1056,7 +1074,6 @@ async function runFactoryControllerInner(
         data: event.data,
       }),
       onRemediation: input.requestDependencyRemediation,
-      mode: "agent",
     });
   } catch (error) {
     const reason = error instanceof DependencyHydrationError
@@ -1188,14 +1205,14 @@ async function runFactoryControllerInner(
     status: "RUNNING",
     message: `Verification plan: ${Object.keys(verificationPlan.commands).join(", ") || "none"} in ${verificationPlan.cwd}`,
   });
-  let verification = await runVerificationCommands({
+  let verification = (await runBlockingVerificationCommands({
     cwd: verificationPlan.cwd,
     commands: verificationPlan.commands,
     timeouts: verificationPlan.timeouts,
     env: loaded.effectiveConfig.dependencies.enabled && loaded.effectiveConfig.dependencies.hydrate !== "never"
       ? await buildDependencyCacheEnv(loaded.effectiveConfig.dependencies.cacheRoot)
       : undefined,
-  });
+  })).verification;
   verification.cwdResolution = verificationPlan.cwdResolution;
   const implementationChangedFiles = uniqueStrings(taskWorkspacesChangedFiles(implementationRun.taskWorkspaces));
   // Resolve unknown code failures (files not directly changed) against the
@@ -2052,7 +2069,6 @@ async function runImplementationTask(input: {
         data: event.data,
       }),
       onRemediation: input.requestDependencyRemediation,
-      mode: "agent",
     });
   } catch (error) {
     const reason = error instanceof DependencyHydrationError

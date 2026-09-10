@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { loadEffectiveConfig } from "../config/loader.js";
+import { pruneDependencyCache } from "../runtime/dependency-cache.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -15,6 +16,7 @@ export interface CleanupFactoryRunsResult {
   removedBranches: string[];
   removedRunDirs: string[];
   warnings: string[];
+  prunedCache: Awaited<ReturnType<typeof pruneDependencyCache>>;
 }
 
 export interface RemoveRunGitIsolationResult {
@@ -142,6 +144,11 @@ export async function cleanupFactoryRuns(input: {
     }
   }
 
+  const prunedCache = await pruneDependencyCache({
+    cacheRoot: loaded.effectiveConfig.dependencies.cacheRoot,
+    maxAgeDays: loaded.effectiveConfig.dependencies.cacheMaxAgeDays,
+  });
+  warnings.push(...prunedCache.warnings);
   return {
     runsDir,
     retainRuns,
@@ -151,6 +158,7 @@ export async function cleanupFactoryRuns(input: {
     removedBranches,
     removedRunDirs,
     warnings,
+    prunedCache,
   };
 }
 

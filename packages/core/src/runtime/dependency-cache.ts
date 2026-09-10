@@ -174,4 +174,38 @@ export async function commandExists(command: string): Promise<boolean> {
   }
 }
 
+export async function pruneDependencyCache(input: { cacheRoot: string; maxAgeDays: number; dryRun?: boolean }): Promise<{ cacheRoot: string; removedEntries: string[]; removedBytes: number; warnings: string[] }> {
+  const removedEntries: string[] = [];
+  const warnings: string[] = [];
+  let removedBytes = 0;
+  const root = path.resolve(input.cacheRoot);
+  const cutoff = Date.now() - Math.max(0, input.maxAgeDays) * 86_400_000;
+  const entries = await fs.readdir(root, { withFileTypes: true }).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") warnings.push(`Failed to read dependency cache: ${String(error)}`);
+    return [] as import("node:fs").Dirent[];
+  });
+  for (const entry of entries) {
+    const target = path.join(root, entry.name);
+    try {
+      const stat = await fs.stat(target);
+      if (stat.mtimeMs >= cutoff) continue;
+      removedEntries.push(target);
+      removedBytes += await directorySize(target);
+      if (!input.dryRun) await fs.rm(target, { recursive: true, force: true });
+    } catch (error) {
+      warnings.push(`Failed to prune ${target}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return { cacheRoot: root, removedEntries, removedBytes, warnings };
+}
+
+async function directorySize(target: string): Promise<number> {
+  const stat = await fs.stat(target).catch(() => undefined);
+  if (!stat) return 0;
+  if (stat.isFile()) return stat.size;
+  const entries = await fs.readdir(target, { withFileTypes: true }).catch(() => []);
+  let total = 0;
+  for (const entry of entries) total += await directorySize(path.join(target, entry.name));
+  return total;
+}
 

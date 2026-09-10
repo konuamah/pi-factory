@@ -148,7 +148,7 @@ When the user wants to add an interview stage, inspect the bundled `skills/grill
 
 Interview placement follows the workflow DAG: empty/discovery dependencies run before planning, while an interview depending on `verify` or `verification` runs after successful verification and before review. Post-verification answers go to reviewer/approval context only. Factory validates dependency names, cycles, reachability, and reviewer-backed approval gates when loading the workflow.
 
-Dependency hydration is a first-class setup responsibility. Explain that Factory runs the configured `commands.setup` with shared cache env vars while keeping each worktree's installed dependency state isolated. Do not make the guidance Node-only: support Node, Python, Rust, Go, Java-style, and other projects through the repository's own setup command. Never recommend sharing one writable `node_modules`, `.venv`, or framework-specific dependency folder across worktrees.
+Dependency hydration is a first-class setup responsibility. Explain that an LLM may select the setup strategy from evidence, while Factory runs it with shared cache env vars, hard limits, and executable preflight; each worktree's installed dependency state stays isolated. Do not make the guidance Node-only: support Node, Python, Rust, Go, Java-style, and other projects through repository evidence. Missing dependencies are recoverable blocked states.
 
 
 ## Stage Handoffs

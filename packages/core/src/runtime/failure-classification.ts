@@ -5,6 +5,7 @@ export type FailureCategory =
   | "missing-executable"
   | "invalid-command"
   | "missing-dependency"
+  | "dependencies.missing"
   | "environment-policy"
   | "timeout"
   | "real-code-failure"
@@ -44,7 +45,7 @@ export function classifyVerificationFailures(input: {
   changedFiles?: string[];
   baseCheckResults?: Array<{ name: string; command: string; result: VerificationCommandResult | undefined }>;
 }): CommandFailureClassification[] {
-  const failed = input.result.commands.filter((command) => command.status === "failed" || command.status === "timed-out");
+  const failed = input.result.commands.filter((command) => command.status === "failed" || command.status === "timed-out" || command.status === "missing");
   return failed.map((command) => classifySingleCommand(command, input.result.cwd, input.changedFiles, input.plan.evidence.rootCwd, input.baseCheckResults?.find((b) => b.name === command.name)?.result));
 }
 
@@ -189,6 +190,15 @@ function classifySingleCommand(
   }
 
   // Exit code 127 = command not found
+  if (command.status === "missing") {
+    return {
+      commandName: command.name,
+      category: "dependencies.missing",
+      reason: extractFirstLine(text) || "Required verification executable is missing.",
+      retryable: true,
+      suggestedAction: "prepare-environment",
+    };
+  }
   if (looksLikeMissingCommand(command)) {
     return {
       commandName: command.name,

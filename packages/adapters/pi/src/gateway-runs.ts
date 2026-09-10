@@ -280,6 +280,8 @@ export async function handleCleanup(retainArg: string | undefined, ctx: FactoryP
     ...result.removedWorktrees.map((value) => `  wt ${value}`),
     `removed branches: ${result.removedBranches.length}`,
     ...result.removedBranches.map((value) => `  br ${value}`),
+    `pruned cache entries: ${result.prunedCache.removedEntries.length}`,
+    `pruned cache bytes: ${result.prunedCache.removedBytes}`,
     `warnings: ${result.warnings.length}`,
     ...result.warnings.map((value) => `  warn ${value}`),
   ]);

@@ -305,6 +305,32 @@ export async function runVerificationCommands(input: {
   };
 }
 
+export async function runBlockingVerificationCommands(input: {
+  cwd: string;
+  commands: VerificationCommandConfig;
+  timeouts?: Record<string, number>;
+  env?: Record<string, string>;
+}): Promise<{ preflight: { ok: boolean; missing: Array<{ commandName: string; executable: string; command: string }> }; verification: VerificationRunResult }> {
+  const missing: Array<{ commandName: string; executable: string; command: string }> = [];
+  for (const [commandName, command] of Object.entries(input.commands)) {
+    if (commandName === "cwd" || !command) continue;
+    const executable = command.trim().split(/\s+/)[0];
+    if (!executable || ["cd", "echo", "true", "false", "export", "set"].includes(executable) || executable.includes("/")) continue;
+    try {
+      await execAsync(process.platform === "win32" ? `where ${executable}` : `command -v ${executable}`, { cwd: input.cwd, windowsHide: true });
+    } catch {
+      missing.push({ commandName, executable, command });
+    }
+  }
+  if (missing.length > 0) {
+    return {
+      preflight: { ok: false, missing },
+      verification: { cwd: input.cwd, cwdResolution: "default-root", commands: missing.map((item) => ({ name: item.commandName, command: item.command, status: "missing", stderr: `Executable '${item.executable}' not found in PATH` })), overallStatus: "failed" },
+    };
+  }
+  return { preflight: { ok: true, missing }, verification: await runVerificationCommands(input) };
+}
+
 async function discoverVerificationEvidence(
   executionCwd: string,
   commands: VerificationCommandConfig,

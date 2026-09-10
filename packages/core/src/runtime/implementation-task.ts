@@ -118,7 +118,6 @@ export async function runImplementationTask(input: {
         data: event.data,
       }),
       onRemediation: input.requestDependencyRemediation,
-      mode: "agent",
     });
   } catch (error) {
     const reason = error instanceof DependencyHydrationError

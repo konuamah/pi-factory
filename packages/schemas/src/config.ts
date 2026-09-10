@@ -10,6 +10,10 @@ export type ModelRole = "discovery" | "planner" | "builder" | "reviewer" | "repa
 export const CURRENT_BRANCH_SENTINEL = "@current";
 
 export interface ExecutionLimits {
+  /** Hard ceiling for one dependency setup step. */
+  dependencySetupTimeoutMs?: number;
+  /** Hard ceiling for captured dependency setup output. */
+  dependencySetupMaxBufferBytes?: number;
   /**
    * Hard ceiling for one agent turn (model + tool activity combined).
    * Replaces the ambiguous `totalRunTimeoutMs` (which was actually per-turn).
@@ -183,6 +187,7 @@ export interface FactoryBuiltInDefaults {
     enabled: boolean;
     hydrate: DependencyHydrationMode;
     cacheRoot: string;
+    cacheMaxAgeDays: number;
   };
 }
 
@@ -225,6 +230,7 @@ export interface GlobalFactoryConfig {
     enabled?: boolean;
     hydrate?: DependencyHydrationMode;
     cacheRoot?: string;
+    cacheMaxAgeDays?: number;
   };
 }
 
@@ -313,6 +319,7 @@ export interface ProjectFactoryConfig {
     enabled?: boolean;
     hydrate?: DependencyHydrationMode;
     cacheRoot?: string;
+    cacheMaxAgeDays?: number;
   };
 }
 
@@ -403,6 +410,7 @@ export interface EffectiveFactoryConfig {
     enabled: boolean;
     hydrate: DependencyHydrationMode;
     cacheRoot: string;
+    cacheMaxAgeDays: number;
   };
   capabilities?: CapabilityPolicy;
   taskTypes?: Record<string, TaskTypeDefinition>;

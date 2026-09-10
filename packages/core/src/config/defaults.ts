@@ -13,6 +13,8 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
   runtime: {
     maxParallelAgents: 2,
     limits: {
+      dependencySetupTimeoutMs: 900_000,
+      dependencySetupMaxBufferBytes: 50 * 1024 * 1024,
       turnTimeoutMs: 900_000,
       modelIdleTimeoutMs: 60_000,
       toolTimeoutMs: 30_000,
@@ -67,5 +69,6 @@ export const builtInDefaults: FactoryBuiltInDefaults = {
     enabled: true,
     hydrate: "auto",
     cacheRoot: path.join(os.homedir(), ".factory", "cache"),
+    cacheMaxAgeDays: 30,
   },
 };

@@ -314,6 +314,9 @@ function suggestResumePolicy(
   if (currentPhase === "implementation-blocked") {
     return { resumable: false, suggestedPhase: "implementation-blocked", nextStatus: "PENDING", reason: "The implementation contract produced no candidate. Revise the goal or plan and start a new run." };
   }
+  if (currentPhase === "dependency-hydration-blocked") {
+    return { resumable: true, suggestedPhase: "verification-planning", nextStatus: "RUNNING", reason: "Resume after dependencies are installed or setup is revised." };
+  }
   if (currentPhase === "plan-approval") {
     return { resumable: true, suggestedPhase: "plan-approval", nextStatus: "PENDING", reason: "Plan approval was interrupted." };
   }

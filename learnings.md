@@ -18,3 +18,5 @@
 - Landing should be an LLM-owned composed action list: parse and classify exact Git argv, enforce hard safety invariants deterministically, and revalidate any recovery plan instead of rewriting a rejected strategy.
 - Malformed LLM verification-planner output is a recoverable model failure: preserve the initial and repair responses, select the evidence-backed deterministic plan, and do not terminate the Factory run.
 - Stage tool policy must be negotiated from an explicit provider inventory before session creation; never treat missing or unknown tools as available, and preserve denied skills so the model receives the recovery path.
+- Dependency strategy should be LLM-owned but Factory-enforced: the model may choose workspace, package manager, and setup from evidence, while Factory applies hard setup limits, preflights blocking commands, and keeps `verification.json` authoritative over summary status.
+- Dependency caches and generated worktrees can dominate run storage; cleanup must prune both retained run state and aged cache entries.

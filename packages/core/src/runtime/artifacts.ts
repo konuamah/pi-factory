@@ -476,8 +476,18 @@ export async function writePrototypeAbortDecisionArtifact(
 export async function writePrototypeSummaryArtifact(
   runDir: string,
   artifact: PrototypeSummaryArtifact,
+  options: { allowWithoutVerification?: boolean } = {},
 ): Promise<string> {
   const filePath = path.join(runDir, "summary.json");
-  await fs.writeFile(filePath, JSON.stringify(artifact, null, 2), "utf8");
+  let verificationStatus = artifact.verificationStatus;
+  try {
+    const verification = JSON.parse(await fs.readFile(path.join(runDir, "verification.json"), "utf8")) as { overallStatus?: unknown };
+    if (verification.overallStatus === "passed" || verification.overallStatus === "failed" || verification.overallStatus === "incomplete") {
+      verificationStatus = verification.overallStatus;
+    }
+  } catch (error) {
+    if (!options.allowWithoutVerification && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  await fs.writeFile(filePath, JSON.stringify({ ...artifact, verificationStatus }, null, 2), "utf8");
   return filePath;
 }

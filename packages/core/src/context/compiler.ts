@@ -3,6 +3,7 @@ import type { PlannerTask } from "../runtime/planner.js";
 import { selectConstitutionContext } from "../constitution/context.js";
 import { findFactorySkills } from "../skills/registry.js";
 import type { SkillSelectionResult } from "../skills/types.js";
+import type { NegotiatedCapabilities } from "../capabilities/negotiation.js";
 
 export type ContextRole = "discovery" | "planner" | "builder" | "reviewer" | "repair" | "verification" | "landing";
 
@@ -104,6 +105,7 @@ export interface ContextCompileRequest {
   maxChars?: number;
   grantedCapabilities?: string[];
   deniedCapabilities?: string[];
+  negotiated?: NegotiatedCapabilities;
   runDecisions?: Array<{ requestId: string; question: string; optionId: string; feedback?: string }>;
   useConstitution?: boolean;
 }
@@ -195,7 +197,7 @@ function renderInstructions(
     ...renderPlanIntentSections(input.planIntent),
     { name: "runDecisions", priority: CONTEXT_SECTION_PRIORITY.runDecisions, text: renderRunDecisionsSection(input.runDecisions) },
     { name: "skills", priority: CONTEXT_SECTION_PRIORITY.skills, text: renderSkillsSection(skills) },
-    ...renderCapabilitySections(input.grantedCapabilities, input.deniedCapabilities),
+    ...renderCapabilitySections(input.grantedCapabilities, input.deniedCapabilities, input.negotiated),
     { name: "failures", priority: CONTEXT_SECTION_PRIORITY.failures, text: renderFailuresSection(input.failures) },
     { name: "guidance", priority: CONTEXT_SECTION_PRIORITY.guidance, text: renderGuidanceSection(guidance.text) },
   ].filter((section): section is PrioritySection => Boolean(section.text));
@@ -310,7 +312,7 @@ function renderPlanIntentSections(planIntent: ContextCompileRequest["planIntent"
   return sections;
 }
 
-function renderCapabilitySections(granted: ContextCompileRequest["grantedCapabilities"], denied: ContextCompileRequest["deniedCapabilities"]): PrioritySection[] {
+function renderCapabilitySections(granted: ContextCompileRequest["grantedCapabilities"], denied: ContextCompileRequest["deniedCapabilities"], negotiated?: NegotiatedCapabilities): PrioritySection[] {
   const sections: PrioritySection[] = [];
   if (granted?.length) {
     sections.push({
@@ -324,6 +326,16 @@ function renderCapabilitySections(granted: ContextCompileRequest["grantedCapabil
       name: "capabilities",
       priority: CONTEXT_SECTION_PRIORITY.capabilities,
       text: `Unavailable capabilities (do not attempt):\n${denied.map((capability) => `- ${capability}`).join("\n")}`,
+    });
+  }
+  if (negotiated) {
+    sections.push({
+      name: "capabilities",
+      priority: CONTEXT_SECTION_PRIORITY.capabilities,
+      text: [
+        `Capability negotiation (granted tools: ${negotiated.granted.length ? negotiated.granted.join(", ") : "none"}):`,
+        ...(negotiated.denied.length ? negotiated.denied.map((item) => `- ${item.tool}: ${item.reason} — ${item.detail} Recovery: ${item.recovery}`) : ["- No tool denials."]),
+      ].join("\n"),
     });
   }
   return sections;

@@ -7,6 +7,7 @@ import type {
 import type { ToolCallContext } from "@factory/core";
 import { ModelProviderResolutionError } from "@factory/core";
 import { wrapToolsWithGate, type ToolGateOptions } from "./tool-gate.js";
+import type { ToolInventory } from "@factory/core";
 
 export interface PiSdkSessionFactoryOptions {
   packageName?: string;
@@ -22,6 +23,18 @@ export function createPiSdkSessionFactory(
   const sdkLoader = options.sdkLoader ?? loadPiSdk;
 
   return {
+    async describeTools(input: PiSessionFactoryInput): Promise<ToolInventory> {
+      const sdk = await sdkLoader(packageName);
+      const all = [...(sdk.createReadOnlyTools?.(input.cwd) ?? []), ...(sdk.createCodingTools?.(input.cwd) ?? [])];
+      const available = [...new Set(all.map((tool) => tool.name))];
+      const known = new Set(available);
+      const requested = input.tools ?? [];
+      return {
+        available,
+        unavailable: [],
+        unknown: requested.filter((tool) => !known.has(tool)),
+      };
+    },
     async create(input: PiSessionFactoryInput): Promise<PiSessionFactoryResult> {
       const sdk = await sdkLoader(packageName);
       const sessionManager = sdk.SessionManager.inMemory(input.cwd);
@@ -288,6 +301,7 @@ function buildGateContext(
     needsApproval: stringArray(metadata.needsApprovalCapabilities),
     approvedCapabilities: new Set<string>(),
     skills: gate.skills,
+    negotiated: gate.negotiated ?? (metadata.negotiated as ToolCallContext["negotiated"] | undefined),
     projectPolicy: gate.projectPolicy,
     workflowPolicy: gate.workflowPolicy,
     nodePolicy: gate.nodePolicy,

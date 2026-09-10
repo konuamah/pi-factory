@@ -1,5 +1,18 @@
 # Permissions And Safety
 
+## Stage tool negotiation
+
+Stages may declare `allowedTools` and `denyTools`. Factory negotiates the
+selected skills' requested tools against that policy, the resolved capability
+policy, and the Pi/provider inventory before creating a session. `denyTools`
+always wins. Unknown or unavailable tools are denied with a recovery path; no
+missing inventory is interpreted as “all tools available”.
+
+The same negotiation result is supplied to the executor and runtime gate, so a
+denied tool remains visible to the model with its reason and recovery guidance.
+The selected skill is retained. A missing required capability blocks the stage
+without internally ending the run.
+
 Factory Concierge is an operator, not just a help page. It may edit Factory-owned files and run Factory commands, but it must protect user work.
 
 ## May Act Directly

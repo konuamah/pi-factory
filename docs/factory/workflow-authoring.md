@@ -41,6 +41,12 @@ Each stage should include:
 - `commands` for command steps
 - `model` only when the step truly needs a role override
 - `skills` when the workflow must explicitly bind skills to an agent step
+- `allowedTools` and `denyTools` when the stage needs a tool policy; `denyTools` always wins
+
+Tool policy is negotiated with selected skill requests, resolved safety policy,
+and the provider inventory before the agent session is created. Unknown or
+unavailable tools are reported with recovery guidance; they are never silently
+granted or used as a reason to end the run.
 
 ## Step Types
 

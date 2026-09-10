@@ -17,3 +17,4 @@
 - Interview stages are DAG nodes: classify them from validated dependency edges, run post-verification interviews only after a passed verification contract, and keep their decisions out of planning while forwarding them to review and approval.
 - Landing should be an LLM-owned composed action list: parse and classify exact Git argv, enforce hard safety invariants deterministically, and revalidate any recovery plan instead of rewriting a rejected strategy.
 - Malformed LLM verification-planner output is a recoverable model failure: preserve the initial and repair responses, select the evidence-backed deterministic plan, and do not terminate the Factory run.
+- Stage tool policy must be negotiated from an explicit provider inventory before session creation; never treat missing or unknown tools as available, and preserve denied skills so the model receives the recovery path.

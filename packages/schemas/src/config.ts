@@ -97,6 +97,8 @@ export interface WorkflowStage {
   commands?: string[];
   requiresApproval?: boolean;
   requiredCapabilities?: Capability[];
+  allowedTools?: string[];
+  denyTools?: string[];
   taskType?: string;
   model?: ModelSelection;
   skills?: WorkflowStageSkillPolicy;

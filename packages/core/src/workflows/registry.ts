@@ -184,6 +184,8 @@ function flattenWorkflows(workflows: WorkflowDefinition[]): string[] {
       if (stage.dependsOn?.length) lines.push(`        dependsOn: [${stage.dependsOn.join(", ")}]`);
       if (stage.commands?.length) lines.push(`        commands: [${stage.commands.map((c) => `"${c.replace(/"/g, '\\"')}"`).join(", ")}]`);
       if (stage.requiresApproval !== undefined) lines.push(`        requiresApproval: ${stage.requiresApproval}`);
+      if (stage.allowedTools?.length) lines.push(`        allowedTools: [${stage.allowedTools.join(", ")}]`);
+      if (stage.denyTools?.length) lines.push(`        denyTools: [${stage.denyTools.join(", ")}]`);
       if (stage.taskType) lines.push(`        taskType: ${stage.taskType}`);
       if (stage.model) lines.push(`        model: ${JSON.stringify(stage.model)}`);
       if (stage.skills && hasSkillPolicy(stage.skills)) {
@@ -268,6 +270,12 @@ function parseSimpleWorkflowYaml(raw: string): WorkflowConfig {
       case "requiredCapabilities":
         currentStage.requiredCapabilities = listValue(value) as WorkflowStage["requiredCapabilities"];
         break;
+      case "allowedTools":
+        currentStage.allowedTools = listValue(value);
+        break;
+      case "denyTools":
+        currentStage.denyTools = listValue(value);
+        break;
       case "taskType":
         currentStage.taskType = String(parsed);
         break;
@@ -297,6 +305,8 @@ function parseSimpleWorkflowYaml(raw: string): WorkflowConfig {
     commands: (v) => assignStage("commands", v),
     requiresApproval: (v) => assignStage("requiresApproval", v),
     requiredCapabilities: (v) => assignStage("requiredCapabilities", v),
+    allowedTools: (v) => assignStage("allowedTools", v),
+    denyTools: (v) => assignStage("denyTools", v),
     taskType: (v) => assignStage("taskType", v),
     model: (v) => assignStage("model", v),
   };

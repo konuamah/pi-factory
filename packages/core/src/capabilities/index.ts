@@ -5,6 +5,7 @@ export * from "./discovery.js";
 export * from "./validation.js";
 export * from "./providers.js";
 export * from "./executability.js";
+export * from "./negotiation.js";
 import type { Capability, CapabilityPolicy } from "@factory/schemas";
 
 export type AutonomyLevel = "low" | "medium" | "high";

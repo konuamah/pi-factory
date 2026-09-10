@@ -2,6 +2,7 @@ import type {
   AgentExecutionInput,
   AgentExecutionResult,
 } from "@factory/core";
+import type { ToolInventory } from "@factory/core";
 
 export interface PiSessionEvent {
   type: string;
@@ -45,6 +46,7 @@ export interface PiSessionFactoryResult {
 }
 
 export interface PiSessionFactory {
+  describeTools?(input: PiSessionFactoryInput): Promise<ToolInventory> | ToolInventory;
   create(input: PiSessionFactoryInput): Promise<PiSessionFactoryResult>;
 }
 
@@ -53,6 +55,7 @@ export interface PiCapabilityGate {
   denied: string[];
   needsApproval: string[];
   toolAllowlist?: string[];
+  negotiated?: { granted: string[]; denied: Array<{ tool: string; reason: string; detail: string; recovery: string }> };
   onApprovalRequired?: (input: {
     executionId: string;
     capability: string;

@@ -17,6 +17,27 @@ export class PiAgentExecutor implements AgentExecutor {
 
   async execute(input: AgentExecutionInput): Promise<AgentExecutionResult> {
     const gatedTools = this.approvalGateTools(input, this.gateTools(input.tools ?? []));
+    if (this.options.sessionFactory.describeTools) {
+      const inventory = await this.options.sessionFactory.describeTools({
+        cwd: input.cwd,
+        prompt: input.prompt,
+        model: input.model,
+        tools: gatedTools,
+        metadata: input.metadata,
+        limits: input.limits,
+      });
+      const unavailable = gatedTools.filter((tool) => !inventory.available.includes(tool));
+      if (unavailable.length > 0) {
+        const message = `Capability unavailable: ${unavailable.join(", ")}. Provider inventory did not expose these tools; configure the provider or choose an available tool, then continue the run.`;
+        return {
+          executionId: input.executionId,
+          status: "failed",
+          outputText: "",
+          events: [{ type: "capability.negotiation_blocked", data: { tools: unavailable, inventory } }],
+          errorMessage: message,
+        };
+      }
+    }
     const created = await this.options.sessionFactory.create({
       cwd: input.cwd,
       prompt: input.prompt,

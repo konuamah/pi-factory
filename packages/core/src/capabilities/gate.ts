@@ -17,6 +17,7 @@ export interface ToolCallContext {
   needsApproval?: string[];
   approvedCapabilities?: Set<string>;
   skills?: SkillContract[];
+  negotiated?: { granted: string[]; denied: Array<{ tool: string; reason: string; detail: string; recovery: string }> };
   projectPolicy?: CapabilityPolicy;
   workflowPolicy?: CapabilityPolicy;
   nodePolicy?: CapabilityPolicy;
@@ -41,10 +42,22 @@ export function checkToolCall(input: ToolCallInput, resourcePolicy?: ToolResourc
   const { toolName, args, context } = input;
   const capability = toolToCapability(toolName);
 
-  // Tools without a mapped capability (e.g. future MCP tools) are allowed by default
-  // only if the gate has no explicit deny for them.
+  const negotiated = context.negotiated;
+  if (negotiated && !negotiated.granted.includes(toolName)) {
+    const denial = negotiated.denied.find((item) => item.tool === toolName);
+    return {
+      action: "deny",
+      capability,
+      rule: "capability-negotiation",
+      reason: denial
+        ? `Capability unavailable: ${toolName}\nReason: ${denial.reason} — ${denial.detail}\nRecovery: ${denial.recovery}`
+        : `Capability unavailable: ${toolName}\nReason: not granted by capability negotiation\nRecovery: update the stage policy or provider inventory.`,
+    };
+  }
+
+  // Unmapped tools are only safe after explicit negotiation has granted them.
   if (!capability) {
-    return { action: "allow" };
+    return context.negotiated ? { action: "deny", rule: "unknown-tool", reason: `Tool '${toolName}' is not registered.` } : { action: "allow" };
   }
 
   const denied = new Set<string>([

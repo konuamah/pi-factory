@@ -34,6 +34,7 @@ import {
   capabilitiesToToolNames,
   defaultCapabilitiesForRole,
   resolveEffectiveCapabilities,
+  negotiateStageCapabilities,
   type AutonomyLevel,
 } from "../capabilities/index.js";
 import {
@@ -2176,6 +2177,17 @@ async function runImplementationTask(input: {
         workflowPolicy: input.workflowCapabilityPolicy,
         nodePolicy: input.task.capabilityPolicy,
       });
+      const negotiated = negotiateStageCapabilities({
+        stage: input.task,
+        skills: nodeSkills.selected.map((item) => item.skill),
+        safety: capabilities,
+        provider: {
+          available: roleTools(nodeRole),
+          unavailable: [],
+          unknown: [...(input.task.allowedTools ?? []), ...nodeSkills.selected.flatMap((item) => item.skill.permissions?.allowedTools ?? [])]
+            .filter((tool) => !roleTools(nodeRole).includes(tool)),
+        },
+      });
       const compiled = await compileAgentContext({
         cwd: input.projectRoot,
         role: nodeRole,
@@ -2187,6 +2199,7 @@ async function runImplementationTask(input: {
         maxChars: 6000,
         grantedCapabilities: capabilities.granted,
         deniedCapabilities: capabilities.denied,
+        negotiated,
         runDecisions: input.runDecisions,
         useConstitution: input.config.constitution.enabled,
       });
@@ -2241,7 +2254,7 @@ async function runImplementationTask(input: {
           cwd: workspace.path,
           prompt,
           model: nodeModel.model,
-          tools: [...roleTools(nodeRole), ...capabilitiesToToolNames(capabilities.granted)].filter((tool, index, arr) => arr.indexOf(tool) === index),
+          tools: negotiated.granted,
           limits: input.config.runtime.limits,
           metadata: {
             role: nodeRole,
@@ -2253,6 +2266,7 @@ async function runImplementationTask(input: {
             grantedCapabilities: capabilities.granted,
             deniedCapabilities: capabilities.denied,
             needsApprovalCapabilities: capabilities.needsApproval,
+            negotiated,
             attempt,
           },
         });

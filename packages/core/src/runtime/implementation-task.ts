@@ -13,7 +13,7 @@ import { appendModelLedgerEntry } from "../runs/model-ledger.js";
 import { appendFactoryRunEvent } from "../runs/store.js";
 import { hydrateWorkspaceDependencies, DependencyHydrationError } from "./dependencies.js";
 import { roleTools } from "./task-utils.js";
-import { resolveEffectiveCapabilities, defaultCapabilitiesForRole, capabilitiesToToolNames } from "../capabilities/index.js";
+import { resolveEffectiveCapabilities, defaultCapabilitiesForRole, negotiateStageCapabilities } from "../capabilities/index.js";
 import { resolveModelForRole } from "../models/index.js";
 import { resolveDependencyTaskIds } from "./final-merge.js";
 import { wait } from "./phase-plumbing.js";
@@ -200,6 +200,17 @@ export async function runImplementationTask(input: {
         workflowPolicy: input.workflowCapabilityPolicy,
         nodePolicy: input.task.capabilityPolicy,
       });
+      const negotiated = negotiateStageCapabilities({
+        stage: input.task,
+        skills: nodeSkills.selected.map((item) => item.skill),
+        safety: capabilities,
+        provider: {
+          available: roleTools(nodeRole),
+          unavailable: [],
+          unknown: [...(input.task.allowedTools ?? []), ...nodeSkills.selected.flatMap((item) => item.skill.permissions?.allowedTools ?? [])]
+            .filter((tool) => !roleTools(nodeRole).includes(tool)),
+        },
+      });
       const compiled = await compileAgentContext({
         cwd: input.projectRoot,
         role: nodeRole,
@@ -212,6 +223,7 @@ export async function runImplementationTask(input: {
         maxChars: 6000,
         grantedCapabilities: capabilities.granted,
         deniedCapabilities: capabilities.denied,
+        negotiated,
         runDecisions: input.runDecisions,
         useConstitution: input.config.constitution.enabled,
       });
@@ -267,7 +279,7 @@ export async function runImplementationTask(input: {
           cwd: workspace.path,
           prompt,
           model: nodeModel.model,
-          tools: [...roleTools(nodeRole), ...capabilitiesToToolNames(capabilities.granted)].filter((tool, index, arr) => arr.indexOf(tool) === index),
+          tools: negotiated.granted,
           limits: input.config.runtime.limits,
           metadata: {
             role: nodeRole,
@@ -279,6 +291,7 @@ export async function runImplementationTask(input: {
             grantedCapabilities: capabilities.granted,
             deniedCapabilities: capabilities.denied,
             needsApprovalCapabilities: capabilities.needsApproval,
+            negotiated,
             attempt,
           },
         });

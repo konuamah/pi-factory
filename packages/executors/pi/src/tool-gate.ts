@@ -25,6 +25,7 @@ export interface ToolGateOptions {
   }) => Promise<boolean> | boolean;
   onDecision?: (decision: ToolCallDecision, toolName: string) => void;
   resourcePolicy?: ToolResourcePolicy;
+  negotiated?: ToolCallContext["negotiated"];
 }
 
 export function wrapToolsWithGate(tools: GatedTool[], options: ToolGateOptions): GatedTool[] {
@@ -85,5 +86,6 @@ function structuredDenial(toolName: string, decision: Extract<ToolCallDecision, 
     capability: decision.capability,
     rule: decision.rule,
     message: decision.reason,
+    recovery: decision.reason.match(/Recovery: (.*)$/s)?.[1],
   };
 }

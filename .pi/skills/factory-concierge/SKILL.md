@@ -156,6 +156,11 @@ For workflows, you may either:
 
 When editing `factory.yaml`, always use the workflow registry shape from `docs/factory/workflow-authoring.md`: top-level `defaultWorkflowId` plus `workflows`, where each workflow has `id`, `name`, and `stages`. Do not create a top-level `stages:` list; Factory resolves runs from the workflow registry, so a top-level `stages:` block can be ignored and cause interview stages to be skipped.
 
+Stage tool policy uses `allowedTools` and `denyTools`; deny always wins. Factory
+negotiates these with selected skill permissions and the provider inventory
+before session creation. Never treat an unknown or unavailable tool as
+available, and never end a run solely because negotiation blocks a stage.
+
 When editing directly, include:
 
 - workflow id and name

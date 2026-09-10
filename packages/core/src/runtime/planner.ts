@@ -19,6 +19,8 @@ export interface PlannerTask {
     includeDependencyArtifacts?: boolean;
   };
   requiredCapabilities?: Capability[];
+  allowedTools?: string[];
+  denyTools?: string[];
   capabilityPolicy?: CapabilityPolicy;
   taskType?: string;
   model?: ModelSelection;
@@ -57,6 +59,8 @@ export interface PlannerArtifact {
     commands?: string[];
     requiresApproval?: boolean;
     requiredCapabilities?: Capability[];
+    allowedTools?: string[];
+    denyTools?: string[];
     taskType?: string;
     model?: ModelSelection;
     skills?: WorkflowStageSkillPolicy;
@@ -90,6 +94,8 @@ export function buildPlanArtifact(input: {
       commands: stage.commands,
       requiresApproval: stage.requiresApproval,
       requiredCapabilities: stage.requiredCapabilities,
+      allowedTools: stage.allowedTools,
+      denyTools: stage.denyTools,
       taskType: stage.taskType,
       model: stage.model,
       skills: stage.skills,
@@ -414,6 +420,8 @@ function normalizeWorkflowStages(stages: WorkflowStage[]): PlannerArtifact["work
     commands: stage.commands,
     requiresApproval: stage.requiresApproval,
     requiredCapabilities: stage.requiredCapabilities,
+    allowedTools: stage.allowedTools,
+    denyTools: stage.denyTools,
     taskType: stage.taskType,
     model: stage.model,
     skills: stage.skills,

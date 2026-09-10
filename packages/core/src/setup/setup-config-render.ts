@@ -230,6 +230,8 @@ export function renderCustomWorkflowYaml(wf: import("@factory/schemas").Workflow
     if (st.commands?.length) lines.push(`        commands: [${st.commands.map((c) => JSON.stringify(c)).join(", ")}]`);
     if (st.requiresApproval) lines.push(`        requiresApproval: true`);
     if (st.requiredCapabilities?.length) lines.push(`        requiredCapabilities: [${st.requiredCapabilities.join(", ")}]`);
+    if (st.allowedTools?.length) lines.push(`        allowedTools: [${st.allowedTools.join(", ")}]`);
+    if (st.denyTools?.length) lines.push(`        denyTools: [${st.denyTools.join(", ")}]`);
     if (st.model) lines.push(`        model: ${JSON.stringify(st.model)}`);
   }
   return lines.join("\n") + "\n";
@@ -265,4 +267,3 @@ export async function buildDiffs(cwd: string, proposed: ProposedFactorySetup): P
   }
   return diffs;
 }
-

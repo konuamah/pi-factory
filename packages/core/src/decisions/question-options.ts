@@ -9,7 +9,9 @@ export interface ParsedInterviewQuestion {
 
 export function splitInterviewQuestions(value: string): string[] {
   const blocks = value
-    .split(/\n\s*---+\s*\n/g)
+    // Markdown documents often contain horizontal rules. Only treat a rule
+    // as a question separator when the following block starts a real round.
+    .split(/\n\s*---+\s*\n(?=\s*(?:Q\d+\s*[-:.]|❓))/g)
     .map((block) => block.trim())
     .filter(Boolean);
   return blocks.length > 0 ? blocks : [value.trim()].filter(Boolean);

@@ -85,7 +85,7 @@ review and approval only, never back into planning or building. Execution order 
 Factory rejects unknown dependencies, dependency cycles, unreachable stages, and approval/acceptance
 stages that do not depend on a reviewer stage.
 
-When the model returns several questions in one decision (separated by `---` in the interview prompt output), the Pi adapter presents them one at a time — a full editor when the host exposes it, otherwise an overlay — and folds every answer into a single structured interview record, so planning still receives one `interview-decisions.json` entry per interview stage.
+When the model returns several questions in one decision (separated by `---` in the interview prompt output), the Pi adapter presents them one at a time — a full editor when the host exposes it, otherwise an overlay — and folds every answer into a single structured interview record, so planning still receives one `interview-decisions.json` entry per interview stage. Markdown horizontal rules are not treated as question separators unless the following block starts with a concrete `Q<n>` question. Instruction-echo output is rejected instead of being shown as user questions.
 
 Interview questions may also include an optional structured multiple-choice block inside the question text:
 

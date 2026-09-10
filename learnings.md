@@ -22,3 +22,4 @@
 - Dependency caches and generated worktrees can dominate run storage; cleanup must prune both retained run state and aged cache entries.
 - Interview completion markers must be exact whole-response sentinels. Never let `INTERVIEW_COMPLETE` embedded in questions or model recommendations bypass the human decision gate.
 - Dirty-working-tree landing guards must be deterministic: block before any Git mutation, assert the candidate remains available, and never let acceptance convert `merge-blocked` into `COMPLETED`; only the recovery choice is model/user-owned.
+- Interview output must be bounded before it reaches the user: Markdown rules are not automatically question separators, and a model-echoed instruction document must be rejected rather than rendered as many fake questions.

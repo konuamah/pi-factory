@@ -114,6 +114,15 @@ export async function runInterviewStages(input: {
     if (!output || output === "INTERVIEW_COMPLETE") {
       continue;
     }
+    const interviewOutput = normalizeInterviewOutput(output);
+    if (!interviewOutput) {
+      await appendFactoryRunEvent(input.run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "interview.output_rejected",
+        data: { stage: stage.name, reason: "Model output did not contain a concrete interview round." },
+      });
+      continue;
+    }
     const decision = await requestHumanDecision({
       controllerInput: input.input,
       runDir: input.run.runDir,
@@ -123,7 +132,7 @@ export async function runInterviewStages(input: {
       request: {
         id: `${input.run.runId}-${slugifyGoal(stage.name)}-interview`,
         title: `Interview: ${stage.name}`,
-        question: output,
+        question: interviewOutput,
         context: input.executionPhase === "post-verification"
           ? "Answer the interview questions about the verified candidate. Factory will include your answer in the reviewer and approval prompts; it will NOT be fed back into planning or building."
           : "Answer the interview questions. Factory will include your answer in the planner prompt before producing the implementation plan.",
@@ -140,7 +149,7 @@ export async function runInterviewStages(input: {
     });
     answers.push([
       `Stage: ${stage.name}`,
-      `Interview prompt/questions:\n${output}`,
+      `Interview prompt/questions:\n${interviewOutput}`,
       `Selected option: ${decision.optionId}`,
       decision.feedback ? `User answer:\n${decision.feedback}` : "User answer:\n[skipped]",
     ].filter(Boolean).join("\n"));
@@ -149,7 +158,7 @@ export async function runInterviewStages(input: {
       stage: stage.name,
       role,
       executionPhase: input.executionPhase,
-      question: output,
+      question: interviewOutput,
       optionId: decision.optionId,
       answer: decision.feedback,
       ...(skipped ? { skipped: true } : {}),
@@ -178,6 +187,17 @@ export async function runInterviewStages(input: {
     });
   }
   return { text: answers.length > 0 ? answers.join("\n\n") : undefined, executionPath: lastExecutionPath, decisions: structuredDecisions, executionPhase: input.executionPhase };
+}
+
+/** Keep model instructions out of the user-facing interview document. */
+export function normalizeInterviewOutput(output: string): string | undefined {
+  if (/^Role:\s*Interview\b/im.test(output) && /Format a round like this:/i.test(output)) {
+    return undefined;
+  }
+  const lines = output.split(/\r?\n/);
+  const firstQuestion = lines.findIndex((line) => /^\s*Q\d+\s*[-:.]\s*\S+/i.test(line) && !/[<{][^>]*>/.test(line));
+  if (firstQuestion < 0) return undefined;
+  return lines.slice(firstQuestion).join("\n").trim() || undefined;
 }
 
 export function executorForRole(input: RunFactoryControllerInput, role: ModelRole): AgentExecutor | undefined {
@@ -416,4 +436,3 @@ export function buildPlannerPrompt(
     "- End with exactly: WAITING_FOR_APPROVAL",
   ].filter(Boolean).join("\n");
 }
-

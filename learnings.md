@@ -23,3 +23,4 @@
 - Interview completion markers must be exact whole-response sentinels. Never let `INTERVIEW_COMPLETE` embedded in questions or model recommendations bypass the human decision gate.
 - Dirty-working-tree landing guards must be deterministic: block before any Git mutation, assert the candidate remains available, and never let acceptance convert `merge-blocked` into `COMPLETED`; only the recovery choice is model/user-owned.
 - Interview output must be bounded before it reaches the user: Markdown rules are not automatically question separators, and a model-echoed instruction document must be rejected rather than rendered as many fake questions.
+- Interview models may emit multiple grilling rounds in one response; normalize to the first monotonically numbered round so the same questions are not presented repeatedly.

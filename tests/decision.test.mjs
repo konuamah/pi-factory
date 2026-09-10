@@ -119,4 +119,13 @@ test('interview output rejects echoed instructions and keeps concrete questions'
     '---',
     'Q2 - Which clients need it?',
   ].join('\n')), 'Q1 - Which date behavior should apply?\n\n---\nQ2 - Which clients need it?');
+  assert.equal(normalizeInterviewOutput([
+    'Q1 - Which behavior?',
+    '---',
+    'Q2 - Which clients?',
+    '---',
+    'Q1 - Which verification?',
+    '---',
+    'Q2 - Which fallback?',
+  ].join('\n')), 'Q1 - Which behavior?\n---\nQ2 - Which clients?');
 });

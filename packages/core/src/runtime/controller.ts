@@ -3930,7 +3930,9 @@ async function runInterviewStages(input: {
       },
     });
     const output = result.outputText.trim();
-    if (!output || /INTERVIEW_COMPLETE/i.test(output)) {
+    // The sentinel is valid only as the complete response. A model may mention
+    // it in a recommendation or footer after asking real questions.
+    if (!output || output === "INTERVIEW_COMPLETE") {
       continue;
     }
     const decision = await requestHumanDecision({

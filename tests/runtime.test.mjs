@@ -406,7 +406,7 @@ test('interview workflow stage pauses before planning when no decision handler i
         const actualLabel = input.executionId.includes('discovery') ? 'discovery' : input.executionId.includes('grill') ? 'interview' : 'planner';
         calls.push({ label: actualLabel, executionId: input.executionId, prompt: input.prompt });
         if (actualLabel === 'interview') {
-          return { executionId: input.executionId, status: 'completed', outputText: 'Q1: Which search behavior should govern?', events: [] };
+          return { executionId: input.executionId, status: 'completed', outputText: 'Q1: Which search behavior should govern?\n\nRecommendation complete: INTERVIEW_COMPLETE', events: [] };
         }
         return makeExecutor('planner', calls).execute(input);
       },

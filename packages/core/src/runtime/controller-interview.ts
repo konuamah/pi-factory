@@ -109,7 +109,9 @@ export async function runInterviewStages(input: {
       },
     });
     const output = result.outputText.trim();
-    if (!output || /INTERVIEW_COMPLETE/i.test(output)) {
+    // Do not let a completion marker embedded in a question/recommendation
+    // bypass the human decision gate.
+    if (!output || output === "INTERVIEW_COMPLETE") {
       continue;
     }
     const decision = await requestHumanDecision({
@@ -414,5 +416,4 @@ export function buildPlannerPrompt(
     "- End with exactly: WAITING_FOR_APPROVAL",
   ].filter(Boolean).join("\n");
 }
-
 

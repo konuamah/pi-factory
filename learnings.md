@@ -20,3 +20,4 @@
 - Stage tool policy must be negotiated from an explicit provider inventory before session creation; never treat missing or unknown tools as available, and preserve denied skills so the model receives the recovery path.
 - Dependency strategy should be LLM-owned but Factory-enforced: the model may choose workspace, package manager, and setup from evidence, while Factory applies hard setup limits, preflights blocking commands, and keeps `verification.json` authoritative over summary status.
 - Dependency caches and generated worktrees can dominate run storage; cleanup must prune both retained run state and aged cache entries.
+- Interview completion markers must be exact whole-response sentinels. Never let `INTERVIEW_COMPLETE` embedded in questions or model recommendations bypass the human decision gate.

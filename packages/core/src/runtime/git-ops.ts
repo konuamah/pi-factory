@@ -118,6 +118,8 @@ export async function readGitHeadSha(cwd: string): Promise<string | undefined> {
 }
 
 export function isTransientFactoryPath(file: string): boolean {
+  // These paths are Factory-generated state, not user edits; excluding them
+  // keeps dirty-tree recovery focused on changes a landing could overwrite.
   const normalized = file.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
   const segments = [
     ".pi-glla/",
@@ -274,4 +276,3 @@ function uniqueNormalizedPaths(values: string[]): string[] {
   }
   return result;
 }
-

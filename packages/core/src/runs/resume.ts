@@ -335,6 +335,14 @@ function suggestResumePolicy(
   if (currentPhase === "landing") {
     return { resumable: true, suggestedPhase: "landing", nextStatus: "RUNNING", reason: "Resume landing stage." };
   }
+  if (currentPhase === "merge-blocked") {
+    return {
+      resumable: true,
+      suggestedPhase: "landing",
+      nextStatus: "RUNNING",
+      reason: "Clean the target checkout, then resume landing; the candidate branch and commit are preserved.",
+    };
+  }
   if (currentPhase.includes("review")) {
     return { resumable: true, suggestedPhase: "review", nextStatus: "RUNNING", reason: "Resume review stage." };
   }

@@ -166,6 +166,41 @@ export async function executeLandingStrategy(input: {
   }
 }
 
+/** Stable markers emitted by the deterministic dirty-working-tree guard. */
+export const DIRTY_GUARD_REASON_PATTERNS: readonly RegExp[] = [
+  /^Dirty target checkout overlaps landing files:/,
+  /^Cannot switch from .+ to .+ while unrelated files are dirty:/,
+  /^WOULD_DESTROY_DIRTY_WORK$/,
+];
+
+export function isDirtyGuardReason(reason: string): boolean {
+  return DIRTY_GUARD_REASON_PATTERNS.some((pattern) => pattern.test(reason));
+}
+
+export function guardVerdictHasDirtyTreeReason(reasons: string[]): boolean {
+  return reasons.some(isDirtyGuardReason);
+}
+
+/** Fails loudly if a blocked landing lost the candidate it was meant to preserve. */
+export async function assertCandidatePreserved(input: {
+  mergeCwd: string;
+  candidateBranch?: string;
+  candidateSha?: string;
+}): Promise<void> {
+  if (input.candidateBranch) {
+    await execFileAsync("git", ["rev-parse", "--verify", input.candidateBranch], {
+      cwd: input.mergeCwd,
+      windowsHide: true,
+    });
+  }
+  if (input.candidateSha) {
+    await execFileAsync("git", ["cat-file", "-e", `${input.candidateSha}^{commit}`], {
+      cwd: input.mergeCwd,
+      windowsHide: true,
+    });
+  }
+}
+
 export function mapDiagnosisToOutcome(kind: PrototypeLandingDiagnosisArtifact["kind"]): LandingOutcome {
   switch (kind) {
     case "dirty-target": return "dirty-checkout";

@@ -25,6 +25,9 @@ import {
 import {
   classifyDirtyFiles,
   executeLandingStrategy,
+  assertCandidatePreserved,
+  guardVerdictHasDirtyTreeReason,
+  isDirtyGuardReason,
   mapDiagnosisToOutcome,
   readDirtyFiles,
   readGitRemotes,
@@ -109,6 +112,12 @@ export async function runLandingFlow(input: {
     data: landingPlanArtifact as unknown as Record<string, unknown>,
   });
 
+  // Dirty-tree safety is deterministic. Do not let a recovery model revise
+  // around this guard before the blocked state is recorded.
+  if (!guardVerdict.ok && guardVerdictHasDirtyTreeReason(guardVerdict.reasons)) {
+    return blockDirtyLanding(input, executor, modelSelection, plan, landingPlanArtifact, guardVerdict, dirtyContext);
+  }
+
   for (;;) {
     if (guardVerdict.ok) break;
     const recoveryReason = guardVerdict.reasons.join("; ");
@@ -144,6 +153,9 @@ export async function runLandingFlow(input: {
     landingPlanArtifact = { ...plan, guardVerdict };
     await writePrototypeLandingPlanArtifact(input.runDir, landingPlanArtifact);
     await appendFactoryRunEvent(input.eventsPath, { timestamp: new Date().toISOString(), type: "landing.plan_selected", data: landingPlanArtifact as unknown as Record<string, unknown> });
+    if (!guardVerdict.ok && guardVerdictHasDirtyTreeReason(guardVerdict.reasons)) {
+      return blockDirtyLanding(input, executor, modelSelection, plan, landingPlanArtifact, guardVerdict, dirtyContext);
+    }
   }
 
   const targetHeadBefore = await readGitHeadSha(input.mergeCwd);
@@ -413,6 +425,47 @@ export async function runLandingFlow(input: {
         }
       : { status: verificationResult.overallStatus, commands: verificationCommands, repairAttempted },
   });
+}
+
+async function blockDirtyLanding(
+  input: Parameters<typeof runLandingFlow>[0],
+  executor: RunFactoryControllerInput["landingExecutor"] | RunFactoryControllerInput["reviewerExecutor"],
+  modelSelection: { model: ModelSelection; source: string } | undefined,
+  plan: LandingPlan,
+  landingPlanArtifact: PrototypeLandingPlanArtifact,
+  guardVerdict: Awaited<ReturnType<typeof validateLandingPlan>>,
+  dirtyContext: ReturnType<typeof classifyDirtyFiles>,
+): Promise<LandingResult> {
+  const reason = guardVerdict.reasons.filter(isDirtyGuardReason).join("; ");
+  await assertCandidatePreserved({
+    mergeCwd: input.mergeCwd,
+    candidateBranch: input.candidateBranch,
+    candidateSha: input.candidateSha,
+  });
+  await appendFactoryRunEvent(input.eventsPath, {
+    timestamp: new Date().toISOString(),
+    type: "landing.dirty_guard_blocked",
+    data: { reason, relevant: dirtyContext.relevant, unrelated: dirtyContext.unrelated },
+  });
+  if (input.statePath) {
+    await updateFactoryRunState({
+      statePath: input.statePath,
+      patch: { status: "BLOCKED", phase: "merge-blocked" },
+    });
+  }
+  const diagnosis = await diagnoseOrFallback({
+    executor,
+    model: modelSelection?.model,
+    plan,
+    reason,
+    dirtyFiles: dirtyContext.relevant,
+    verification: input.verification,
+    limits: input.config.runtime.limits,
+  });
+  diagnosis.kind = dirtyContext.relevant.length > 0 ? "dirty-target" : "unsafe-risk";
+  diagnosis.recoveryHint = reason;
+  const pullRequest = await publishBlockedCandidate(input, reason);
+  return finishBlockedLanding(input, landingPlanArtifact, diagnosis, pullRequest?.reason ?? reason, pullRequest);
 }
 
 async function recordLandingSteps(eventsPath: string, execution: { steps?: Array<{ index: number; args: string[]; status: string; exitCode?: number; stderr?: string }> }): Promise<void> {

@@ -258,6 +258,13 @@ that Factory validates each exact Git argv and rejects unsafe effects; it does
 not rewrite a rejected action into another strategy. Recovery produces a new
 plan and revalidates it.
 
+The dirty-working-tree guard is deterministic. Overlapping user changes,
+unsafe branch switching, or any action that could discard dirty work produces
+`BLOCKED / merge-blocked` before landing executes; the candidate branch and
+commit are preserved, and acceptance cannot convert this block into
+`COMPLETED`. The recovery choice (clean and retry, revise the plan, or use the
+preserved PR path) remains model/user-owned after the block.
+
 If verification-planner output is malformed, Factory preserves the raw planner
 and repair responses, uses the deterministic evidence-backed plan, and keeps
 the run recoverable instead of ending it as a verification failure.

@@ -7,7 +7,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 
 import { buildCompletedTasks, runLandingFlow } from "../packages/core/dist/runtime/landing.js";
-import { classifyDirtyFiles, executeLandingStrategy, validateLandingPlan } from "../packages/core/dist/runtime/landing-git.js";
+import { classifyDirtyFiles, executeLandingStrategy, isDirtyGuardReason, validateLandingPlan } from "../packages/core/dist/runtime/landing-git.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -58,6 +58,13 @@ test("completed tasks normalize committed feature changes", () => {
     workspaceMode: "created",
     worktreePath: "/tmp/worktree",
   }]);
+});
+
+test("dirty guard markers are stable and deterministic", () => {
+  assert.equal(isDirtyGuardReason("Dirty target checkout overlaps landing files: index.html"), true);
+  assert.equal(isDirtyGuardReason("Cannot switch from main to feature while unrelated files are dirty: notes.md"), true);
+  assert.equal(isDirtyGuardReason("WOULD_DESTROY_DIRTY_WORK"), true);
+  assert.equal(isDirtyGuardReason("EMPTY_PLAN"), false);
 });
 
 test("landing guard ignores unrelated runtime dirties but blocks feature overlap", async () => {
@@ -611,7 +618,7 @@ test('landing guard: no non-goals means no scope note/reason', async () => {
 // Helper: a real candidate branch + commit, then run runLandingFlow with a
 // post-landing verification command that fails. Returns the landing result
 // plus the run dir, events, and a repair-executor spy.
-async function landingFixture({ postLandingExitCode, verificationFailureClassification, verificationStatus = "passed" }) {
+async function landingFixture({ postLandingExitCode, verificationFailureClassification, verificationStatus = "passed", dirtyFile = false }) {
   const root = await initRepo();
   await git(root, ["switch", "-c", "factory/task-1"]);
   await fs.writeFile(path.join(root, "index.html"), "<h1>Candidate</h1>\n", "utf8");
@@ -619,6 +626,7 @@ async function landingFixture({ postLandingExitCode, verificationFailureClassifi
   await git(root, ["commit", "-m", "candidate"]);
   const candidateSha = await git(root, ["rev-parse", "HEAD"]);
   await git(root, ["switch", "main"]);
+  if (dirtyFile) await fs.writeFile(path.join(root, dirtyFile), "<h1>User draft</h1>\n", "utf8");
 
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "factory-run-landing-"));
   const eventsPath = path.join(runDir, "events.jsonl");
@@ -690,6 +698,22 @@ async function landingFixture({ postLandingExitCode, verificationFailureClassifi
   });
   return { root, runDir, eventsPath, candidateSha, result, repairCalls };
 }
+
+test("dirty overlap blocks before landing execution and preserves candidate", async () => {
+  const { root, runDir, eventsPath, candidateSha, result } = await landingFixture({
+    postLandingExitCode: 0,
+    verificationStatus: "passed",
+    dirtyFile: "index.html",
+  });
+
+  assert.equal(result.status, "BLOCKED");
+  assert.equal(result.phase, "merge-blocked");
+  assert.equal(await git(root, ["rev-parse", "factory/task-1"]), candidateSha);
+  assert.equal(await fs.readFile(path.join(root, "index.html"), "utf8"), "<h1>User draft</h1>\n");
+  assert.match(await fs.readFile(path.join(runDir, "events.jsonl"), "utf8"), /landing\.dirty_guard_blocked/);
+  assert.match(result.recoveryHint, /Dirty target checkout overlaps landing files/);
+  void eventsPath;
+});
 
 test('post-landing verification failure on baseline-unrelated debt skips the repair agent', async () => {
   const { runDir, result, repairCalls } = await landingFixture({

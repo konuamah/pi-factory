@@ -2,6 +2,14 @@
 
 Factory uses model judgment to choose a landing strategy. Deterministic code only enforces safety invariants such as valid candidate refs and avoiding unsafe checkout mutations.
 
+The dirty-working-tree guard is deterministic: if tracked user changes overlap
+candidate files, prevent a safe branch switch, or a selected action could
+discard dirty work, Factory records `BLOCKED / merge-blocked` before running
+any landing command. It preserves the candidate branch and commit, and never
+lets acceptance turn that safety block into `COMPLETED`. Recovery remains a
+model/user choice after the block: clean the checkout and retry, revise the
+landing plan, or use the preserved PR path.
+
 When a candidate cannot be landed directly, Factory uses the configured GitHub pull request recovery path:
 
 1. Preserve the candidate branch and commit SHA.

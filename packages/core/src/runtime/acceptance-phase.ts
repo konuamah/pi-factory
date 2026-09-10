@@ -18,6 +18,17 @@ export async function runAcceptancePhase(
   },
 ): Promise<RunFactoryControllerResult> {
   const { run, input, landingResult, candidateSha } = state;
+  // Acceptance cannot override a deterministic landing safety block. The
+  // candidate remains recoverable, but this run must not become COMPLETED.
+  if (landingResult.status === "BLOCKED") {
+    return finalizeAcceptance(
+      state,
+      "BLOCKED",
+      "merge-blocked",
+      false,
+      landingResult.recoveryHint ?? "Landing was blocked by a deterministic safety guard.",
+    );
+  }
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "acceptance", "Landing evidence collected; awaiting acceptance");
 
   const evidence: AcceptanceEvidence = {

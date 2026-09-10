@@ -86,7 +86,7 @@ Factory rejects unknown dependencies, dependency cycles, unreachable stages, and
 stages that do not depend on a reviewer stage.
 
 When the model returns several questions in one decision (separated by `---` in the interview prompt output), the Pi adapter presents them one at a time — a full editor when the host exposes it, otherwise an overlay — and folds every answer into a single structured interview record, so planning still receives one `interview-decisions.json` entry per interview stage. Markdown horizontal rules are not treated as question separators unless the following block starts with a concrete `Q<n>` question. Instruction-echo output is rejected instead of being shown as user questions.
-Only the first monotonically numbered round is accepted; if the model repeats or resets the question numbering, later rounds are discarded before the decision UI is opened.
+Only the first monotonically numbered round is accepted; if the model repeats or resets the question numbering, later rounds are discarded before the decision UI is opened. The Pi interview parser applies the same rule when rendering persisted decisions, so a stale pending decision cannot replay duplicated rounds after a Factory upgrade.
 
 Interview questions may also include an optional structured multiple-choice block inside the question text:
 

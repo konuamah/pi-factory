@@ -106,6 +106,41 @@ test('parseInterviewQuestions does not treat Markdown rules as question separato
   assert.match(questions[0].prompt, /Implementation notes/);
 });
 
+test('parseInterviewQuestions truncates repeated question rounds', () => {
+  const questions = parseInterviewQuestions([
+    'Q1 - Due-date storage: Which field should be persisted?',
+    '',
+    'Options:',
+    '[A] dueDate text column',
+    '',
+    '-> [A] dueDate text column.',
+    '',
+    '---',
+    'Q2 – Valid past dates: Should users be allowed to create/edit a task with a past due date?',
+    '',
+    'Options:',
+    '[A] Yes',
+    '[B] No',
+    '',
+    '-> [A] Yes.',
+    '',
+    '---',
+    'Q2 – Valid past dates: Should users be allowed to create/edit a task with a past due date?',
+    '',
+    'Options:',
+    '[A] Yes',
+    '[B] No',
+    '',
+    '-> [A] Yes.',
+    '',
+    '---',
+    'Q3 – Board behavior: Should due dates affect ordering/search/filtering?',
+  ].join('\n'));
+
+  assert.equal(questions.length, 2);
+  assert.match(questions[1].prompt, /Valid past dates/);
+});
+
 test('interview output rejects echoed instructions and keeps concrete questions', () => {
   assert.equal(normalizeInterviewOutput([
     'Role: Interview',

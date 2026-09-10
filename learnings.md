@@ -24,3 +24,4 @@
 - Dirty-working-tree landing guards must be deterministic: block before any Git mutation, assert the candidate remains available, and never let acceptance convert `merge-blocked` into `COMPLETED`; only the recovery choice is model/user-owned.
 - Interview output must be bounded before it reaches the user: Markdown rules are not automatically question separators, and a model-echoed instruction document must be rejected rather than rendered as many fake questions.
 - Interview models may emit multiple grilling rounds in one response; normalize to the first monotonically numbered round so the same questions are not presented repeatedly.
+- Interview decision rendering must apply the same bounds as model-output normalization, because stale pending decisions can survive an upgrade and otherwise keep replaying already-rejected rounds.

@@ -18,7 +18,21 @@ export function splitInterviewQuestions(value: string): string[] {
 }
 
 export function parseInterviewQuestions(value: string): ParsedInterviewQuestion[] {
-  return splitInterviewQuestions(value).map((raw) => parseInterviewQuestion(raw));
+  const questions: ParsedInterviewQuestion[] = [];
+  let previousNumber: number | undefined;
+
+  for (const raw of splitInterviewQuestions(value)) {
+    const number = interviewQuestionNumber(raw);
+    if (number !== undefined) {
+      if (previousNumber !== undefined && number <= previousNumber) {
+        break;
+      }
+      previousNumber = number;
+    }
+    questions.push(parseInterviewQuestion(raw));
+  }
+
+  return questions;
 }
 
 export function parseInterviewQuestion(raw: string): ParsedInterviewQuestion {
@@ -82,4 +96,9 @@ function parseOptionLines(lines: string[]): DecisionOption[] {
       ...(description ? { description } : {}),
     };
   }).filter((value): value is DecisionOption => Boolean(value));
+}
+
+function interviewQuestionNumber(value: string): number | undefined {
+  const match = /^\s*Q(\d+)\s*[-:.–—]\s*\S+/i.exec(value);
+  return match ? Number(match[1]) : undefined;
 }

@@ -1,5 +1,7 @@
 # learnings.md
 
+- Never treat a completed Builder executor result, a successful verification command, or a Git merge alone as proof that implementation landed. A run is complete only when the Builder task is not blocked, verification passes, final-merge.json says `merged`, and the candidate contains a non-generated product-file diff.
+
 - Dashboard run details should expose normalized acceptance evidence, especially reviewer blocking verdict summaries and the user's final decision, without making the read-only surface appear actionable.
 
 - When repository topology is ambiguous, use deterministic discovery to gather candidate roots/scripts, then use a reasoning step to choose execution strategy.
@@ -29,3 +31,4 @@
 - Discovery's `looksLikePromptEcho` heuristic must never skip the parse → repair → fallback chain. Echo detection is telemetry only; the validator's confirmed-evidence rule is intentionally strict for successful Discovery contracts.
 - Pi SDK Discovery output may contain the prompt, repair prompt, and final JSON in one transcript; extract the final complete Discovery-shaped object before applying strict evidence validation, using a linear-time scan.
 - Pi SDK event text must be collected only from assistant messages; user and tool-result messages are transcript data, never workflow-node output.
+- Package-root selection for dependency setup must never replace the Git worktree visibility root; otherwise monorepo discovery and implementation become incomplete.

@@ -7,7 +7,8 @@ export type VerificationRequirementType =
   | "CONSTITUTION"
   | "REVIEW"
   | "ARTIFACT"
-  | "SCOPE";
+  | "SCOPE"
+  | "IMPL_DIFF";
 
 export type VerificationSource =
   | "SKILL"
@@ -88,6 +89,15 @@ export interface ScopeRequirement extends VerificationRequirementBase {
   nonGoals: string[];
 }
 
+export interface ImplDiffRequirement extends VerificationRequirementBase {
+  type: "IMPL_DIFF";
+  blocking: true;
+  source: "FACTORY";
+  scope: "RUN";
+  changedFiles: string[];
+  baseBranch: string;
+}
+
 export type VerificationRequirement =
   | CommandRequirement
   | TestRequirement
@@ -95,7 +105,8 @@ export type VerificationRequirement =
   | ConstitutionRequirement
   | ReviewRequirement
   | ArtifactRequirement
-  | ScopeRequirement;
+  | ScopeRequirement
+  | ImplDiffRequirement;
 
 export type VerificationStatus =
   | "PASS"

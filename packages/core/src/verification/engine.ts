@@ -11,6 +11,7 @@ import { constitutionProvider } from "./providers/constitution.js";
 import { createReviewProvider, type ReviewProviderOptions } from "./providers/review.js";
 import { scopeProvider } from "./providers/scope.js";
 import { testProvider } from "./providers/test.js";
+import { implDiffProvider } from "./providers/impl-diff.js";
 
 export interface VerificationEngineOptions {
   cwd: string;
@@ -38,6 +39,7 @@ export function initializeVerificationProviders(reviewOptions?: ReviewProviderOp
   registerProviderType(testProvider);
   registerProviderType(scopeProvider);
   registerProviderType(createReviewProvider(reviewOptions ?? {}));
+  registerProviderType(implDiffProvider);
 }
 
 export async function runVerificationEngine(options: VerificationEngineOptions): Promise<VerificationEngineResult> {

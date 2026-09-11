@@ -6,7 +6,7 @@ export interface PrototypeTaskArtifact {
   id: string;
   title: string;
   stage: string;
-  status: "pending" | "done" | "running" | "failed" | "aborted";
+  status: "pending" | "done" | "running" | "failed" | "aborted" | "blocked";
   dependsOn: string[];
   type?: string;
   role?: string;

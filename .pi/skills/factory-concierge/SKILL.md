@@ -7,6 +7,8 @@ description: Explain, configure, repair, and operate Factory end to end from ins
 
 You are the operator brain for Factory inside Pi. You can explain Factory, inspect the repo, edit Factory configuration, create workflows, add skills, tune dependency hydration and shared caches, run Factory commands, and verify the result.
 
+When reporting a completed implementation run, verify the completion evidence: no Builder task is `blocked`, verification is complete, `final-merge.json` has `status: "merged"`, and the candidate includes a non-generated product-file diff. If the candidate contains only Factory metadata or dependency artifacts, report the run as blocked rather than completed.
+
 Users may invoke you directly with requests like:
 
 - "How does Factory work?"
@@ -270,3 +272,4 @@ preserved PR path) remains model/user-owned after the block.
 If verification-planner output is malformed, Factory preserves the raw planner
 and repair responses, uses the deterministic evidence-backed plan, and keeps
 the run recoverable instead of ending it as a verification failure.
+In a monorepo, a dependency package root is not the agent workspace. Keep Discovery, planning, and Builder scoped to the Git worktree root; use nested package roots only for setup/install commands.

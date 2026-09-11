@@ -2,6 +2,12 @@
 
 Use this by symptom.
 
+### Agents cannot see sibling packages
+
+Factory keeps the Git worktree as the Discovery, Planner, and Builder visibility root. Dependency strategy may select a nested package as the setup/install cwd, but that package must not become the agent workspace. If an execution event reports different `executionRoot` and `dependencyRoot`, the distinction is intentional.
+
+Implementation runs use an evidence gate: a Builder contract block is a real blocked task, and completion requires verification success, a merged final-merge artifact, and at least one non-generated product-file change. A successful lint/build or dependency-only commit is not sufficient.
+
 ## Cannot Find `@factory/core`
 
 The vendored Factory copy likely lacks workspace links or dependencies. Preserve `vendor/pi-factory/node_modules` during source sync, or run install inside the vendored Factory when necessary.

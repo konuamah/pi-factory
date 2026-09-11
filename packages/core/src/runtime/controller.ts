@@ -58,6 +58,9 @@ import { buildDependencyCacheEnv } from "./dependency-cache.js";
 import { discoverDependencyEvidence } from "./dependency-evidence.js";
 import { planDependencyStrategy } from "./dependency-strategy.js";
 import { normalizeInterviewOutput } from "./interview-output.js";
+import { classifyBuilderOutcome } from "./builder-outcome.js";
+import { commitWorkspaceChanges, readGitHeadSha, type WorkspaceCommitResult } from "./git-ops.js";
+import { canCompleteRun } from "./can-complete-run.js";
 
 export interface FactoryRunProgressEvent {
   runId: string;
@@ -309,10 +312,20 @@ async function runFactoryControllerInner(
       limits: loaded.effectiveConfig.runtime.limits as Record<string, unknown>,
       allowDeterministicFallback: true,
     });
-    executionCwd = dependencyStrategy.cwd;
-    await appendFactoryRunEvent(run.eventsPath, { timestamp: new Date().toISOString(), type: "dependency_strategy.selected", data: dependencyStrategy as unknown as Record<string, unknown> });
+    // Package roots are dependency/setup locations, not agent visibility roots.
+    // Keep Discovery/Planner/Builder on the complete Git worktree so a monorepo
+    // package cannot hide implementation files in sibling packages.
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "dependency_strategy.selected",
+      data: {
+        ...dependencyStrategy,
+        executionRoot: executionCwd,
+        dependencyRoot: dependencyStrategy.cwd,
+      },
+    });
     await hydrateWorkspaceDependencies({
-      workspacePath: executionCwd,
+      workspacePath: dependencyStrategy.cwd,
       projectRoot,
       config: loaded.effectiveConfig,
       runId: run.runId,
@@ -976,6 +989,44 @@ async function runFactoryControllerInner(
   });
 
   if (!implementationRun.ok) {
+    if (implementationRun.terminalStatus === "blocked") {
+      const blockedState = await updateFactoryRunState({
+        statePath: run.statePath,
+        patch: { status: "BLOCKED", phase: "implementation-blocked" },
+      });
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "run.blocked",
+        data: {
+          reason: `implementation task ${implementationRun.failedTask.id} is blocked`,
+          taskId: implementationRun.failedTask.id,
+          failureKind: implementationRun.failureKind,
+        },
+      });
+      const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+        runId: run.runId,
+        goal: input.goal,
+        status: "BLOCKED",
+        phase: blockedState.phase,
+        approved: false,
+        planPath,
+        taskPaths,
+        discoveryExecutionPath,
+        plannerExecutionPath,
+        builderExecutionPaths,
+        integrationPath,
+        repairExecutionPaths,
+        verificationPath: path.join(run.runDir, "verification.json"),
+        verificationStatus: "incomplete",
+      });
+      return {
+        runId: run.runId, runDir: run.runDir, executionCwd, worktree,
+        statePath: run.statePath, eventsPath: run.eventsPath, phases,
+        approved: false, planPath, taskPaths, discoveryExecutionPath,
+        plannerExecutionPath, builderExecutionPaths, integrationPath,
+        repairExecutionPaths, verificationPath: path.join(run.runDir, "verification.json"), summaryPath,
+      };
+    }
     const isAborted = implementationRun.failedPhase === "implementation-aborted";
     await appendFactoryRunEvent(run.eventsPath, {
       timestamp: new Date().toISOString(),
@@ -1347,6 +1398,9 @@ async function runFactoryControllerInner(
     workflowId: loaded.effectiveConfig.resolvedWorkflowId,
     commands: loaded.effectiveConfig.commands,
     constitutionConflicts: await loadConstitutionConflicts(projectRoot),
+    tasks: implementationTasks,
+    changedFiles: implementationChangedFiles,
+    baseBranch: loaded.effectiveConfig.git.baseBranch,
   });
   initializeVerificationProviders({
     executor: input.reviewerExecutor,
@@ -1845,6 +1899,54 @@ async function runFactoryControllerInner(
     worktreeMode: worktree.mode,
   });
 
+  const completion = await canCompleteRun({
+    baseBranch: loaded.effectiveConfig.git.baseBranch,
+    candidateSha,
+    executionCwd,
+    finalMergePath,
+    anyTaskBlocked: implementationRun.taskWorkspaces.some((workspace) => workspace.status === "blocked"),
+    verificationCanComplete: contractResult.canComplete,
+    changedFiles: implementationChangedFiles,
+  });
+  if (!completion.canComplete) {
+    const blockedState = await updateFactoryRunState({
+      statePath: run.statePath,
+      patch: { status: "BLOCKED", phase: completion.phase },
+    });
+    await appendFactoryRunEvent(run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "run.blocked",
+      data: { reason: completion.reason, phase: completion.phase },
+    });
+    const summaryPath = await writePrototypeSummaryArtifact(run.runDir, {
+      runId: run.runId,
+      goal: input.goal,
+      status: "BLOCKED",
+      phase: blockedState.phase,
+      approved: false,
+      candidateSha,
+      planPath,
+      taskPaths,
+      discoveryExecutionPath,
+      plannerExecutionPath,
+      builderExecutionPaths,
+      integrationPath,
+      finalMergePath,
+      repairExecutionPaths,
+      reviewerExecutionPath,
+      verificationPath,
+      verificationStatus: verification.overallStatus,
+    });
+    return {
+      runId: run.runId, runDir: run.runDir, executionCwd, worktree,
+      statePath: run.statePath, eventsPath: run.eventsPath, phases,
+      approved: false, planPath, taskPaths, discoveryExecutionPath,
+      plannerExecutionPath, builderExecutionPaths, integrationPath,
+      finalMergePath, candidateSha, repairExecutionPaths, reviewerExecutionPath,
+      verificationPath, summaryPath,
+    };
+  }
+
   await wait(delayMs);
 
   const completedState = await updateFactoryRunState({
@@ -1911,8 +2013,10 @@ export interface TaskWorkspaceSelection {
   path: string;
   mode: "existing" | "created" | "in-place";
   branch?: string;
+  commitSha?: string;
   shouldIntegrate: boolean;
   changedFiles?: string[];
+  status?: "pending" | "running" | "done" | "failed" | "aborted" | "blocked";
 }
 
 async function runImplementationTasks(input: {
@@ -1945,7 +2049,7 @@ async function runImplementationTasks(input: {
   builderExecutionPaths: string[];
 }): Promise<
   | { ok: true; taskWorkspaces: TaskWorkspaceSelection[] }
-  | { ok: false; failedTask: PlannerTask; failedPhase: string; taskWorkspaces: TaskWorkspaceSelection[] }
+  | { ok: false; failedTask: PlannerTask; failedPhase: string; taskWorkspaces: TaskWorkspaceSelection[]; terminalStatus?: "aborted" | "failed" | "blocked"; failureKind?: string }
 > {
   if (input.tasks.length === 0) {
     return { ok: true, taskWorkspaces: [] };
@@ -1981,7 +2085,7 @@ async function runImplementationTasks(input: {
           completedTaskIds: Array.from(completed),
         },
       });
-      return { ok: false, failedTask: blockedTask, failedPhase: "implementation-blocked", taskWorkspaces };
+      return { ok: false, failedTask: blockedTask, failedPhase: "implementation-blocked", terminalStatus: "blocked", failureKind: "dependency-blocked", taskWorkspaces };
     }
 
     const batch = runnable.slice(0, parallelism);
@@ -2033,8 +2137,8 @@ async function runImplementationTasks(input: {
         completed.add(result.task.id);
         continue;
       }
-      const failedPhase = result.terminalStatus === "aborted" ? "implementation-aborted" : "implementation-failed";
-      return { ok: false, failedTask: result.task, failedPhase, taskWorkspaces };
+      const failedPhase = result.terminalStatus === "aborted" ? "implementation-aborted" : result.terminalStatus === "blocked" ? "implementation-blocked" : "implementation-failed";
+      return { ok: false, failedTask: result.task, failedPhase, taskWorkspaces, terminalStatus: result.terminalStatus, failureKind: result.failureKind };
     }
   }
 
@@ -2069,7 +2173,7 @@ async function runImplementationTask(input: {
   builderExecutionPaths: string[];
 }): Promise<
   | { ok: true; task: PlannerTask; workspace: TaskWorkspaceSelection }
-  | { ok: false; task: PlannerTask; workspace: TaskWorkspaceSelection; terminalStatus?: string }
+  | { ok: false; task: PlannerTask; workspace: TaskWorkspaceSelection; terminalStatus?: "aborted" | "failed" | "blocked"; failureKind?: string }
 > {
   const workspace = await resolveTaskWorkspace({
     cwd: input.executionCwd,
@@ -2078,6 +2182,7 @@ async function runImplementationTask(input: {
     worktreeLocation: input.worktreeLocation,
     allowTaskWorktrees: input.allowTaskWorktrees,
   });
+  workspace.status = "running";
 
   await updatePrototypeTaskArtifact({
     runDir: input.runDir,
@@ -2348,7 +2453,7 @@ async function runImplementationTask(input: {
         });
         input.builderExecutionPaths.push(executionPath);
 
-        let committedChange: WorkspaceCommitResult = { committed: false, changedFiles: [] };
+        let committedChange: WorkspaceCommitResult = { committed: false, changedFiles: [], allChangedFiles: [] };
         if (result.status === "completed") {
           committedChange = await commitWorkspaceChanges(workspace.path, input.task);
         }
@@ -2396,6 +2501,33 @@ async function runImplementationTask(input: {
       const builderExecutionPath = builderAttempt.executionPath;
       const committedChange = builderAttempt.committedChange;
       workspace.changedFiles = committedChange.changedFiles;
+      workspace.commitSha = committedChange.commitSha;
+
+      const outcome = classifyBuilderOutcome(builderResult, committedChange);
+      if (outcome.kind === "contract-blocked") {
+        workspace.status = "blocked";
+        await updatePrototypeTaskArtifact({
+          runDir: input.runDir,
+          taskId: input.task.id,
+          patch: { status: "blocked" },
+        });
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.contract_blocked",
+          data: { taskId: input.task.id, reason: outcome.reason, workspacePath: workspace.path },
+        });
+        return { ok: false, task: input.task, workspace, terminalStatus: "blocked", failureKind: outcome.kind };
+      }
+      if (outcome.kind === "contract-noop") {
+        workspace.status = "done";
+        await updatePrototypeTaskArtifact({ runDir: input.runDir, taskId: input.task.id, patch: { status: "done" } });
+        await appendFactoryRunEvent(input.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "task.contract_noop",
+          data: { taskId: input.task.id, reason: outcome.reason, workspacePath: workspace.path },
+        });
+        return { ok: true, task: input.task, workspace };
+      }
 
       if (builderResult.status !== "completed") {
         if (builderResult.status === "aborted") {
@@ -2441,6 +2573,7 @@ async function runImplementationTask(input: {
             if (retriedResult.status === "completed") {
               const committedRetry = await commitWorkspaceChanges(workspace.path, input.task);
               workspace.changedFiles = committedRetry.changedFiles;
+              workspace.commitSha = committedRetry.commitSha;
               await updatePrototypeTaskArtifact({ runDir: input.runDir, taskId: input.task.id, patch: { status: "done" } });
               await appendFactoryRunEvent(input.eventsPath, {
                 timestamp: new Date().toISOString(),
@@ -2482,7 +2615,8 @@ async function runImplementationTask(input: {
             workspaceBranch: workspace.branch,
           },
         });
-        return { ok: false, task: input.task, workspace, terminalStatus };
+        workspace.status = terminalStatus;
+        return { ok: false, task: input.task, workspace, terminalStatus, failureKind: outcome.kind };
       }
       if (!committedChange.committed) {
         await updatePrototypeTaskArtifact({
@@ -2515,13 +2649,15 @@ async function runImplementationTask(input: {
             workspaceBranch: workspace.branch,
           },
         });
-        return { ok: false, task: input.task, workspace };
+        workspace.status = "failed";
+        return { ok: false, task: input.task, workspace, terminalStatus: "failed", failureKind: outcome.kind };
       }
     } else {
       await wait(input.delayMs);
     }
   }
 
+  workspace.status = "done";
   await updatePrototypeTaskArtifact({
     runDir: input.runDir,
     taskId: input.task.id,
@@ -2833,52 +2969,6 @@ async function resolveTaskWorkspace(input: {
     branch: workspace.branch,
     shouldIntegrate: workspace.path !== input.cwd && Boolean(workspace.branch),
   };
-}
-
-interface WorkspaceCommitResult {
-  committed: boolean;
-  changedFiles: string[];
-}
-
-async function commitWorkspaceChanges(cwd: string, task: PlannerTask): Promise<WorkspaceCommitResult> {
-  try {
-    const changedFiles = await readChangedFiles(cwd);
-    if (changedFiles.length === 0) {
-      return { committed: false, changedFiles };
-    }
-    await execFileAsync("git", ["add", "-A"], { cwd, windowsHide: true });
-    await execFileAsync("git", ["commit", "-m", `Factory task ${task.id}: ${task.title}`], {
-      cwd,
-      windowsHide: true,
-    });
-    return { committed: true, changedFiles };
-  } catch {
-    return { committed: false, changedFiles: [] };
-  }
-}
-
-async function readChangedFiles(cwd: string): Promise<string[]> {
-  try {
-    const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd, windowsHide: true });
-    return stdout
-      .split(/\r?\n/)
-      .filter((line) => line.trim())
-      .map((line) => line.slice(3).trim())
-      .filter(Boolean)
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-async function readGitHeadSha(cwd: string): Promise<string | undefined> {
-  try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, windowsHide: true });
-    const value = stdout.trim();
-    return value || undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 async function runFinalMergePhase(input: {

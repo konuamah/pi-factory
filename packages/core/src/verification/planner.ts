@@ -29,6 +29,9 @@ export interface VerificationContractPlannerInput {
   changedFiles?: string[];
   /** True when scope.verification is "block": a violation fails verification. */
   scopeCheckBlocking?: boolean;
+  /** Implementation task graph and resulting changed files for the run gate. */
+  tasks?: Array<{ role?: string; type?: string }>;
+  baseBranch?: string;
 }
 
 export function gatherVerificationRequirements(input: VerificationContractPlannerInput): VerificationContractPlan {
@@ -202,6 +205,20 @@ export function gatherVerificationRequirements(input: VerificationContractPlanne
       taskId: input.taskId,
       affectedFiles: input.changedFiles,
       nonGoals,
+    });
+  }
+
+  if ((input.tasks ?? []).some((task) => task.role === "builder" || task.role === "repair" || task.type === "command")) {
+    requirements.push({
+      id: nextId(),
+      type: "IMPL_DIFF",
+      blocking: true,
+      description: "Implementation must produce non-generated product changes",
+      source: "FACTORY",
+      scope: "RUN",
+      taskId: input.taskId,
+      changedFiles: input.changedFiles ?? [],
+      baseBranch: input.baseBranch ?? "main",
     });
   }
 

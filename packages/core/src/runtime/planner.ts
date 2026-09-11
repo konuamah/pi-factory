@@ -17,6 +17,7 @@ export interface PlannerTask {
     constitutionAreas?: number[];
     requiredCapabilities?: string[];
     includeDependencyArtifacts?: boolean;
+    blockReason?: string;
   };
   requiredCapabilities?: Capability[];
   allowedTools?: string[];

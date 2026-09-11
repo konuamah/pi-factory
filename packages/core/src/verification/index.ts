@@ -7,3 +7,4 @@ export * from "./providers/constitution.js";
 export * from "./providers/review.js";
 export * from "./providers/scope.js";
 export * from "./providers/test.js";
+export * from "./providers/impl-diff.js";

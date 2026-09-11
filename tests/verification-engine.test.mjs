@@ -89,6 +89,34 @@ test('runVerificationEngine fails when artifact missing', async () => {
   });
 });
 
+test('IMPL_DIFF blocks dependency-only implementation output', async () => {
+  initializeVerificationProviders();
+  const plan = gatherVerificationRequirements({
+    goal: 'add status bar',
+    config: {},
+    tasks: [{ role: 'builder' }],
+    changedFiles: ['.factory/dependencies/cache.json'],
+    baseBranch: 'main',
+  });
+  const result = await runVerificationEngine({ cwd: process.cwd(), plan });
+  assert.equal(result.overallStatus, 'FAIL');
+  assert.equal(result.canComplete, false);
+});
+
+test('IMPL_DIFF passes for a product-file change', async () => {
+  initializeVerificationProviders();
+  const plan = gatherVerificationRequirements({
+    goal: 'add status bar',
+    config: {},
+    tasks: [{ role: 'builder' }],
+    changedFiles: ['frontend/src/App.jsx'],
+    baseBranch: 'main',
+  });
+  const result = await runVerificationEngine({ cwd: process.cwd(), plan });
+  assert.equal(result.overallStatus, 'PASS');
+  assert.equal(result.canComplete, true);
+});
+
 test('canComplete requires all blocking to pass', () => {
   assert.equal(
     canComplete([

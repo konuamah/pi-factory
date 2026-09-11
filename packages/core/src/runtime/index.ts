@@ -28,6 +28,7 @@ export * from "./git-command-effects.js";
 export * from "./git-execution.js";
 export * from "./review-surface.js";
 export * from "./dependencies.js";
+export * from "./can-complete-run.js";
 export * from "./dependency-cache.js";
 export * from "./dependency-remediation.js";
 export * from "./dependency-evidence.js";

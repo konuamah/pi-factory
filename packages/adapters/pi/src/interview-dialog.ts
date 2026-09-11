@@ -422,7 +422,6 @@ function renderInline(line: string): string {
       .replace(/__([^_]+)__/g, "$1")
       .replace(/\*([^*]+)\*/g, "$1")
       .replace(/_([^_]+)_/g, "$1");
-  });
 }
 
 function buildInterviewQuestionDecisions(questions: ParsedInterviewQuestion[], answers: InterviewAnswer[]): InterviewQuestionDecision[] {

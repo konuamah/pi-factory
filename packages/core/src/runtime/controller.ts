@@ -596,6 +596,20 @@ async function runFactoryControllerInner(
       },
     });
     discoveryExecutionPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, discoveryResult);
+    const promptEchoDetected = looksLikePromptEcho(
+      discoveryResult.outputText,
+      buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills), discoveryEvidence),
+    );
+    if (promptEchoDetected) {
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "discovery.prompt_echo_detected",
+        data: {
+          stage: "discovery-initial",
+          outputPreview: discoveryResult.outputText.slice(0, 400),
+        },
+      });
+    }
     let discoveryValidation = await validateDiscoveryOutput(discoveryResult.outputText, executionCwd, discoveryEvidence);
     // LLM repair pass: only for model-compliance failures (no output / invalid
     // JSON). Semantic failures (missing files, unobserved files, no evidence,
@@ -605,8 +619,16 @@ async function runFactoryControllerInner(
         || discoveryValidation.reason === "Discovery returned invalid structured JSON");
     let repairArtifactPath: string | undefined;
     if (repairEligible) {
+      // Echo detection is telemetry only. It must never skip repair: the
+      // response may contain a recoverable contract after the echoed prompt.
       const repairPrompt = [
         "Your previous response was not valid structured JSON, so it was rejected.",
+        ...(promptEchoDetected
+          ? [
+              "Your previous response began by echoing the Discovery instructions. Do not re-state them.",
+              "Respond with the DiscoveryContract JSON only — no prose, no markdown fences, no preamble.",
+            ]
+          : []),
         "Convert it into the required DiscoveryContract JSON and respond with JSON only — no prose, no markdown fences.",
         'Shape: {"status":"complete","files":["path/to/file"],"evidence":[{"status":"confirmed","file":"path","finding":"..."}],"unknowns":[],"summary":"..."}',
         "Every file must exist in the evidence packet. Status must be complete or failed.",
@@ -614,24 +636,17 @@ async function runFactoryControllerInner(
         "Your previous response:",
         discoveryResult.outputText.slice(0, 6000),
       ].join("\n\n");
-      // Early-out: if the first response was a prompt echo, skip the wasted
-      // repair round-trip and go straight to the deterministic fallback.
-      const echoed = looksLikePromptEcho(discoveryResult.outputText, buildDiscoveryPrompt(input.goal, discoveryGuidance.text, renderSkillBundleForPrompt(discoverySkills), discoveryEvidence));
-      if (!echoed) {
-        const repair = await discoveryExecutor.execute({
-          executionId: `${run.runId}-discovery-repair`,
-          cwd: executionCwd,
-          prompt: repairPrompt,
-          model: discoveryModel.model,
-          tools: [],
-          limits: loaded.effectiveConfig.runtime.limits,
-          metadata: { role: "discovery", stage: "discovery-json-repair", runId: run.runId },
-        });
-        repairArtifactPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, { ...repair, executionId: `${run.runId}-discovery-repair` }, "repair");
-        discoveryValidation = await validateDiscoveryOutput(repair.outputText, executionCwd, discoveryEvidence);
-      } else {
-        discoveryValidation = { ok: false, reason: "Discovery returned invalid structured JSON (prompt echo detected)" };
-      }
+      const repair = await discoveryExecutor.execute({
+        executionId: `${run.runId}-discovery-repair`,
+        cwd: executionCwd,
+        prompt: repairPrompt,
+        model: discoveryModel.model,
+        tools: [],
+        limits: loaded.effectiveConfig.runtime.limits,
+        metadata: { role: "discovery", stage: "discovery-json-repair", runId: run.runId },
+      });
+      repairArtifactPath = await writePrototypeDiscoveryExecutionArtifact(run.runDir, { ...repair, executionId: `${run.runId}-discovery-repair` }, "repair");
+      discoveryValidation = await validateDiscoveryOutput(repair.outputText, executionCwd, discoveryEvidence);
     }
     // Deterministic fallback: after attempt + repair fail, build a safe contract
     // from the already-collected evidence packet instead of failing the run.
@@ -648,6 +663,17 @@ async function runFactoryControllerInner(
           type: "discovery.used_fallback",
           data: {
             reason: fallbackReason,
+            fallbackFiles: fallbackContract.files?.length ?? 0,
+            fallbackEvidence: fallbackContract.evidence?.length ?? 0,
+          },
+        });
+      } else {
+        await appendFactoryRunEvent(run.eventsPath, {
+          timestamp: new Date().toISOString(),
+          type: "discovery.fallback_rejected",
+          data: {
+            reason: fallbackReason,
+            fallbackRejectReason: fallbackValidation.reason,
             fallbackFiles: fallbackContract.files?.length ?? 0,
             fallbackEvidence: fallbackContract.evidence?.length ?? 0,
           },

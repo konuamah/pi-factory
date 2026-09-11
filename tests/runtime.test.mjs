@@ -304,6 +304,148 @@ test('invalid discovery output fails loudly before planning', async () => {
   });
 });
 
+test('discovery prompt echo followed by valid JSON succeeds without falling back', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        const echoedPreamble = input.prompt.split(/\n{2,}/)[0];
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: [
+            echoedPreamble,
+            '```json',
+            JSON.stringify({
+              status: 'complete',
+              files: ['src/index.ts'],
+              evidence: [{ status: 'confirmed', file: 'src/index.ts', finding: 'entry point' }],
+              unknowns: [],
+            }, null, 2),
+            '```',
+          ].join('\n'),
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      discoveryExecutor,
+      plannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    assert.equal(calls.filter((call) => call.executionId.includes('-repair')).length, 0);
+    assert.ok(calls.some((call) => call.label === 'planner'));
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const eventText = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventText, /discovery\.prompt_echo_detected/);
+  });
+});
+
+test('discovery prompt echo followed by malformed JSON still attempts repair', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        const echoedPreamble = input.prompt.split(/\n{2,}/)[0];
+        return {
+          executionId: input.executionId,
+          status: 'completed',
+          outputText: input.executionId.includes('-repair') ? 'Still no JSON.' : `${echoedPreamble}\n{ not valid`,
+          events: [],
+        };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'Add a demo feature',
+        discoveryExecutor,
+        plannerExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Discovery failed: Discovery returned invalid structured JSON/,
+    );
+    assert.equal(calls.filter((call) => call.executionId.includes('-repair')).length, 1);
+  });
+});
+
+test('discovery repair failure falls through to the deterministic fallback', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    await fs.writeFile(path.join(root, 'src/index.ts'), 'export const demo = "demo feature entry";\n');
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        return { executionId: input.executionId, status: 'completed', outputText: 'no json anywhere', events: [] };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add demo feature',
+      discoveryExecutor,
+      plannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const eventText = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventText, /discovery\.used_fallback/);
+    assert.doesNotMatch(eventText, /discovery\.invalid_output/);
+  });
+});
+
+test('discovery snippet-less fallback is rejected explicitly instead of silently passing', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        return { executionId: input.executionId, status: 'completed', outputText: 'no json anywhere', events: [] };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await assert.rejects(
+      () => runRuntimeHarness({
+        cwd: root,
+        goal: 'xyzzy plugh',
+        discoveryExecutor,
+        plannerExecutor,
+        requestPlanApproval: async () => ({ decision: 'approve' }),
+        requestApproval: async () => true,
+      }),
+      /Discovery failed: Discovery returned invalid structured JSON/,
+    );
+
+    const runs = (await fs.readdir(path.join(root, '.factory', 'runs'))).sort();
+    const runDir = path.join(root, '.factory', 'runs', runs.at(-1));
+    const eventText = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(eventText, /discovery\.fallback_rejected/);
+    assert.doesNotMatch(eventText, /discovery\.used_fallback/);
+    assert.match(eventText, /discovery\.invalid_output/);
+  });
+});
+
 test('workflow plan skills are applied to built-in planner prompt with full skill body', async () => {
   await withTempProject(async (root) => {
     await writeProjectSkill(root, 'grilling', 'Interview the user in rounds before planning.');

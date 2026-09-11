@@ -146,7 +146,7 @@ When editing `factory.yaml`, always use the workflow registry shape from `docs/f
 
 When the user wants to add an interview stage, inspect the bundled `skills/grilling` skill first. If the repo does not already include it, add the bundled skill from Factory instead of telling the user to install an external package. Bind `skills.require: [grilling]` directly.
 
-Interview placement follows the workflow DAG: empty/discovery dependencies run before planning, while an interview depending on `verify` or `verification` runs after successful verification and before review. Post-verification answers go to reviewer/approval context only. Factory validates dependency names, cycles, reachability, and reviewer-backed approval gates when loading the workflow.
+Interview placement follows the workflow DAG: `dependsOn: []` runs before discovery, and any other interview runs at the first boundary where all named dependencies are complete. Completed interviews are recorded in `interview-decisions.json` and are skipped on resume. Factory validates dependency names, cycles, reachability, and reviewer-backed approval gates when loading the workflow.
 
 Dependency hydration is a first-class setup responsibility. Explain that an LLM may select the setup strategy from evidence, while Factory runs it with shared cache env vars, hard limits, and executable preflight; each worktree's installed dependency state stays isolated. Do not make the guidance Node-only: support Node, Python, Rust, Go, Java-style, and other projects through repository evidence. Missing dependencies are recoverable blocked states.
 

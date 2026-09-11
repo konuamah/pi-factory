@@ -57,7 +57,9 @@ Use `agent` for model work:
 - reviewer: risk review
 - repair: fix verification failures after command/contract checks run
 
-Use `interview` before planning when Factory must ask the user questions first.
+Use `type: interview` wherever the workflow needs a human decision. Placement is
+determined by `dependsOn`; an empty dependency list runs before discovery, while
+dependencies on later nodes run at the matching completed boundary.
 
 - bind the bundled interview skill with `skills.require`, such as `grilling`
 - Factory pauses in a decision gate when the interview asks questions
@@ -70,16 +72,17 @@ Use `interview` before planning when Factory must ask the user questions first.
 - final acceptance is a **post-landing gate**: the lean flow is `plan approval → build → verify → review → landing → acceptance`.
 - Factory bundles the interview skill as `skills/grilling`; bind `skills.require: [grilling]` directly
 
-Interview stages can also run at arbitrary DAG points. An interview with `dependsOn: [verify]` or
-`dependsOn: [verification]` runs after verification passes and before review; its answer is sent to
-review and approval only, never back into planning or building. Execution order comes from
+Interview stages run at arbitrary DAG points. An interview runs once its
+`dependsOn` stages are complete, and its answer is passed to later prompts. A
+record in `interview-decisions.json` is the completion record, so a completed
+interview is not asked again when the run resumes. Execution order comes from
 `dependsOn`, not the interview's `role`.
 
 ```yaml
-- name: post_verify_interview
+- name: product_decisions
   type: interview
   role: planner
-  dependsOn: [verify]
+  dependsOn: [verification]
 ```
 
 Factory rejects unknown dependencies, dependency cycles, unreachable stages, and approval/acceptance

@@ -25,3 +25,4 @@
 - Interview output must be bounded before it reaches the user: Markdown rules are not automatically question separators, and a model-echoed instruction document must be rejected rather than rendered as many fake questions.
 - Interview models may emit multiple grilling rounds in one response; normalize to the first monotonically numbered round so the same questions are not presented repeatedly.
 - Interview decision rendering must apply the same bounds as model-output normalization, because stale pending decisions can survive an upgrade and otherwise keep replaying already-rejected rounds.
+- Active interview scheduling must use the live controller's dependency edges and `interview-decisions.json` completion ledger; legacy pre/post interview buckets are not execution semantics.

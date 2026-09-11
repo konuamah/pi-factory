@@ -76,6 +76,7 @@ export interface InterviewDecisionRecord {
   stage: string;
   role?: string;
   executionPhase?: "pre-planning" | "post-verification";
+  dependsOn?: string[];
   question: string;
   optionId: string;
   answer?: string;
@@ -376,8 +377,6 @@ async function runFactoryControllerInner(
     };
   }
 
-  await movePhase(run.statePath, run.eventsPath, run.runId, input, "discovery", "Discovering relevant system context");
-
   const useConstitution = loaded.effectiveConfig.constitution.enabled;
   const discoveryGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "planner", goal: input.goal, useConstitution });
   const plannerGuidance = await selectConstitutionContext({ cwd: projectRoot, role: "planner", goal: input.goal, useConstitution });
@@ -390,7 +389,6 @@ async function runFactoryControllerInner(
   const workflowStages = loaded.effectiveConfig.resolvedWorkflow?.stages ?? [];
   const discoveryStage = findBuiltInWorkflowStage(workflowStages, ["discover", "discovery"]);
   const plannerStage = findBuiltInWorkflowStage(workflowStages, ["plan", "planning"]);
-  const interviewStages = workflowStages.filter((stage) => stage.type === "interview");
 
   let discoverySkills = resolveFactorySkills({
     goal: input.goal,
@@ -519,6 +517,35 @@ async function runFactoryControllerInner(
       reasons: runTaskType.reasons,
     },
   });
+
+  let interviewContext = "";
+  const runInterviewBoundary = async (boundary: string, completed: string[], discoveryReport?: string): Promise<void> => {
+    const result = await runReadyInterviewStages({
+      stages: workflowStages,
+      completed: new Set(completed),
+      run,
+      input,
+      executionCwd,
+      goal: input.goal,
+      config: loaded.effectiveConfig,
+      plannerGuidanceText: plannerGuidance.text,
+      plannerSkills,
+      runTaskType,
+      discoveryOutputText: discoveryReport,
+      interviewContext,
+    });
+    interviewContext = result.updatedContext;
+    if (result.ranStageNames.length > 0) {
+      await appendFactoryRunEvent(run.eventsPath, {
+        timestamp: new Date().toISOString(),
+        type: "interview.boundary_completed",
+        data: { boundary, stageNames: result.ranStageNames },
+      });
+    }
+  };
+
+  await runInterviewBoundary("kickoff", []);
+  await movePhase(run.statePath, run.eventsPath, run.runId, input, "discovery", "Discovering relevant system context");
 
   let discoveryExecutionPath: string | undefined;
   let discoveryOutputText: string | undefined;
@@ -666,18 +693,7 @@ async function runFactoryControllerInner(
     });
   }
 
-  const interviewContext = await runInterviewStages({
-    stages: interviewStages,
-    run,
-    input,
-    executionCwd,
-    goal: input.goal,
-    config: loaded.effectiveConfig,
-    plannerGuidanceText: plannerGuidance.text,
-    plannerSkills,
-    runTaskType,
-    discoveryOutputText,
-  });
+  await runInterviewBoundary("post-discovery", ["discover", "discovery"], discoveryOutputText);
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "planning", "Building plan");
   if (input.plannerExecutor) {
@@ -794,6 +810,8 @@ async function runFactoryControllerInner(
     },
   });
   await wait(delayMs);
+
+  await runInterviewBoundary("post-planning", ["discover", "discovery", "plan", "planning"], discoveryOutputText);
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "plan-approval", "Plan ready for human approval");
   await appendFactoryRunEvent(run.eventsPath, {
@@ -1059,6 +1077,8 @@ async function runFactoryControllerInner(
   }
 
   await wait(delayMs);
+
+  await runInterviewBoundary("post-implementation", ["discover", "discovery", "plan", "planning", "plan-approval", "build", "implementation", "integration"]);
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "verification", "Planning verification strategy");
   try {
@@ -1613,14 +1633,19 @@ async function runFactoryControllerInner(
     };
   }
 
+  await runInterviewBoundary("post-verification", ["discover", "discovery", "plan", "planning", "plan-approval", "build", "implementation", "integration", "verify", "verification", "verified"]);
   await wait(delayMs);
 
   await movePhase(run.statePath, run.eventsPath, run.runId, input, "review", "Reviewing verified candidate");
   if (input.reviewerExecutor) {
+    const reviewerInterviewSnapshot = interviewContext;
     const reviewerResult = await input.reviewerExecutor.execute({
       executionId: `${run.runId}-reviewer`,
       cwd: executionCwd,
-      prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills), buildPhaseHandoff({ goal: input.goal, changedFiles: implementationChangedFiles, builderNotes: await readBuilderNotes(builderExecutionPaths) })),
+      prompt: buildReviewerPrompt(input.goal, verification, reviewerGuidance.text, renderSkillBundleForPrompt(reviewerSkills), [
+        buildPhaseHandoff({ goal: input.goal, changedFiles: implementationChangedFiles, builderNotes: await readBuilderNotes(builderExecutionPaths) }),
+        reviewerInterviewSnapshot ? `Human interview decisions:\n${reviewerInterviewSnapshot}` : undefined,
+      ].filter(Boolean).join("\n\n")),
       model: loaded.effectiveConfig.models.reviewer,
       tools: ["read", "grep", "find", "ls"],
       limits: loaded.effectiveConfig.runtime.limits,
@@ -1695,6 +1720,7 @@ async function runFactoryControllerInner(
     }
   }
 
+  await runInterviewBoundary("post-review", ["discover", "discovery", "plan", "planning", "plan-approval", "build", "implementation", "integration", "verify", "verification", "verified", "review"]);
   await wait(delayMs);
 
   candidateSha = await readGitHeadSha(executionCwd);
@@ -3848,8 +3874,28 @@ async function failBuiltInSkillPolicy(input: {
   });
 }
 
-async function runInterviewStages(input: {
+async function readInterviewDecisionRecords(runDir: string): Promise<InterviewDecisionRecord[]> {
+  try {
+    const raw = await fs.readFile(path.join(runDir, "interview-decisions.json"), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is InterviewDecisionRecord =>
+        typeof entry === "object" && entry !== null && typeof (entry as InterviewDecisionRecord).stage === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function appendInterviewDecisionRecord(runDir: string, record: InterviewDecisionRecord): Promise<void> {
+  const records = await readInterviewDecisionRecords(runDir);
+  records.push(record);
+  await fs.writeFile(path.join(runDir, "interview-decisions.json"), JSON.stringify(records, null, 2), "utf8");
+}
+
+async function runReadyInterviewStages(input: {
   stages: WorkflowStage[];
+  completed: ReadonlySet<string>;
   run: { runId: string; runDir: string; statePath: string; eventsPath: string };
   input: RunFactoryControllerInput;
   executionCwd: string;
@@ -3859,112 +3905,82 @@ async function runInterviewStages(input: {
   plannerSkills: SkillBundleSelection;
   runTaskType: TaskTypeSelection;
   discoveryOutputText?: string;
-}): Promise<string | undefined> {
+  interviewContext: string;
+}): Promise<{ updatedContext: string; ranStageNames: string[] }> {
+  const answered = new Set((await readInterviewDecisionRecords(input.run.runDir)).map((record) => record.stage));
   const answers: string[] = [];
+  const ranStageNames: string[] = [];
   for (const stage of input.stages) {
-    const role = stage.role ?? "planner";
-    const executor = executorForRole(input.input, role);
-    if (!executor) {
-      throw new Error(`Interview stage '${stage.name}' requires a ${role} executor, but none is configured.`);
-    }
-    const skillPolicy = applyWorkflowSkillPolicy(input.plannerSkills, stage.skills);
-    if (!skillPolicy.ok) {
-      await failBuiltInSkillPolicy({
-        run: input.run,
-        input: input.input,
-        phase: "interview-failed",
-        stage: stage.name,
-        missingRequired: skillPolicy.missingRequired,
-      });
-      throw new Error(`Interview failed: Missing required workflow skill(s): ${skillPolicy.missingRequired.join(", ")}`);
-    }
-    await movePhase(input.run.statePath, input.run.eventsPath, input.run.runId, input.input, "interview", `Interviewing before planning: ${stage.name}`);
-    const model = resolveModelForRole({
-      role,
-      taskType: input.runTaskType.id,
-      config: input.config,
-      nodeModel: stage.model,
-      runModelOverride: input.input.modelOverrides?.[role],
-    });
-    await appendModelLedgerEntry(input.run.runDir, {
-      operationId: `${input.run.runId}-${role}-${stage.name}`,
-      nodeId: stage.name,
-      role,
-      taskType: input.runTaskType.id,
-      taskTypeSource: input.runTaskType.source,
-      taskTypeConfidence: input.runTaskType.confidence,
-      requestedModel: model.model.model,
-      resolvedModel: model.model.model,
-      provider: model.model.provider,
-      modelSource: model.source,
-    });
-    const result = await executor.execute({
-      executionId: `${input.run.runId}-${role}-${slugifyGoal(stage.name)}`,
-      cwd: input.executionCwd,
-      prompt: buildInterviewPrompt({
-        goal: input.goal,
-        stage,
-        guidanceText: input.plannerGuidanceText,
-        skillBundleText: renderSkillBundleForPrompt(skillPolicy.bundle),
-        discoveryReport: input.discoveryOutputText,
-      }),
-      model: model.model,
-      tools: ["read", "grep", "find", "ls"],
-      metadata: {
-        role,
-        runId: input.run.runId,
-        taskType: input.runTaskType.id,
-        stage: stage.name,
-      },
-    });
-    const artifactPath = path.join(input.run.runDir, `${slugifyGoal(stage.name)}-interview-execution.json`);
-    await fs.writeFile(artifactPath, JSON.stringify(result, null, 2), "utf8");
-    await appendFactoryRunEvent(input.run.eventsPath, {
-      timestamp: new Date().toISOString(),
-      type: "interview.executor_completed",
-      data: {
-        stage: stage.name,
-        role,
-        interviewExecutionPath: artifactPath,
-        interviewStatus: result.status,
-      },
-    });
-    const output = result.outputText.trim();
-    // The sentinel is valid only as the complete response. A model may mention
-    // it in a recommendation or footer after asking real questions.
-    if (!output || output === "INTERVIEW_COMPLETE") {
-      continue;
-    }
-    const decision = await requestHumanDecision({
-      controllerInput: input.input,
-      runDir: input.run.runDir,
-      statePath: input.run.statePath,
-      eventsPath: input.run.eventsPath,
-      runId: input.run.runId,
-      request: {
-        id: `${input.run.runId}-${slugifyGoal(stage.name)}-interview`,
-        title: `Interview: ${stage.name}`,
-        question: output,
-        context: "Answer the interview questions. Factory will include your answer in the planner prompt before producing the implementation plan.",
-        options: [
-          {
-            id: "answered",
-            label: "Use my answer",
-            description: "Continue to planning with the feedback/answer provided.",
-          },
-        ],
-        source: "INTERVIEW",
-        reason: "USER_PREFERENCE",
-      },
-    });
-    answers.push([
-      `Stage: ${stage.name}`,
-      `Interview prompt/questions:\n${output}`,
-      `Selected option: ${decision.optionId}`,
-      decision.feedback ? `User answer:\n${decision.feedback}` : undefined,
-    ].filter(Boolean).join("\n"));
+    if (stage.type !== "interview" || answered.has(stage.name)) continue;
+    if (!(stage.dependsOn ?? []).every((dependency) => input.completed.has(dependency) || answered.has(dependency))) continue;
+    const result = await runOneInterviewStage({ ...input, stage });
+    await appendInterviewDecisionRecord(input.run.runDir, result.record);
+    answered.add(stage.name);
+    answers.push(result.context);
+    ranStageNames.push(stage.name);
   }
-  return answers.length > 0 ? answers.join("\n\n") : undefined;
+  const newContext = answers.join("\n\n");
+  return {
+    updatedContext: newContext ? input.interviewContext ? `${input.interviewContext}\n\n${newContext}` : newContext : input.interviewContext,
+    ranStageNames,
+  };
+}
+
+async function runOneInterviewStage(input: {
+  stage: WorkflowStage;
+  run: { runId: string; runDir: string; statePath: string; eventsPath: string };
+  input: RunFactoryControllerInput;
+  executionCwd: string;
+  goal: string;
+  config: EffectiveFactoryConfig;
+  plannerGuidanceText?: string;
+  plannerSkills: SkillBundleSelection;
+  runTaskType: TaskTypeSelection;
+  discoveryOutputText?: string;
+}): Promise<{ record: InterviewDecisionRecord; context: string }> {
+  const stage = input.stage;
+  const role = stage.role ?? "planner";
+  const executor = executorForRole(input.input, role);
+  if (!executor) throw new Error(`Interview stage '${stage.name}' requires a ${role} executor, but none is configured.`);
+  const skillPolicy = applyWorkflowSkillPolicy(input.plannerSkills, stage.skills);
+  if (!skillPolicy.ok) {
+    await failBuiltInSkillPolicy({ run: input.run, input: input.input, phase: "interview-failed", stage: stage.name, missingRequired: skillPolicy.missingRequired });
+    throw new Error(`Interview failed: Missing required workflow skill(s): ${skillPolicy.missingRequired.join(", ")}`);
+  }
+  await movePhase(input.run.statePath, input.run.eventsPath, input.run.runId, input.input, "interview", `Interviewing: ${stage.name}`);
+  const model = resolveModelForRole({ role, taskType: input.runTaskType.id, config: input.config, nodeModel: stage.model, runModelOverride: input.input.modelOverrides?.[role] });
+  await appendModelLedgerEntry(input.run.runDir, {
+    operationId: `${input.run.runId}-${role}-${stage.name}`, nodeId: stage.name, role,
+    taskType: input.runTaskType.id, taskTypeSource: input.runTaskType.source, taskTypeConfidence: input.runTaskType.confidence,
+    requestedModel: model.model.model, resolvedModel: model.model.model, provider: model.model.provider, modelSource: model.source,
+  });
+  const result = await executor.execute({
+    executionId: `${input.run.runId}-${role}-${slugifyGoal(stage.name)}`, cwd: input.executionCwd,
+    prompt: buildInterviewPrompt({ goal: input.goal, stage, guidanceText: input.plannerGuidanceText, skillBundleText: renderSkillBundleForPrompt(skillPolicy.bundle), discoveryReport: input.discoveryOutputText }),
+    model: model.model, tools: ["read", "grep", "find", "ls"],
+    metadata: { role, runId: input.run.runId, taskType: input.runTaskType.id, stage: stage.name },
+  });
+  const artifactPath = path.join(input.run.runDir, `${slugifyGoal(stage.name)}-interview-execution.json`);
+  await fs.writeFile(artifactPath, JSON.stringify(result, null, 2), "utf8");
+  await appendFactoryRunEvent(input.run.eventsPath, { timestamp: new Date().toISOString(), type: "interview.executor_completed", data: { stage: stage.name, role, interviewExecutionPath: artifactPath, interviewStatus: result.status } });
+  const output = result.outputText.trim();
+  if (!output || output === "INTERVIEW_COMPLETE") {
+    const record = { stage: stage.name, role, dependsOn: stage.dependsOn ?? [], question: "INTERVIEW_COMPLETE", optionId: "answered", skipped: true, decisionRequestId: `${input.run.runId}-${slugifyGoal(stage.name)}-interview` };
+    return { record, context: `Stage: ${stage.name}\nInterview output: [INTERVIEW_COMPLETE]\nUser answer: [skipped]` };
+  }
+  const decision = await requestHumanDecision({
+    controllerInput: input.input, runDir: input.run.runDir, statePath: input.run.statePath, eventsPath: input.run.eventsPath, runId: input.run.runId,
+    request: {
+      id: `${input.run.runId}-${slugifyGoal(stage.name)}-interview`, title: `Interview: ${stage.name}`, question: output,
+      context: `Interview stage '${stage.name}' completed. Factory will include your answer in the prompts for stages that depend on this interview.`,
+      options: [{ id: "answered", label: "Use my answer", description: "Continue with the feedback/answer provided." }], source: "INTERVIEW", reason: "USER_PREFERENCE",
+    },
+  });
+  const record: InterviewDecisionRecord = {
+    stage: stage.name, role, dependsOn: stage.dependsOn ?? [], question: output, optionId: decision.optionId, answer: decision.feedback,
+    skipped: !decision.feedback?.trim(), ...(decision.interviewQuestions?.length ? { questions: decision.interviewQuestions } : {}), decisionRequestId: decision.requestId,
+  };
+  return { record, context: [`Stage: ${stage.name}`, `Interview output:\n${output}`, `Selected option: ${decision.optionId}`, decision.feedback ? `User answer:\n${decision.feedback}` : "User answer:\n[skipped]"].join("\n") };
 }
 
 function executorForRole(input: RunFactoryControllerInput, role: ModelRole): AgentExecutor | undefined {
@@ -4004,7 +4020,7 @@ function buildInterviewPrompt(input: {
     input.discoveryReport ? `Validated Discovery result:\n${input.discoveryReport}` : undefined,
     "",
     "Ask concise, answerable questions. Prefer one round of high-impact questions.",
-    "The user answer will be recorded and passed into the planner.",
+    `The user answer will be recorded and passed into prompts for stages that depend on '${input.stage.name}'.`,
   ].filter(Boolean).join("\n");
 }
 

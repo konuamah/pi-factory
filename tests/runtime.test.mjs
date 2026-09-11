@@ -133,6 +133,51 @@ test('project instruction files are injected into planner context ahead of const
   });
 });
 
+test('kickoff interviews run before discovery and pause the run', async () => {
+  await withTempProject(async (root) => {
+    await fs.writeFile(path.join(root, 'factory.yaml'), [
+      'defaultWorkflowId: kickoff',
+      'workflows:',
+      '  - id: kickoff',
+      '    name: Kickoff',
+      '    stages:',
+      '      - name: kickoff',
+      '        type: interview',
+      '        role: planner',
+      '      - name: discover',
+      '        type: agent',
+      '        role: discovery',
+      '        dependsOn: [kickoff]',
+      '      - name: plan',
+      '        type: agent',
+      '        role: planner',
+      '        dependsOn: [discover]',
+      '      - name: build',
+      '        type: agent',
+      '        role: builder',
+      '        dependsOn: [plan]',
+    ].join('\n'), 'utf8');
+    const calls = [];
+    const plannerExecutor = {
+      async execute(input) {
+        const label = input.executionId.includes('kickoff') ? 'interview' : input.executionId.includes('discovery') ? 'discovery' : 'planner';
+        calls.push({ label, executionId: input.executionId, prompt: input.prompt });
+        if (label === 'interview') return { executionId: input.executionId, status: 'completed', outputText: 'Q1: Which scope should Factory use?', events: [] };
+        return makeExecutor('planner', calls).execute(input);
+      },
+      async cancel() {},
+    };
+    await assert.rejects(() => runRuntimeHarness({ cwd: root, goal: 'Add feature', plannerExecutor }), /Decision required/);
+    assert.equal(calls.filter((call) => call.label === 'interview').length, 1);
+    assert.equal(calls.filter((call) => call.label === 'discovery').length, 0);
+    const runDir = path.join(root, '.factory', 'runs', (await fs.readdir(path.join(root, '.factory', 'runs'))).sort().at(-1));
+    const events = await fs.readFile(path.join(runDir, 'events.jsonl'), 'utf8');
+    assert.match(events, /phase\.interview/);
+    assert.doesNotMatch(events, /phase\.discovery/);
+    await assert.rejects(() => fs.access(path.join(runDir, 'interview-decisions.json')));
+  });
+});
+
 test('planner, builder, and reviewer prompts include tighter scope rules', async () => {
   await withTempProject(async (root) => {
     const calls = [];
@@ -467,9 +512,13 @@ test('interview answers are included in planner prompt after decision resolution
         '        type: agent',
         '        role: builder',
         '        dependsOn: [plan]',
+        '      - name: review',
+        '        type: agent',
+        '        role: reviewer',
+        '        dependsOn: [build]',
         '      - name: approval',
         '        type: approval',
-        '        dependsOn: [build]',
+        '        dependsOn: [review]',
       ].join('\n'),
       'utf8',
     );
@@ -510,6 +559,10 @@ test('interview answers are included in planner prompt after decision resolution
     assert.match(plannerPrompt, /Interview answers and decisions:/);
     assert.match(plannerPrompt, /Q1: Which search behavior should govern/);
     assert.match(plannerPrompt, /Use MongoDB text search only; do not add a new search platform\./);
+    const runDir = path.join(root, '.factory', 'runs', (await fs.readdir(path.join(root, '.factory', 'runs'))).sort().at(-1));
+    const interviewDecisions = await readJson(path.join(runDir, 'interview-decisions.json'));
+    assert.equal(interviewDecisions.length, 1);
+    assert.deepEqual(interviewDecisions[0].dependsOn, ['discover']);
   });
 });
 

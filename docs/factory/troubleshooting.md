@@ -52,6 +52,12 @@ Fix:
 
 ## Discovery Evidence Path Typo
 
+If a Discovery run reports invalid structured JSON after a prompt echo, inspect
+`discovery-repair-execution.json`. Pi SDK transcripts can include the prompt and
+repair instructions alongside the model's final JSON. Factory extracts the
+final complete Discovery contract, then applies the normal strict file and
+confirmed-evidence validation.
+
 Symptom:
 
 ```text

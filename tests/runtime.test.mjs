@@ -383,6 +383,39 @@ test('discovery prompt echo followed by malformed JSON still attempts repair', a
   });
 });
 
+test('discovery extracts the final contract from a repeated Pi SDK transcript', async () => {
+  await withTempProject(async (root) => {
+    const calls = [];
+    const contract = JSON.stringify({
+      status: 'complete',
+      files: ['src/index.ts'],
+      evidence: [{ status: 'confirmed', file: 'src/index.ts', finding: 'entry point' }],
+      unknowns: [],
+    });
+    const discoveryExecutor = {
+      async execute(input) {
+        calls.push({ label: 'discovery', executionId: input.executionId, prompt: input.prompt });
+        const transcript = `${input.prompt}\n${input.prompt}\n${contract}`;
+        return { executionId: input.executionId, status: 'completed', outputText: transcript, events: [] };
+      },
+      async cancel() {},
+    };
+    const plannerExecutor = makeExecutor('planner', calls);
+
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      discoveryExecutor,
+      plannerExecutor,
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestApproval: async () => true,
+    });
+
+    assert.equal(calls.filter((call) => call.executionId.includes('-repair')).length, 0);
+    assert.ok(calls.some((call) => call.label === 'planner'));
+  });
+});
+
 test('discovery repair failure falls through to the deterministic fallback', async () => {
   await withTempProject(async (root) => {
     const calls = [];

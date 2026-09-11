@@ -27,3 +27,4 @@
 - Interview decision rendering must apply the same bounds as model-output normalization, because stale pending decisions can survive an upgrade and otherwise keep replaying already-rejected rounds.
 - Active interview scheduling must use the live controller's dependency edges and `interview-decisions.json` completion ledger; legacy pre/post interview buckets are not execution semantics.
 - Discovery's `looksLikePromptEcho` heuristic must never skip the parse → repair → fallback chain. Echo detection is telemetry only; the validator's confirmed-evidence rule is intentionally strict for successful Discovery contracts.
+- Pi SDK Discovery output may contain the prompt, repair prompt, and final JSON in one transcript; extract the final complete Discovery-shaped object before applying strict evidence validation, using a linear-time scan.

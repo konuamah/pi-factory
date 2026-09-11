@@ -3824,7 +3824,10 @@ function parseDiscoveryJson(text: string): DiscoveryContract | undefined {
   for (const candidate of discoveryJsonCandidates(text)) {
     try {
       const parsed = JSON.parse(candidate) as DiscoveryContract;
-      if (parsed && typeof parsed === "object") {
+      if (parsed && typeof parsed === "object"
+        && typeof parsed.status === "string"
+        && Array.isArray(parsed.files)
+        && Array.isArray(parsed.evidence)) {
         return parsed;
       }
     } catch {}
@@ -3852,7 +3855,45 @@ function discoveryJsonCandidates(text: string): string[] {
     candidates.push(trimmed.slice(firstBrace, lastBrace + 1).trim());
   }
 
+  // Pi SDK transcripts can contain the prompt, repair instructions, and the
+  // final response in one output. Try complete JSON objects from the end so
+  // an illustrative contract in the prompt cannot shadow the real result.
+  for (const candidate of balancedJsonObjects(trimmed)) {
+    candidates.push(candidate);
+  }
+
   return [...new Set(candidates.filter(Boolean))];
+}
+
+function balancedJsonObjects(text: string): string[] {
+  const objects: string[] = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (start < 0) {
+      if (character === "{") {
+        start = index;
+        depth = 1;
+      }
+      continue;
+    }
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === "{") depth += 1;
+    else if (character === "}" && --depth === 0) {
+      objects.unshift(text.slice(start, index + 1).trim());
+      start = -1;
+    }
+  }
+  return objects;
 }
 
 function isConcreteFile(value: string | undefined): boolean {

@@ -741,6 +741,92 @@ test('interview answers are included in planner prompt after decision resolution
   });
 });
 
+test('DAG interviews repair echoed instruction documents before creating a decision', async () => {
+  await withTempProject(async (root) => {
+    await writeProjectSkill(root, 'grilling', 'Ask the user questions and wait for answers.');
+    await fs.writeFile(
+      path.join(root, 'factory.yaml'),
+      [
+        'defaultWorkflowId: interview',
+        'workflows:',
+        '  - id: interview',
+        '    name: Interview',
+        '    stages:',
+        '      - name: discover',
+        '        type: agent',
+        '        role: discovery',
+        '      - name: grill',
+        '        type: interview',
+        '        role: planner',
+        '        dependsOn: [discover]',
+        '        skills:',
+        '          require: [grilling]',
+        '      - name: plan',
+        '        type: agent',
+        '        role: planner',
+        '        dependsOn: [grill]',
+        '      - name: build',
+        '        type: agent',
+        '        role: builder',
+        '        dependsOn: [plan]',
+        '      - name: review',
+        '        type: agent',
+        '        role: reviewer',
+        '        dependsOn: [build]',
+        '      - name: approval',
+        '        type: approval',
+        '        dependsOn: [review]',
+      ].join('\n'),
+      'utf8',
+    );
+    const calls = [];
+    const plannerExecutor = {
+      async execute(input) {
+        const isInterview = input.executionId.includes('grill');
+        calls.push({ label: isInterview ? 'interview' : 'planner', executionId: input.executionId, prompt: input.prompt });
+        if (input.executionId.includes('grill-interview-repair')) {
+          return { executionId: input.executionId, status: 'completed', outputText: 'Q1 - Which scope should Factory use?', events: [] };
+        }
+        if (isInterview) {
+          return {
+            executionId: input.executionId,
+            status: 'completed',
+            outputText: [
+              'Role: Interview',
+              'Selected skills:',
+              'Instructions:',
+              'Format a round like this:',
+              'Q1 - <question title>',
+            ].join('\n'),
+            events: [],
+          };
+        }
+        return makeExecutor('planner', calls).execute(input);
+      },
+      async cancel() {},
+    };
+    const decisionRequests = [];
+    await runRuntimeHarness({
+      cwd: root,
+      goal: 'Add a demo feature',
+      plannerExecutor,
+      builderExecutor: makeExecutor('builder', calls),
+      reviewerExecutor: makeExecutor('reviewer', calls),
+      requestPlanApproval: async () => ({ decision: 'approve' }),
+      requestAcceptance: async () => ({ decision: 'accept' }),
+      requestDecision: async (request) => {
+        decisionRequests.push(request);
+        return { requestId: request.id, optionId: 'answered', feedback: 'Use the selected scope.', decidedAt: new Date().toISOString() };
+      },
+    });
+
+    assert.equal(decisionRequests.length, 1);
+    assert.equal(decisionRequests[0].question, 'Q1 - Which scope should Factory use?');
+    assert.doesNotMatch(decisionRequests[0].question, /Role:|Instructions:|Selected skills:/);
+    assert.equal(calls.filter((call) => call.executionId.includes('grill-interview-repair')).length, 1);
+  });
+});
+
 test('discovery accepts valid structured JSON wrapped in prose and a fence', async () => {
   await withTempProject(async (root) => {
     const calls = [];

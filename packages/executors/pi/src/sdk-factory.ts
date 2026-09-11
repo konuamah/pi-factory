@@ -182,6 +182,11 @@ function mapPiSdkEvent(event: Record<string, unknown>) {
 }
 
 function extractEventText(event: Record<string, unknown>): string | undefined {
+  const message = asRecord(event.message);
+  if (message && typeof message.role === "string" && message.role !== "assistant") {
+    return undefined;
+  }
+
   if (typeof event.text === "string") {
     return event.text;
   }
@@ -197,7 +202,6 @@ function extractEventText(event: Record<string, unknown>): string | undefined {
     }
   }
 
-  const message = asRecord(event.message);
   if (message) {
     const content = message.content;
     if (typeof content === "string") {

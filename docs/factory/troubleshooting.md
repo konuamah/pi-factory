@@ -78,6 +78,16 @@ validated files[]: frontend/landoptima/src/app/globals.css
 result: evidence path is corrected to frontend/landoptima/src/app/globals.css
 ```
 
+## Interview Prompt Rendered As a Question
+
+If an interview displays `Role: Interview`, selected skills, or formatting
+instructions, the model output crossed the user-facing decision boundary. The
+Pi executor now excludes non-assistant messages, and the live DAG interview
+runner normalizes output before creating a decision. One bounded repair attempt
+is made for echoed or malformed output; if it still cannot produce concrete
+questions, the interview node becomes `BLOCKED` instead of being marked
+complete.
+
 ## Builder Stuck During Smoke Testing
 
 Symptom:

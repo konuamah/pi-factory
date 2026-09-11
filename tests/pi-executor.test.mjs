@@ -1066,3 +1066,27 @@ test('SDK assistant stopReason error fails execution even with empty text', asyn
   assert.match(result.errorMessage, /Cannot read properties of undefined/);
   assert.equal(result.outputText, '');
 });
+
+test('SDK executor excludes non-assistant message text from node output', async () => {
+  const session = {
+    async prompt() {
+      this.listener?.({ type: 'message_end', message: { role: 'user', content: 'Factory instructions' } });
+      this.listener?.({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Q1 - Real question?' }] } });
+    },
+    subscribe(listener) {
+      this.listener = listener;
+      return () => {};
+    },
+    async abort() {},
+    async dispose() {},
+  };
+  const sdkFactory = createPiSdkSessionFactory({
+    sdkLoader: async () => ({
+      SessionManager: { inMemory() { return {}; } },
+      async createAgentSession() { return { session }; },
+    }),
+  });
+  const executor = new PiAgentExecutor({ sessionFactory: sdkFactory });
+  const result = await executor.execute({ executionId: 'exec-assistant-output', cwd: process.cwd(), prompt: 'interview' });
+  assert.equal(result.outputText, 'Q1 - Real question?');
+});

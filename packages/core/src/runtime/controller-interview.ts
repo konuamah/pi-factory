@@ -18,6 +18,7 @@ import type { ModelRole, ModelSelection, WorkflowStage, EffectiveFactoryConfig }
 import type { SkillBundleSelection, SkillCandidate } from "../skills/index.js";
 import type { DiscoveryEvidencePacket } from "./discovery-validate.js";
 import type { TaskTypeSelection } from "../models/index.js";
+export { normalizeInterviewOutput } from "./interview-output.js";
 
 export async function runInterviewStages(input: {
   stages: WorkflowStage[];
@@ -187,29 +188,6 @@ export async function runInterviewStages(input: {
     });
   }
   return { text: answers.length > 0 ? answers.join("\n\n") : undefined, executionPath: lastExecutionPath, decisions: structuredDecisions, executionPhase: input.executionPhase };
-}
-
-/** Keep model instructions out of the user-facing interview document. */
-export function normalizeInterviewOutput(output: string): string | undefined {
-  if (/^Role:\s*Interview\b/im.test(output) && /Format a round like this:/i.test(output)) {
-    return undefined;
-  }
-  const lines = output.split(/\r?\n/);
-  const firstQuestion = lines.findIndex((line) => /^\s*Q\d+\s*[-:.–—]\s*\S+/i.test(line) && !/[<{][^>]*>/.test(line));
-  if (firstQuestion < 0) return undefined;
-  const round: string[] = [];
-  let previousNumber = 0;
-  for (const line of lines.slice(firstQuestion)) {
-    const marker = /^\s*Q(\d+)\s*[-:.–—]\s*\S+/i.exec(line);
-    if (marker) {
-      const number = Number(marker[1]);
-      if (number <= previousNumber) break;
-      previousNumber = number;
-    }
-    round.push(line);
-  }
-  while (round.at(-1)?.trim().match(/^---+$/)) round.pop();
-  return round.join("\n").trim() || undefined;
 }
 
 export function executorForRole(input: RunFactoryControllerInput, role: ModelRole): AgentExecutor | undefined {

@@ -28,3 +28,4 @@
 - Active interview scheduling must use the live controller's dependency edges and `interview-decisions.json` completion ledger; legacy pre/post interview buckets are not execution semantics.
 - Discovery's `looksLikePromptEcho` heuristic must never skip the parse → repair → fallback chain. Echo detection is telemetry only; the validator's confirmed-evidence rule is intentionally strict for successful Discovery contracts.
 - Pi SDK Discovery output may contain the prompt, repair prompt, and final JSON in one transcript; extract the final complete Discovery-shaped object before applying strict evidence validation, using a linear-time scan.
+- Pi SDK event text must be collected only from assistant messages; user and tool-result messages are transcript data, never workflow-node output.

@@ -57,6 +57,7 @@ import { hydrateWorkspaceDependencies, DependencyHydrationError } from "./depend
 import { buildDependencyCacheEnv } from "./dependency-cache.js";
 import { discoverDependencyEvidence } from "./dependency-evidence.js";
 import { planDependencyStrategy } from "./dependency-strategy.js";
+import { normalizeInterviewOutput } from "./interview-output.js";
 
 export interface FactoryRunProgressEvent {
   runId: string;
@@ -4035,19 +4036,57 @@ async function runOneInterviewStage(input: {
     const record = { stage: stage.name, role, dependsOn: stage.dependsOn ?? [], question: "INTERVIEW_COMPLETE", optionId: "answered", skipped: true, decisionRequestId: `${input.run.runId}-${slugifyGoal(stage.name)}-interview` };
     return { record, context: `Stage: ${stage.name}\nInterview output: [INTERVIEW_COMPLETE]\nUser answer: [skipped]` };
   }
+  let interviewOutput = normalizeInterviewOutput(output);
+  if (!interviewOutput) {
+    const repair = await executor.execute({
+      executionId: `${input.run.runId}-${role}-${slugifyGoal(stage.name)}-interview-repair`,
+      cwd: input.executionCwd,
+      prompt: [
+        "Your previous interview response was not a valid user-facing interview round.",
+        "Return one concise round containing only numbered concrete questions in the required Q1 format.",
+        "Do not include Role, skills, instructions, formatting templates, analysis, or a preamble.",
+        "If no interview is needed, return exactly INTERVIEW_COMPLETE.",
+        "",
+        "Previous response:",
+        output.slice(0, 8000),
+      ].join("\n\n"),
+      model: model.model,
+      tools: ["read", "grep", "find", "ls"],
+      limits: input.config.runtime.limits,
+      metadata: { role, runId: input.run.runId, stage: stage.name, interviewRepair: true },
+    });
+    const repairArtifactPath = path.join(input.run.runDir, `${slugifyGoal(stage.name)}-interview-repair-execution.json`);
+    await fs.writeFile(repairArtifactPath, JSON.stringify(repair, null, 2), "utf8");
+    await appendFactoryRunEvent(input.run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "interview.repair_completed",
+      data: { stage: stage.name, role, interviewRepairExecutionPath: repairArtifactPath, interviewStatus: repair.status },
+    });
+    interviewOutput = normalizeInterviewOutput(repair.outputText.trim());
+  }
+  if (!interviewOutput) {
+    const reason = "Interview model did not produce a concrete question round after one repair attempt.";
+    await appendFactoryRunEvent(input.run.eventsPath, {
+      timestamp: new Date().toISOString(),
+      type: "interview.output_blocked",
+      data: { stage: stage.name, role, reason },
+    });
+    await updateFactoryRunState({ statePath: input.run.statePath, patch: { status: "BLOCKED", phase: "interview-blocked" } });
+    throw new Error(`Interview blocked: ${reason}`);
+  }
   const decision = await requestHumanDecision({
     controllerInput: input.input, runDir: input.run.runDir, statePath: input.run.statePath, eventsPath: input.run.eventsPath, runId: input.run.runId,
     request: {
-      id: `${input.run.runId}-${slugifyGoal(stage.name)}-interview`, title: `Interview: ${stage.name}`, question: output,
+      id: `${input.run.runId}-${slugifyGoal(stage.name)}-interview`, title: `Interview: ${stage.name}`, question: interviewOutput,
       context: `Interview stage '${stage.name}' completed. Factory will include your answer in the prompts for stages that depend on this interview.`,
       options: [{ id: "answered", label: "Use my answer", description: "Continue with the feedback/answer provided." }], source: "INTERVIEW", reason: "USER_PREFERENCE",
     },
   });
   const record: InterviewDecisionRecord = {
-    stage: stage.name, role, dependsOn: stage.dependsOn ?? [], question: output, optionId: decision.optionId, answer: decision.feedback,
+    stage: stage.name, role, dependsOn: stage.dependsOn ?? [], question: interviewOutput, optionId: decision.optionId, answer: decision.feedback,
     skipped: !decision.feedback?.trim(), ...(decision.interviewQuestions?.length ? { questions: decision.interviewQuestions } : {}), decisionRequestId: decision.requestId,
   };
-  return { record, context: [`Stage: ${stage.name}`, `Interview output:\n${output}`, `Selected option: ${decision.optionId}`, decision.feedback ? `User answer:\n${decision.feedback}` : "User answer:\n[skipped]"].join("\n") };
+  return { record, context: [`Stage: ${stage.name}`, `Interview output:\n${interviewOutput}`, `Selected option: ${decision.optionId}`, decision.feedback ? `User answer:\n${decision.feedback}` : "User answer:\n[skipped]"].join("\n") };
 }
 
 function executorForRole(input: RunFactoryControllerInput, role: ModelRole): AgentExecutor | undefined {
